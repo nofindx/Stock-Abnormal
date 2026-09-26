@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from datetime import date, datetime, timedelta
 from functools import lru_cache
+from threading import Lock
 from typing import Any, Dict, Iterable, List, Optional
 
 from server.core.abnormal_rules import BOARD_RULES, Board, PriceBar, calculate_deviation, detect_ordinary_abnormal, detect_severe_abnormal
@@ -51,6 +52,10 @@ class MarketService:
         self._daily_cache: Dict[tuple[str, str, str], Any] = {}
         self._prediction_cache: Dict[str, tuple[datetime, List[Dict[str, Any]]]] = {}
         self._realtime = RealtimeQuoteClient()
+        # V1 不接历史数据库，容器内保存最近一次监控快照；候选消失后自动进入历史。
+        self._monitor_lock = Lock()
+        self._monitor_current: Dict[str, Dict[str, Any]] = {}
+        self._monitor_history: Dict[str, Dict[str, Any]] = {}
 
     def _stock_rows(self) -> List[Dict[str, Any]]:
         now = datetime.utcnow()
@@ -145,6 +150,11 @@ class MarketService:
     def _future_trade_dates(self, latest: str, count: int = 10) -> List[str]:
         """根据交易所日历生成 T+1 至 T+N，页面不再使用静态日期。"""
 
+        return [datetime.strptime(value, "%Y%m%d").strftime("%m-%d") for value in self._future_trade_date_values(latest, count)]
+
+    def _future_trade_date_values(self, latest: str, count: int = 10) -> List[str]:
+        """返回完整 YYYYMMDD 交易日，供监控期和剩余交易日复用。"""
+
         latest_day = datetime.strptime(latest, "%Y%m%d")
         end = latest_day + timedelta(days=30)
         frame = self.client.trade_cal(
@@ -152,7 +162,11 @@ class MarketService:
             end.strftime("%Y%m%d"),
         )
         opened = sorted(str(row["cal_date"]) for row in frame.to_dict("records") if int(row.get("is_open", 0)) == 1)
-        return [datetime.strptime(value, "%Y%m%d").strftime("%m-%d") for value in opened[:count]]
+        return opened[:count]
+
+    @staticmethod
+    def _display_trade_date(value: str) -> str:
+        return datetime.strptime(value, "%Y%m%d").strftime("%m-%d")
 
     def detail(self, ts_code: str) -> Dict[str, Any]:
         """返回单股当前状态、四项预警和模拟计算基础数据。"""
@@ -288,28 +302,66 @@ class MarketService:
 
         if status not in ("current", "history"):
             raise ValueError("status 必须是 current 或 history")
-        items: List[Dict[str, Any]] = []
         # 个人开发者版本先对预测候选进行单票复核，避免无界面触发数千次请求。
+        # 监控期共用一份交易日历，避免每只股票重复请求交易日历接口。
+        latest = self.client.latest_trade_date()
+        future_dates = self._future_trade_date_values(latest, 30)
+        candidates: Dict[str, Dict[str, Any]] = {}
         for item in self._prediction_items("today")[:50]:
             is_severe_30 = "200" in item["rule"]
             is_severe_10 = not is_severe_30 and "100" in item["rule"]
             monitor_key = "severe_30d" if is_severe_30 else "severe_10d" if is_severe_10 else "ordinary"
-            if monitor_type not in ("all", monitor_key, "severe") and not (monitor_type == "risk" and monitor_key == "ordinary"):
-                continue
             window_days = 30 if is_severe_30 else 10 if is_severe_10 else 3
-            future_dates = self._future_trade_dates(item["tradeDate"], window_days)
-            monitor_end = future_dates[window_days - 1] if len(future_dates) >= window_days else "待交易所公告确认"
-            items.append({
+            key = f"{item['ts_code']}-{monitor_key}"
+            candidates[key] = {
                 **item,
-                "monitorKey": f"{item['ts_code']}-{monitor_key}",
+                "monitorKey": key,
                 "riskLevel": "severe" if monitor_key != "ordinary" else "risk",
                 "monitorType": "30日严重异动" if is_severe_30 else "10日严重异动" if is_severe_10 else "风险提示",
-                "monitorStart": item["tradeDate"],
-                "monitorEnd": item["tradeDate"] if status == "history" else monitor_end,
-                "days": 0 if status == "history" else window_days,
+                "windowDays": window_days,
                 "isHistory": status == "history",
                 "source": "tushare 规则计算",
-            })
-        if status == "history":
+            }
+
+        with self._monitor_lock:
+            previous = self._monitor_current
+            current: Dict[str, Dict[str, Any]] = {}
+            for key, candidate in candidates.items():
+                old = previous.get(key)
+                window_days = int(candidate["windowDays"])
+                if old:
+                    start_date = old.get("monitorStartDate", candidate["tradeDate"])
+                    end_date = old.get("monitorEndDate", "")
+                else:
+                    start_date = candidate["tradeDate"]
+                    end_date = future_dates[window_days - 1] if len(future_dates) >= window_days else ""
+                remaining = sum(1 for value in future_dates if end_date and value <= end_date)
+                current[key] = {
+                    **candidate,
+                    "monitorStartDate": start_date,
+                    "monitorEndDate": end_date,
+                    "monitorStart": self._display_trade_date(start_date),
+                    "monitorEnd": self._display_trade_date(end_date) if end_date else "待交易所公告确认",
+                    "days": remaining,
+                    "isHistory": False,
+                }
+
+            # 上游异常会在进入这里前抛错；成功返回空候选即视为出关，转入历史。
+            for key, old in previous.items():
+                if key not in current:
+                    ended = {**old, "monitorEndDate": latest, "monitorEnd": self._display_trade_date(latest), "days": 0, "isHistory": True}
+                    self._monitor_history[key] = ended
+            for key in current:
+                self._monitor_history.pop(key, None)
+            self._monitor_current = current
+
+            source = self._monitor_current if status == "current" else self._monitor_history
             items = []
-        return {"tab": status, "items": items, "updatedAt": datetime.now().strftime("%H:%M:%S"), "dataQuality": {"source": "tushare+规则计算", "isOfficialMonitorPeriod": False}}
+            for item in source.values():
+                monitor_key = "severe_30d" if item["monitorType"] == "30日严重异动" else "severe_10d" if item["monitorType"] == "10日严重异动" else "ordinary"
+                if monitor_type not in ("all", monitor_key, "severe") and not (monitor_type == "risk" and monitor_key == "ordinary"):
+                    continue
+                items.append({**item, "isHistory": status == "history", "days": 0 if status == "history" else item.get("days", 0)})
+
+        items.sort(key=lambda item: (item.get("days", 0), item.get("monitorStartDate", "")))
+        return {"tab": status, "items": items, "updatedAt": datetime.now().strftime("%H:%M:%S"), "dataQuality": {"source": "tushare+规则计算", "isOfficialMonitorPeriod": False, "historyPersistence": "memory"}}
