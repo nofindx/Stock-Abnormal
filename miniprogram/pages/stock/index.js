@@ -140,6 +140,30 @@ Page({
     const inputRows = createInputRows(this.data.dayOptions[this.data.dayOptionIndex], this.data.futureTradeDates)
     this.setData({ inputRows, matrixGroups: buildMatrixGroups(inputRows) })
   },
+  openAnnouncement(event) {
+    const url = event.currentTarget.dataset.url
+    if (!url) return
+    wx.showLoading({ title: '打开公告' })
+    wx.downloadFile({
+      url,
+      success: (res) => {
+        wx.hideLoading()
+        if (res.statusCode === 200) {
+          wx.openDocument({
+            filePath: res.tempFilePath,
+            showMenu: true,
+            fail: () => wx.setClipboardData({ data: url, success: () => wx.showToast({ title: '原文链接已复制', icon: 'none' }) })
+          })
+          return
+        }
+        wx.setClipboardData({ data: url, success: () => wx.showToast({ title: '原文链接已复制', icon: 'none' }) })
+      },
+      fail: () => {
+        wx.hideLoading()
+        wx.setClipboardData({ data: url, success: () => wx.showToast({ title: '原文链接已复制', icon: 'none' }) })
+      }
+    })
+  },
   onUnload() {
     if (this.searchTimer) clearTimeout(this.searchTimer)
   }
