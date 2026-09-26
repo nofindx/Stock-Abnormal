@@ -4,7 +4,15 @@ function request(options) {
   const { url, method = 'GET', data = {}, timeout = 8000, retry = 1 } = options
   const app = getApp()
   const globalData = (app && app.globalData) || {}
-  const baseUrl = globalData.apiBaseUrl || ''
+  let baseUrl = globalData.apiBaseUrl || ''
+  if (!baseUrl && globalData.devApiBaseUrl && wx.getAccountInfoSync) {
+    try {
+      const envVersion = wx.getAccountInfoSync().miniProgram.envVersion
+      if (envVersion === 'develop') baseUrl = globalData.devApiBaseUrl
+    } catch (error) {
+      // 部分旧基础库没有 getAccountInfoSync，继续使用云托管调用。
+    }
+  }
   return new Promise((resolve, reject) => {
     let attempts = 0
     const send = () => {
