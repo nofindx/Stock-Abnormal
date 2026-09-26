@@ -172,7 +172,7 @@
 .table-date { color: #8E8E93; font-size: 16rpx; line-height: 21rpx; }
 .matrix-cell { display: flex; min-width: 0; align-items: center; justify-content: center; }
 .matrix-input-wrap { display: inline-flex; width: 92%; height: 44rpx; align-items: center; justify-content: center; border: 1rpx solid #D1D1D6; border-radius: 8rpx; background: #FFFFFF; }
-.matrix-input-wrap text { flex: 0 0 auto; color: #8E8E93; font-size: 17rpx; line-height: 42rpx; }
+.matrix-suffix { flex: 0 0 auto; color: #8E8E93; font-size: 17rpx; line-height: 42rpx; }
 .matrix-input { width: 38rpx; height: 42rpx; min-width: 0; flex: 0 0 38rpx; padding: 0; border: 0; background: transparent; color: #1C1C1E; font-size: 18rpx; font-variant-numeric: tabular-nums; text-align: right; }
 .matrix-placeholder { color: #C7C7CC; font-size: 20rpx; }
 .matrix-value { color: #1C1C1E; font-size: 19rpx; font-variant-numeric: tabular-nums; white-space: nowrap; }
