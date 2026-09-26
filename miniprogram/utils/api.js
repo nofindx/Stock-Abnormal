@@ -6,15 +6,15 @@ function searchStocks(query) {
 }
 
 function getStockDetail(tsCode) {
-  return request({ url: '/api/stocks/detail', data: { ts_code: tsCode }, timeout: 15000 }).then((response) => response.data || null)
+  return request({ url: '/api/stocks/detail', data: { ts_code: tsCode }, timeout: 30000 }).then((response) => response.data || null)
 }
 
 function getStockAnnouncements(tsCode) {
-  return request({ url: '/api/stocks/announcements', data: { ts_code: tsCode }, timeout: 15000 }).then((response) => response.data || { items: [], available: false })
+  return request({ url: '/api/stocks/announcements', data: { ts_code: tsCode }, timeout: 30000 }).then((response) => response.data || { items: [], available: false })
 }
 
 function getMonitor(options = {}) {
-  return request({ url: '/api/monitor', data: options, timeout: 15000 }).then((response) => response.data || { items: [], updatedAt: '' })
+  return request({ url: '/api/monitor', data: options, timeout: 30000 }).then((response) => response.data || { items: [], updatedAt: '' })
 }
 
 function getPredictions(scope) {
