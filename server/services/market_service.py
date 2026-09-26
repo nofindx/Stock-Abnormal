@@ -104,6 +104,16 @@ class MarketService:
             self._daily_cache[key] = self.client.daily(ts_code=ts_code, start_date=start_date, end_date=end_date)
         return self._daily_cache[key]
 
+    def _daily_with_turnover(self, ts_code: str, start_date: str, end_date: str):
+        """把日线和日线基础指标按交易日合并，供换手率规则使用。"""
+
+        frame = self._daily(ts_code, start_date, end_date).copy()
+        basic = self.client.daily_basic(ts_code=ts_code, start_date=start_date, end_date=end_date)
+        if frame.empty or basic is None or basic.empty or "turnover_rate" not in basic.columns:
+            return frame
+        turnover = basic[["trade_date", "turnover_rate"]].drop_duplicates("trade_date")
+        return frame.merge(turnover, on="trade_date", how="left")
+
     def _index_daily(self, ts_code: str, start_date: str, end_date: str):
         """读取并缓存指数行情，避免把指数误当成股票日线。"""
 
@@ -150,7 +160,7 @@ class MarketService:
         stock = self._stock(ts_code)
         latest = self.client.latest_trade_date()
         start = (datetime.strptime(latest, "%Y%m%d") - timedelta(days=70)).strftime("%Y%m%d")
-        stock_frame = self._daily(stock["ts_code"], start, latest)
+        stock_frame = self._daily_with_turnover(stock["ts_code"], start, latest)
         index_code = INDEX_BY_MARKET.get(stock["market"], "000001.SH")
         index_frame = self._index_daily(index_code, start, latest)
         stock_bars, index_bars = self._aligned_bars(stock_frame, index_frame, stock["ts_code"], index_code)
