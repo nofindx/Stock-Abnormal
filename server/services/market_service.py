@@ -10,6 +10,7 @@ from functools import lru_cache
 from typing import Any, Dict, Iterable, List, Optional
 
 from server.core.abnormal_rules import BOARD_RULES, Board, PriceBar, calculate_deviation, detect_ordinary_abnormal, detect_severe_abnormal
+from .realtime_quote import RealtimeQuoteClient
 from .tushare_client import TushareClient, TushareUnavailable
 
 
@@ -49,6 +50,7 @@ class MarketService:
         self._stocks_cache: Optional[tuple[datetime, List[Dict[str, Any]]]] = None
         self._daily_cache: Dict[tuple[str, str, str], Any] = {}
         self._prediction_cache: Dict[str, tuple[datetime, List[Dict[str, Any]]]] = {}
+        self._realtime = RealtimeQuoteClient()
 
     def _stock_rows(self) -> List[Dict[str, Any]]:
         now = datetime.utcnow()
@@ -166,13 +168,16 @@ class MarketService:
         elif any(value is not None and abs(value) >= (30 if window == 3 else 100 if window == 10 else 200) for window, value in deviations.items()):
             status, status_class = "风险提示", "risk"
         latest_row = sorted(stock_frame.to_dict("records"), key=lambda item: str(item["trade_date"]))[-1] if not stock_frame.empty else {}
+        quote = self._realtime.fetch_one(stock["ts_code"])
+        current_price = quote["current"] if quote else latest_row.get("close")
+        current_change = quote["pctChg"] if quote else latest_row.get("pct_chg")
         return {
             **stock,
             "status": status,
             "statusClass": status_class,
             "statusIcon": "!" if status_class != "safe" else "✓",
-            "currentPrice": f"{float(latest_row['close']):.2f}" if latest_row.get("close") is not None else "--",
-            "change": _pct(latest_row.get("pct_chg")),
+            "currentPrice": f"{float(current_price):.2f}" if current_price is not None else "--",
+            "change": _pct(current_change),
             "tradeDate": latest,
             "futureTradeDates": self._future_trade_dates(latest),
             "warnings": [
@@ -182,7 +187,7 @@ class MarketService:
                 {"title": "10 日同向", "value": "", "up": str(severe.same_direction_count if severe else 0), "down": "0", "target": "按板块规则统计", "className": "risk" if severe and severe.same_direction_count else "safe"},
             ],
             "alerts": [],
-            "dataQuality": {"source": "tushare", "tradeDate": latest, "isComplete": len(stock_bars) >= 31},
+            "dataQuality": {"source": "tushare+腾讯行情" if quote else "tushare", "tradeDate": latest, "isComplete": len(stock_bars) >= 31, "intraday": bool(quote), "quoteUpdatedAt": quote.get("updatedAt") if quote else ""},
         }
 
     def _prediction_items(self, scope: str, force: bool = False) -> List[Dict[str, Any]]:
@@ -245,6 +250,13 @@ class MarketService:
                 "rule": f"连续{window}个交易日内日收盘价格涨跌幅偏离值累计达到±{target:.0f}%",
                 "tradeDate": latest,
             })
+        quotes = self._realtime.fetch_many(item["ts_code"] for item in result)
+        for item in result:
+            quote = quotes.get(item["ts_code"])
+            if quote:
+                item["change"] = _pct(quote["pctChg"])
+                item["quoteUpdatedAt"] = quote.get("updatedAt", "")
+                item["quoteSource"] = quote.get("source", "腾讯行情")
         result.sort(key=lambda item: abs(float(item["deviation"].split()[-1].replace("日", "").replace("%", ""))) if item.get("deviation") else 999, reverse=True)
         output = result[:100]
         self._prediction_cache[scope] = (now, output)
@@ -253,7 +265,9 @@ class MarketService:
     def predictions(self, scope: str, force: bool = False) -> Dict[str, Any]:
         if scope not in ("today", "next_day"):
             raise ValueError("scope 必须是 today 或 next_day")
-        return {"scope": scope, "items": self._prediction_items(scope, force=force), "updatedAt": datetime.now().strftime("%H:%M:%S"), "dataQuality": {"source": "tushare", "intraday": False}}
+        items = self._prediction_items(scope, force=force)
+        has_realtime = any(item.get("quoteSource") for item in items)
+        return {"scope": scope, "items": items, "updatedAt": datetime.now().strftime("%H:%M:%S"), "dataQuality": {"source": "tushare+腾讯行情" if has_realtime else "tushare", "intraday": has_realtime}}
 
     def monitor(self, status: str = "current", monitor_type: str = "all") -> Dict[str, Any]:
         """监控池接口。
