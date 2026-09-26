@@ -45,6 +45,16 @@
       </view>
     </view>
 
+    <view class="section announcement-panel">
+      <view class="panel-title">交易所异动公告</view>
+      <view wx:if="{{announcementsLoading}}" class="announcement-empty">正在查询公告…</view>
+      <view wx:elif="{{!announcementsAvailable}}" class="announcement-empty">公告源暂时不可用，请稍后重试</view>
+      <view wx:elif="{{!announcements.length}}" class="announcement-empty">暂无匹配的交易所异动公告</view>
+      <navigator wx:else wx:for="{{announcements}}" wx:key="url" class="announcement-row" url="{{item.url}}" hover-class="tap-feedback">
+        <view class="announcement-main"><text class="announcement-title">{{item.title}}</text><text class="announcement-meta">{{item.date}} · {{item.type}}</text></view><text class="announcement-arrow">›</text>
+      </navigator>
+    </view>
+
     <view class="section alert-panel">
       <view class="panel-title">异动预警</view>
       <view wx:for="{{detail.alerts}}" wx:key="title" class="alert-row">

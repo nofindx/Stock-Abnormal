@@ -14,10 +14,12 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
 from .services.market_service import MarketService
+from .services.announcement_service import AnnouncementService
 from .services.tushare_client import TushareUnavailable
 
 
 SERVICE = MarketService()
+ANNOUNCEMENTS = AnnouncementService()
 
 
 def _json_bytes(value):
@@ -59,6 +61,9 @@ class ApiHandler(BaseHTTPRequestHandler):
                 data = SERVICE.search(query.get("q", [""])[0])
             elif parsed.path == "/api/stocks/detail":
                 data = SERVICE.detail(query.get("ts_code", [""])[0])
+            elif parsed.path == "/api/stocks/announcements":
+                stock = SERVICE._stock(query.get("ts_code", [""])[0])
+                data = ANNOUNCEMENTS.query(stock["symbol"], stock["name"])
             elif parsed.path.startswith("/api/stocks/") and parsed.path.endswith("/abnormal"):
                 ts_code = parsed.path[len("/api/stocks/"):-len("/abnormal")].strip("/")
                 data = SERVICE.detail(ts_code)

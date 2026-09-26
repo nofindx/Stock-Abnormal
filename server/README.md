@@ -26,6 +26,7 @@ TUSHARE_TOKEN=你的token python3 -m server.app
 - `GET /health`：服务和 Tushare 配置状态。
 - `GET /api/stocks/search?q=宁`：股票搜索，最多返回 5 条。
 - `GET /api/stocks/detail?ts_code=300750.SZ`：单股状态、偏离和预警。
+- `GET /api/stocks/announcements?ts_code=300750.SZ`：查询巨潮资讯中的交易所异动及风险提示公告。
 - `GET /api/stocks/300750.SZ/abnormal`：单股接口的 PRD 兼容路径。
 - `GET /api/monitor?status=current|history&type=all|risk|severe`：监控池。
 - `GET /api/monitor-pool?status=current|history&type=all|risk|severe`：监控池的 PRD 兼容路径。

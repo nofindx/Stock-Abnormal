@@ -1,5 +1,5 @@
 // 单股查询页：只负责搜索、展示和模拟输入，计算结果来自后端真实接口。
-const { searchStocks, getStockDetail } = require('../../utils/api')
+const { searchStocks, getStockDetail, getStockAnnouncements } = require('../../utils/api')
 
 function createInputRows(days, dates = []) {
   // 未来交易日假设行：股票涨幅和指数涨幅由用户输入，其余列由计算结果填充。
@@ -57,7 +57,8 @@ Page({
   data: {
     query: '', suggestions: [], suggestionHint: false, selected: null, detail: null,
     detailLoading: false, detailError: '', searchError: '', searchFocused: false,
-    futureTradeDates: [], dayOptions: ['2', '5', '10'], dayOptionIndex: 0,
+    futureTradeDates: [], announcements: [], announcementsLoading: false, announcementsAvailable: true,
+    dayOptions: ['2', '5', '10'], dayOptionIndex: 0,
     inputRows: createInputRows(2), matrixGroups: buildMatrixGroups(createInputRows(2))
   },
   onLoad(options) { if (options.ts_code) this.loadStockByCode(options.ts_code) },
@@ -107,10 +108,14 @@ Page({
       if (requestId !== this.detailRequestId) return
       const futureTradeDates = detail.futureTradeDates || []
       const rows = createInputRows(this.data.dayOptions[this.data.dayOptionIndex], futureTradeDates)
-      this.setData({ selected: { ...stock, ...detail }, detail, detailLoading: false, detailError: '', futureTradeDates, inputRows: rows, matrixGroups: buildMatrixGroups(rows), query: `${detail.name} ${detail.symbol}` })
+      this.setData({ selected: { ...stock, ...detail }, detail, detailLoading: false, detailError: '', futureTradeDates, inputRows: rows, matrixGroups: buildMatrixGroups(rows), query: `${detail.name} ${detail.symbol}`, announcements: [], announcementsLoading: true, announcementsAvailable: true })
+      return getStockAnnouncements(stock.ts_code).then((result) => {
+        if (requestId !== this.detailRequestId) return
+        this.setData({ announcements: result.items || [], announcementsLoading: false, announcementsAvailable: result.available !== false })
+      })
     }).catch(() => {
       if (requestId !== this.detailRequestId) return
-      this.setData({ detailLoading: false, detailError: '行情暂时不可用，请稍后重试' })
+      this.setData({ detailLoading: false, announcementsLoading: false, detailError: '行情暂时不可用，请稍后重试' })
     })
   },
   changeDays(event) {
