@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from datetime import datetime
 from typing import Any, Dict, List
 from urllib.parse import urlencode
@@ -39,11 +40,16 @@ class AnnouncementService:
             title = str(row.get("announcementTitle") or row.get("shortTitle") or "").strip()
             if code != symbol or not any(keyword in title for keyword in self.keywords):
                 continue
-            try:
-                announcement_date = datetime.fromtimestamp(int(row.get("announcementTime")) / 1000).strftime("%Y-%m-%d")
-            except (TypeError, ValueError, OSError):
-                announcement_date = ""
             relative_url = str(row.get("adjunctUrl") or "")
+            # 公告原文路径中的日期是披露日期，优先于时间戳，避免 UTC/本地时区偏移一天。
+            date_match = re.search(r"finalpage/(\d{4}-\d{2}-\d{2})/", relative_url)
+            if date_match:
+                announcement_date = date_match.group(1)
+            else:
+                try:
+                    announcement_date = datetime.fromtimestamp(int(row.get("announcementTime")) / 1000).strftime("%Y-%m-%d")
+                except (TypeError, ValueError, OSError):
+                    announcement_date = ""
             items.append({
                 "title": title, "date": announcement_date, "stockCode": code,
                 "stockName": str(row.get("secName") or name or ""),
