@@ -50,9 +50,11 @@
       <view wx:if="{{announcementsLoading}}" class="announcement-empty">正在查询公告…</view>
       <view wx:elif="{{!announcementsAvailable}}" class="announcement-empty">公告源暂时不可用，请稍后重试</view>
       <view wx:elif="{{!announcements.length}}" class="announcement-empty">暂无匹配的交易所异动公告</view>
-      <view wx:else wx:for="{{announcements}}" wx:key="url" class="announcement-row" hover-class="tap-feedback" bindtap="openAnnouncement" data-url="{{item.url}}">
-        <view class="announcement-main"><text class="announcement-title">{{item.title}}</text><text class="announcement-meta">{{item.date}} · {{item.type}}</text></view><text class="announcement-arrow">›</text>
-      </view>
+      <block wx:else>
+        <view wx:for="{{announcements}}" wx:key="url" class="announcement-row" hover-class="tap-feedback" bindtap="openAnnouncement" data-url="{{item.url}}">
+          <view class="announcement-main"><text class="announcement-title">{{item.title}}</text><text class="announcement-meta">{{item.date}} · {{item.type}}</text></view><text class="announcement-arrow">›</text>
+        </view>
+      </block>
     </view>
 
     <view class="section alert-panel">
