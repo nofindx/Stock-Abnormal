@@ -6,7 +6,7 @@
 
 - `project.config.json`：微信开发者工具项目配置；`miniprogramRoot` 指向当前目录，当前 AppID 为 `wxfcc1de5372046e6c`。
 - `app.json`：小程序页面、底部 Tab 和全局窗口样式配置。
-- `app.js`：小程序全局状态、云环境和云托管服务配置；生产环境不需要填写 `apiBaseUrl`。
+- `app.js`：小程序全局状态、云环境和云托管服务配置；生产环境不需要填写 `apiBaseUrl`，开发者工具 `develop` 环境会临时直连云托管域名用于预览真实数据。
 - `app.wxss`：全局视觉变量和公共组件样式。
 - `pages/rules`：独立的异动规则说明页，由三个业务页面右上角“规则说明”进入，不占用底部导航。
 - `assets/`：底部“查询 / 监控 / 预测”导航使用的默认和选中态图标。
@@ -15,7 +15,7 @@
 
 1. 打开微信开发者工具。
 2. 选择“导入项目”，项目目录选择当前 `miniprogram/` 目录。
-3. 开发阶段可暂不填写 AppID，使用测试号/本地预览。
+3. 正式项目使用 AppID `wxfcc1de5372046e6c`；开发者工具中的 `develop` 预览可直接加载真实云托管数据。
 4. 本地联调时启动 `python3 -m server.app`，并临时把 `app.js` 的 `apiBaseUrl` 设为 `http://127.0.0.1:8787`。
 5. 生产环境默认使用 `wx.cloud.callContainer` 调用云托管服务 `flask-9a5y`，无需配置 request 合法域名。
 
@@ -30,4 +30,4 @@
 - 不在小程序端调用 Tushare。
 - 不在小程序端保存 Token 或规则阈值。
 - 全市场扫描由后端批量生成快照，小程序只请求汇总和分页列表。
-- 接口生产环境必须使用 HTTPS 和微信合法 request 域名；真实 Token 只能留在后端环境。
+- 接口生产环境通过 `wx.cloud.callContainer` 调用，不依赖 `apiBaseUrl` 或 request 合法域名；开发者工具预览直连仅用于 `develop` 环境。真实 Token 只能留在后端环境。
