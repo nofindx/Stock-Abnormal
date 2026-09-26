@@ -1,0 +1,28 @@
+{
+  "pages": [
+    "pages/stock/index",
+    "pages/monitor/index",
+    "pages/prediction/index",
+    "pages/rules/index"
+  ],
+  "window": {
+    "navigationBarTitleText": "异动查查",
+    "navigationBarBackgroundColor": "#FFFFFF",
+    "navigationBarTextStyle": "black",
+    "backgroundColor": "#F5F6F8",
+    "backgroundTextStyle": "light"
+  },
+  "tabBar": {
+    "color": "#A2A9B8",
+    "selectedColor": "#202124",
+    "backgroundColor": "#FFFFFF",
+    "borderStyle": "white",
+    "list": [
+      {"pagePath": "pages/stock/index", "text": "单股计算", "iconPath": "assets/query.png", "selectedIconPath": "assets/query-active.png"},
+      {"pagePath": "pages/monitor/index", "text": "监控池", "iconPath": "assets/monitor.png", "selectedIconPath": "assets/monitor-active.png"},
+      {"pagePath": "pages/prediction/index", "text": "异动预测", "iconPath": "assets/prediction.png", "selectedIconPath": "assets/prediction-active.png"}
+    ]
+  },
+  "style": "v2",
+  "sitemapLocation": "sitemap.json"
+}

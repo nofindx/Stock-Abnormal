@@ -1,0 +1,13 @@
+.git
+.gitignore
+.DS_Store
+.env
+key
+miniprogram
+design
+docs
+tools
+1#examples
+__pycache__
+*.py[cod]
+*.log

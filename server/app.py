@@ -1,0 +1,120 @@
+"""异动查查 HTTP API 入口。
+
+运行：
+    TUSHARE_TOKEN=... python3 -m server.app
+
+接口统一返回 {code, data, message}，便于小程序请求层处理加载、失败和降级状态。
+"""
+
+from __future__ import annotations
+
+import json
+import os
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import parse_qs, urlparse
+
+from .services.market_service import MarketService
+from .services.tushare_client import TushareUnavailable
+
+
+SERVICE = MarketService()
+
+
+def _json_bytes(value):
+    return json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+
+
+class ApiHandler(BaseHTTPRequestHandler):
+    """处理小程序需要的只读 API。"""
+
+    server_version = "StockAbnormal/0.1"
+
+    def _respond(self, payload, status=200):
+        body = _json_bytes(payload)
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.end_headers()
+        self.wfile.write(body)
+
+    def do_OPTIONS(self):
+        self.send_response(204)
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type, X-WX-SERVICE")
+        self.end_headers()
+
+    def do_GET(self):
+        parsed = urlparse(self.path)
+        query = parse_qs(parsed.query)
+        try:
+            if parsed.path == "/health":
+                self._respond({"code": 0, "data": {"service": "ok", "tushareConfigured": SERVICE.client.available}, "message": "ok"})
+                return
+            if parsed.path == "/api/market/status":
+                latest = SERVICE.client.latest_trade_date()
+                data = {"latestTradeDate": latest, "source": "tushare", "intraday": False}
+            elif parsed.path == "/api/stocks/search":
+                data = SERVICE.search(query.get("q", [""])[0])
+            elif parsed.path == "/api/stocks/detail":
+                data = SERVICE.detail(query.get("ts_code", [""])[0])
+            elif parsed.path.startswith("/api/stocks/") and parsed.path.endswith("/abnormal"):
+                ts_code = parsed.path[len("/api/stocks/"):-len("/abnormal")].strip("/")
+                data = SERVICE.detail(ts_code)
+            elif parsed.path == "/api/predictions":
+                data = SERVICE.predictions(query.get("scope", ["today"])[0])
+            elif parsed.path == "/api/monitor" or parsed.path == "/api/monitor-pool":
+                data = SERVICE.monitor(query.get("status", ["current"])[0], query.get("type", ["all"])[0])
+            else:
+                self._respond({"code": 404, "data": None, "message": "接口不存在"}, status=404)
+                return
+            self._respond({"code": 0, "data": data, "message": "ok"})
+        except (ValueError, TushareUnavailable) as exc:
+            self._respond({"code": 503, "data": None, "message": str(exc)}, status=503)
+        except Exception:
+            # 不把上游响应、token 或堆栈泄漏给小程序。
+            self._respond({"code": 500, "data": None, "message": "服务暂时不可用，请稍后重试"}, status=500)
+
+    def do_POST(self):
+        """预测刷新先采用同步快照，后续可替换为后台任务和 snapshot_id。"""
+
+        parsed = urlparse(self.path)
+        if parsed.path != "/api/predictions/refresh":
+            self._respond({"code": 404, "data": None, "message": "接口不存在"}, status=404)
+            return
+        query = parse_qs(parsed.query)
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+            body = self.rfile.read(length) if length else b""
+            if body:
+                payload = json.loads(body.decode("utf-8"))
+                for key, value in payload.items():
+                    query[key] = [str(value)]
+        except (ValueError, UnicodeDecodeError, json.JSONDecodeError):
+            self._respond({"code": 400, "data": None, "message": "请求参数格式错误"}, status=400)
+            return
+        try:
+            scope = query.get("scope", ["today"])[0]
+            data = SERVICE.predictions(scope, force=True)
+            self._respond({"code": 0, "data": data, "message": "ok"})
+        except (ValueError, TushareUnavailable) as exc:
+            self._respond({"code": 503, "data": None, "message": str(exc)}, status=503)
+        except Exception:
+            self._respond({"code": 500, "data": None, "message": "服务暂时不可用，请稍后重试"}, status=500)
+
+    def log_message(self, _format, *_args):
+        # 默认不记录 query，避免把股票搜索内容写入日志；需要排障时由进程管理器记录。
+        return
+
+
+def main() -> None:
+    host = os.getenv("HOST", "127.0.0.1")
+    port = int(os.getenv("PORT", "8787"))
+    server = ThreadingHTTPServer((host, port), ApiHandler)
+    print(f"Stock-Abnormal API listening on http://{host}:{port}")
+    server.serve_forever()
+
+
+if __name__ == "__main__":
+    main()

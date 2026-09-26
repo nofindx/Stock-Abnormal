@@ -1,0 +1,4 @@
+{
+  "desc": "异动查查页面索引",
+  "rules": [{"action": "allow", "page": "*"}]
+}

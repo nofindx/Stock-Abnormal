@@ -1,0 +1,12 @@
+# 本地密钥和运行环境
+key/
+.env
+__pycache__/
+*.py[cod]
+
+# 本地缓存和日志
+server/.cache/
+*.log
+
+# 微信开发者工具的本地状态
+miniprogram/.tmp/

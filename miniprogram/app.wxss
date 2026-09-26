@@ -1,0 +1,97 @@
+page {
+  background: #F2F2F7;
+  color: #1C1C1E;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Helvetica Neue", sans-serif;
+  font-size: 28rpx;
+}
+
+view, text, button, input { box-sizing: border-box; }
+button::after { border: 0; }
+
+.page {
+  min-height: 100vh;
+  padding: 24rpx 28rpx 120rpx;
+}
+.page-header { display: flex; min-height: 58rpx; align-items: center; justify-content: space-between; margin: 0 2rpx 12rpx; }
+.page-title { color: #1C1C1E; font-size: 34rpx; font-weight: 650; line-height: 46rpx; letter-spacing: 0; }
+.page-tools { display: flex; align-items: center; justify-content: flex-end; min-height: 34rpx; margin: 0; }
+.rules-link { color: #007AFF; font-size: 22rpx; line-height: 34rpx; }
+.section { margin-top: 24rpx; }
+.section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 28rpx 2rpx 12rpx;
+}
+.section-title { color: #1C1C1E; font-size: 28rpx; font-weight: 600; line-height: 38rpx; }
+.muted { color: #8E8E93; }
+.card {
+  border: 1rpx solid #E5E5EA;
+  border-radius: 20rpx;
+  background: #FFFFFF;
+}
+.button-primary {
+  min-height: 82rpx;
+  padding: 0 30rpx;
+  border-radius: 16rpx;
+  background: #007AFF;
+  color: #FFFFFF;
+  font-size: 29rpx;
+  font-weight: 600;
+  line-height: 82rpx;
+}
+.button-plain {
+  min-height: 64rpx;
+  padding: 0 22rpx;
+  border: 1rpx solid #D1D1D6;
+  border-radius: 14rpx;
+  background: #FFFFFF;
+  color: #007AFF;
+  font-size: 24rpx;
+  line-height: 62rpx;
+}
+.badge {
+  display: inline-flex;
+  min-height: 34rpx;
+  align-items: center;
+  padding: 0 11rpx;
+  border: 0;
+  border-radius: 8rpx;
+  background: #F2F2F7;
+  color: #636366;
+  font-size: 20rpx;
+  font-weight: 500;
+  line-height: 34rpx;
+  white-space: nowrap;
+}
+.badge-safe { background: #EAF5EF; color: #248A5A; }
+.badge-risk { background: #FFF2E5; color: #A85B13; }
+.badge-severe { background: #FCEBEA; color: #C83A36; }
+.badge-neutral { background: #F2F2F7; color: #636366; }
+.empty {
+  padding: 64rpx 28rpx;
+  color: #8E8E93;
+  text-align: center;
+}
+.footnote, .free-note {
+  margin: 24rpx 0 12rpx;
+  color: #8E8E93;
+  font-size: 22rpx;
+  line-height: 34rpx;
+  text-align: right;
+  text-indent: 0;
+}
+.disclaimer-card {
+  margin-top: 26rpx;
+  padding: 18rpx 20rpx;
+  border: 1rpx solid #E5E5EA;
+  border-radius: 16rpx;
+  background: #FFFFFF;
+  color: #6E6E73;
+  font-size: 20rpx;
+  line-height: 30rpx;
+  text-align: left;
+}
+.disclaimer-title { display: block; color: #3A3A3C; font-weight: 600; }
+.disclaimer-body { display: block; margin-top: 4rpx; color: #6E6E73; }
+.tap-feedback { background: #F2F2F7 !important; }

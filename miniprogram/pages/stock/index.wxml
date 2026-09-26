@@ -1,0 +1,67 @@
+<view class="page stock-page">
+  <view class="page-header"><text class="page-title">单股异动计算</text><view class="page-tools"><navigator class="rules-link" hover-class="tap-feedback" url="/pages/rules/index">规则说明</navigator></view></view>
+
+  <view class="search-wrap">
+    <view class="search-box {{searchFocused ? 'focused' : ''}}">
+      <view class="search-icon"></view>
+      <input class="search-input" value="{{query}}" placeholder="输入股票名称或代码" confirm-type="search" bindfocus="onSearchFocus" bindblur="onSearchBlur" bindinput="onQueryInput" />
+      <text wx:if="{{query}}" class="clear-icon" bindtap="clearQuery">×</text>
+    </view>
+    <view wx:if="{{searchError}}" class="inline-error">{{searchError}}</view>
+    <view wx:if="{{suggestions.length || suggestionHint}}" class="suggestions card">
+      <view wx:for="{{suggestions}}" wx:key="ts_code" class="suggestion" hover-class="tap-feedback" hover-stay-time="80" bindtap="chooseStock" data-index="{{index}}">
+        <view class="suggestion-identity"><text class="suggestion-name">{{item.name}}</text><text wx:if="{{item.isST}}" class="st-badge">ST</text></view><text class="suggestion-code">{{item.symbol}}</text>
+      </view>
+      <view wx:if="{{suggestionHint}}" class="suggestion-hint">结果较多，请继续输入</view>
+    </view>
+  </view>
+
+  <block wx:if="{{!detail}}">
+    <view class="guide-card card">
+      <view class="guide-kicker">未选择股票</view>
+      <view class="guide-title"><text class="guide-icon">i</text><text>这只票现在是什么状态？</text></view>
+      <view class="guide-copy">选中股票后，我会按交易所规则算出：</view>
+      <view class="guide-copy">① 当前所属异动状态；② 四项预警距离阈值还有多远；③ 假设未来 10 天涨跌时，偏离值会走到哪里。</view>
+    </view>
+  </block>
+
+  <view wx:if="{{detailLoading}}" class="card loading-state">正在查询最新行情…</view>
+  <view wx:if="{{detailError}}" class="card error-state">{{detailError}}</view>
+
+  <block wx:if="{{detail}}">
+    <view class="status-banner card status-{{detail.statusClass}}">
+      <view class="status-icon">{{detail.statusIcon}}</view>
+      <view class="status-main">
+        <view class="status-heading"><text class="status-label">当前状态</text><text class="status-state">{{detail.status}}</text><text class="status-board">{{detail.board}}</text></view>
+        <view class="status-stock-line"><view class="stock-identity"><text class="status-name">{{detail.name}}</text><text class="status-symbol">{{detail.symbol}}</text></view><view class="quote-line"><text class="status-price">{{detail.currentPrice}}</text><text class="change {{detail.change[0] === '-' ? 'down' : 'up'}}">{{detail.change}}</text></view></view>
+      </view>
+    </view>
+
+    <view class="metric-grid">
+      <view wx:for="{{detail.warnings}}" wx:key="title" class="card metric-card">
+        <text class="metric-title">{{item.title}}</text>
+        <view class="metric-number"><block wx:if="{{item.title === '10 日同向'}}"><text class="arrow-up">↑{{item.up}}</text><text class="arrow-down">↓{{item.down}}</text></block><block wx:else><text class="metric-value {{item.className}}">{{item.value}}</text><text wx:if="{{item.window}}" class="metric-window">({{item.window}})</text></block></view>
+        <text class="metric-target">{{item.target}}</text>
+      </view>
+    </view>
+
+    <view class="section alert-panel">
+      <view class="panel-title">异动预警</view>
+      <view wx:for="{{detail.alerts}}" wx:key="title" class="alert-row">
+        <text class="alert-label">{{item.title}}</text>
+        <view class="alert-track"><view class="alert-bar {{item.className}}" style="{{item.progressStyle}}"></view></view>
+        <view class="alert-result"><text class="alert-forecast">{{item.forecast}}</text><text>{{item.detail}}</text></view>
+      </view>
+    </view>
+
+    <view class="section simulation-section">
+      <view class="simulation-head"><view class="simulation-title">模拟计算</view><view class="days-picker"><text>计算天数</text><view class="day-options"><view wx:for="{{dayOptions}}" wx:key="*this" class="day-option {{dayOptionIndex === index ? 'active' : ''}}" hover-class="tap-feedback" data-index="{{index}}" bindtap="changeDays">{{item}}天</view></view></view></view>
+      <view wx:for="{{matrixGroups}}" wx:for-item="matrix" wx:key="groupKey" class="matrix-card {{matrix.countClass}}">
+        <view class="matrix-head"><text class="matrix-label">指标</text><view wx:for="{{matrix.columns}}" wx:for-item="column" wx:key="*this" class="matrix-column"><text class="day-badge">{{column.day}}</text><text class="table-date">{{column.date}}</text></view></view>
+        <view wx:for="{{matrix.rows}}" wx:for-item="matrixRow" wx:key="key" class="matrix-row"><text class="matrix-label">{{matrixRow.label}}</text><view wx:for="{{matrixRow.values}}" wx:for-item="cell" wx:key="*this" class="matrix-cell"><block wx:if="{{cell.placeholder}}"><text class="matrix-placeholder">—</text></block><block wx:elif="{{cell.editable}}"><view class="matrix-input-wrap"><input class="matrix-input" type="digit" placeholder="0" value="{{cell.value}}" data-row="{{cell.rowIndex}}" data-field="{{cell.field}}" bindinput="editRow" /><text>%</text></view></block><block wx:else><text class="matrix-value {{matrixRow.key === 'space' ? 'safety-value' : cell.className}}">{{cell.value}}</text></block></view></view>
+      </view>
+      <view class="simulation-note">填写每日股票与指数涨幅后自动重算；留空按 0% 处理</view>
+    </view>
+  </block>
+  <view class="disclaimer-card"><text class="disclaimer-title">免责声明：</text><text class="disclaimer-body">本工具基于交易所最新规则，使用公开网络数据源进行辅助计算，结果仅供参考，不构成投资建议或买卖依据。请以交易所公告和上市公司公告为准。</text></view>
+</view>

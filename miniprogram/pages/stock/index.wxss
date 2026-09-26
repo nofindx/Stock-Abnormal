@@ -1,0 +1,191 @@
+.stock-page .page-header { padding-bottom: 10rpx; }
+.search-wrap { position: relative; z-index: 2; margin-top: 12rpx; }
+.search-box {
+  display: flex;
+  height: 84rpx;
+  align-items: center;
+  padding: 0 22rpx;
+  border: 1rpx solid #E5E5EA;
+  border-radius: 18rpx;
+  background: #FFFFFF;
+}
+.search-box.focused { border-color: #007AFF; box-shadow: 0 0 0 4rpx rgba(0, 122, 255, .12); }
+.search-icon {
+  position: relative;
+  width: 27rpx;
+  height: 27rpx;
+  flex: 0 0 27rpx;
+  margin-right: 14rpx;
+  border: 3rpx solid #8E8E93;
+  border-radius: 50%;
+}
+.search-icon::after {
+  position: absolute;
+  right: -10rpx;
+  bottom: -6rpx;
+  width: 11rpx;
+  height: 3rpx;
+  border-radius: 3rpx;
+  background: #8E8E93;
+  content: '';
+  transform: rotate(45deg);
+}
+.search-input { min-width: 0; height: 82rpx; flex: 1; color: #1C1C1E; font-size: 27rpx; }
+.clear-icon { padding: 12rpx 2rpx 12rpx 16rpx; color: #8E8E93; font-size: 34rpx; }
+.suggestions {
+  position: absolute;
+  z-index: 10;
+  top: 94rpx;
+  right: 0;
+  left: 0;
+  overflow: hidden;
+  padding: 0 22rpx;
+  border-radius: 18rpx;
+  box-shadow: 0 8rpx 24rpx rgba(28, 28, 30, .12);
+}
+.suggestion { display: flex; min-height: 82rpx; align-items: center; justify-content: space-between; border-bottom: 1rpx solid #F2F2F7; }
+.suggestion:last-child { border-bottom: 0; }
+.suggestion-identity { display: flex; min-width: 0; align-items: center; gap: 8rpx; }
+.suggestion-name { color: #1C1C1E; font-size: 27rpx; font-weight: 550; }
+.suggestion-code, .stock-meta { color: #8E8E93; font-size: 21rpx; font-variant-numeric: tabular-nums; }
+.st-badge { padding: 2rpx 7rpx; border-radius: 6rpx; background: #FCEBEA; color: #C83A36; font-size: 18rpx; font-weight: 600; line-height: 24rpx; }
+.suggestion-hint { padding: 14rpx 0 16rpx; color: #8E8E93; font-size: 20rpx; line-height: 28rpx; text-align: center; }
+.inline-error { margin-top: 10rpx; color: #C83A36; font-size: 20rpx; line-height: 28rpx; }
+.loading-state, .error-state { margin-top: 20rpx; padding: 34rpx 24rpx; color: #8E8E93; text-align: center; }
+.error-state { color: #C83A36; }
+.recent-head { margin-top: 30rpx; }
+.clear-link, .text-button { padding: 0; border: 0; background: transparent; color: #007AFF; font-size: 22rpx; }
+.recent-list { overflow: hidden; }
+.recent-row {
+  display: flex;
+  min-height: 88rpx;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16rpx 20rpx;
+  border-bottom: 1rpx solid #F2F2F7;
+}
+.recent-row:last-child { border-bottom: 0; }
+.stock-name { color: #1C1C1E; font-size: 27rpx; font-weight: 600; }
+.stock-name .badge { margin-left: 8rpx; vertical-align: 3rpx; }
+.stock-meta { display: block; margin-top: 4rpx; }
+.change { font-size: 27rpx; font-weight: 600; font-variant-numeric: tabular-nums; }
+.up { color: #D94A45; }
+.down { color: #16835D; }
+.guide-card { margin-top: 24rpx; padding: 26rpx 24rpx 28rpx; }
+.guide-kicker { margin-bottom: 12rpx; color: #8E8E93; font-size: 20rpx; line-height: 28rpx; }
+.guide-title { display: flex; align-items: center; gap: 14rpx; color: #1C1C1E; font-size: 29rpx; font-weight: 600; line-height: 40rpx; }
+.guide-icon { display: inline-flex; width: 38rpx; height: 38rpx; align-items: center; justify-content: center; border: 3rpx solid #11879A; border-radius: 50%; color: #11879A; font-family: Georgia, serif; font-size: 25rpx; font-weight: 700; line-height: 32rpx; }
+.guide-copy { margin-top: 20rpx; color: #475569; font-size: 25rpx; line-height: 40rpx; text-indent: 2em; }
+
+.status-banner {
+  display: flex;
+  align-items: center;
+  margin-top: 20rpx;
+  padding: 20rpx 22rpx;
+  border-radius: 20rpx;
+  background: #FFFFFF;
+}
+.status-safe, .status-risk, .status-severe, .status-neutral { border-color: #E5E5EA; color: #1C1C1E; }
+.status-icon { display: none; }
+.status-main { min-width: 0; width: 100%; }
+.status-heading { display: flex; min-height: 34rpx; align-items: center; gap: 10rpx; }
+.status-state { color: #636366; font-size: 22rpx; font-weight: 600; }
+.status-safe .status-state { color: #248A5A; }
+.status-risk .status-state { color: #A85B13; }
+.status-severe .status-state { color: #C83A36; }
+.status-label { color: #8E8E93; font-size: 20rpx; }
+.status-board { margin-left: auto; padding: 4rpx 9rpx; border-radius: 7rpx; background: #F2F2F7; color: #636366; font-size: 19rpx; }
+.status-stock-line { display: flex; min-width: 0; align-items: flex-end; justify-content: space-between; gap: 12rpx; margin-top: 14rpx; }
+.stock-identity { display: flex; min-width: 0; align-items: baseline; gap: 14rpx; }
+.status-name { color: #1C1C1E; font-size: 29rpx; font-weight: 650; white-space: nowrap; }
+.status-symbol { margin-left: 4rpx; color: #6E6E73; font-size: 21rpx; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.quote-line { display: flex; flex: 0 0 auto; align-items: baseline; gap: 10rpx; }
+.status-price { color: #1C1C1E; font-size: 28rpx; font-weight: 600; font-variant-numeric: tabular-nums; }
+.quote-line .change { font-size: 24rpx; }
+
+.metric-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10rpx; margin-top: 12rpx; }
+.metric-card { min-height: 138rpx; padding: 18rpx 16rpx 14rpx; border-radius: 18rpx; }
+.metric-title { display: block; color: #636366; font-size: 21rpx; }
+.metric-number { display: flex; min-height: 44rpx; align-items: baseline; gap: 6rpx; margin-top: 10rpx; }
+.metric-value, .arrow-up, .arrow-down { color: #1C1C1E; font-size: 29rpx; font-weight: 650; font-variant-numeric: tabular-nums; }
+.metric-value.safe, .arrow-down { color: #16835D; }
+.metric-value.risk, .metric-value.severe, .arrow-up { color: #D94A45; }
+.metric-window { color: #8E8E93; font-size: 19rpx; }
+.metric-target { display: block; margin-top: 6rpx; color: #8E8E93; font-size: 18rpx; line-height: 26rpx; }
+
+.alert-panel {
+  padding: 20rpx;
+  border-radius: 20rpx;
+  background: #FFFFFF;
+}
+.panel-title { color: #1C1C1E; font-size: 26rpx; font-weight: 600; }
+.panel-icon { display: none; }
+.alert-row {
+  display: grid;
+  grid-template-columns: 112rpx minmax(70rpx, 1fr) 210rpx;
+  align-items: center;
+  gap: 12rpx;
+  margin-top: 18rpx;
+  color: #636366;
+  font-size: 19rpx;
+}
+.alert-label { color: #636366; white-space: nowrap; }
+.alert-track { height: 7rpx; overflow: hidden; border-radius: 8rpx; background: #E5E5EA; }
+.alert-bar { height: 100%; min-width: 3rpx; border-radius: inherit; background: #8E8E93; }
+.alert-bar.risk, .alert-bar.severe { background: #D94A45; }
+.alert-bar.safe { background: #16835D; }
+.alert-result { color: #8E8E93; text-align: right; line-height: 26rpx; }
+.alert-forecast { margin-right: 6rpx; color: #636366; font-weight: 600; }
+
+.simulation-section {
+  overflow: hidden;
+  padding: 18rpx 16rpx 16rpx;
+  border-radius: 20rpx;
+  background: #FFFFFF;
+}
+.simulation-head { display: flex; min-height: 48rpx; align-items: center; justify-content: space-between; gap: 12rpx; padding: 0 2rpx; }
+.simulation-title { color: #1C1C1E; font-size: 26rpx; font-weight: 600; }
+.simulation-icon { display: none; }
+.days-picker { display: flex; flex: 0 0 auto; align-items: center; gap: 8rpx; color: #636366; font-size: 21rpx; }
+.day-options { display: flex; gap: 5rpx; }
+.day-option { min-width: 58rpx; padding: 7rpx 9rpx; border: 1rpx solid #D1D1D6; border-radius: 9rpx; background: #FFFFFF; color: #636366; font-size: 19rpx; line-height: 28rpx; text-align: center; }
+.day-option.active { border-color: #007AFF; background: #EAF3FF; color: #007AFF; font-weight: 600; }
+.simulation-note { margin: 14rpx 2rpx 0; color: #8E8E93; font-size: 20rpx; line-height: 30rpx; text-indent: 2em; }
+.matrix-card { overflow: hidden; margin-top: 14rpx; border: 1rpx solid #E5E5EA; border-radius: 14rpx; background: #FFFFFF; }
+.matrix-head, .matrix-row { display: grid; align-items: center; }
+.matrix-count-2 .matrix-head, .matrix-count-2 .matrix-row { grid-template-columns: 126rpx repeat(2, minmax(0, 1fr)); }
+.matrix-count-5 .matrix-head, .matrix-count-5 .matrix-row { grid-template-columns: 118rpx repeat(5, minmax(0, 1fr)); }
+.matrix-head { min-height: 70rpx; background: #F8F8FA; text-align: center; }
+.matrix-row { min-height: 70rpx; border-top: 1rpx solid #F2F2F7; }
+.matrix-label { padding: 0 5rpx; color: #636366; font-size: 19rpx; line-height: 25rpx; text-align: center; }
+.matrix-head .matrix-label { color: #636366; font-weight: 600; }
+.matrix-column { display: flex; flex-direction: column; align-items: center; gap: 1rpx; }
+.matrix-column .day-badge { padding: 0; border: 0; background: transparent; color: #1C1C1E; font-size: 21rpx; font-weight: 600; line-height: 28rpx; }
+.table-date { color: #8E8E93; font-size: 16rpx; line-height: 21rpx; }
+.matrix-cell { display: flex; min-width: 0; align-items: center; justify-content: center; }
+.matrix-input-wrap { display: inline-flex; width: 92%; height: 44rpx; align-items: center; justify-content: center; border: 1rpx solid #D1D1D6; border-radius: 8rpx; background: #FFFFFF; }
+.matrix-input-wrap text { flex: 0 0 auto; color: #8E8E93; font-size: 17rpx; line-height: 42rpx; }
+.matrix-input { width: 38rpx; height: 42rpx; min-width: 0; flex: 0 0 38rpx; padding: 0; border: 0; background: transparent; color: #1C1C1E; font-size: 18rpx; font-variant-numeric: tabular-nums; text-align: right; }
+.matrix-placeholder { color: #C7C7CC; font-size: 20rpx; }
+.matrix-value { color: #1C1C1E; font-size: 19rpx; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.matrix-value.risk { color: #D94A45; }
+.matrix-value.safe { color: #16835D; }
+.matrix-value.safety-value { color: #1C1C1E; font-weight: 600; }
+.stock-page .free-note { margin-top: 24rpx; }
+.stock-page .free-note { text-align: right; }
+
+@media (max-width: 390px) {
+  .status-stock-line { align-items: flex-start; }
+  .stock-identity { flex-wrap: wrap; row-gap: 2rpx; }
+  .status-name { font-size: 27rpx; }
+  .status-price { font-size: 26rpx; }
+  .quote-line .change { font-size: 22rpx; }
+  .metric-card { padding-right: 10rpx; padding-left: 12rpx; }
+  .metric-value, .arrow-up, .arrow-down { font-size: 27rpx; }
+  .alert-row { grid-template-columns: 98rpx minmax(48rpx, 1fr) 168rpx; gap: 8rpx; font-size: 18rpx; }
+  .alert-result { font-size: 17rpx; }
+  .matrix-count-2 .matrix-head, .matrix-count-2 .matrix-row { grid-template-columns: 112rpx repeat(2, minmax(0, 1fr)); }
+  .matrix-count-5 .matrix-head, .matrix-count-5 .matrix-row { grid-template-columns: 106rpx repeat(5, minmax(0, 1fr)); }
+  .matrix-label, .matrix-value, .matrix-input { font-size: 16rpx; }
+  .matrix-input-wrap { width: 94%; }
+}
