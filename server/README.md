@@ -30,8 +30,8 @@ TUSHARE_TOKEN=你的token python3 -m server.app
 - `GET /api/stocks/300750.SZ/abnormal`：单股接口的 PRD 兼容路径。
 - `GET /api/monitor?status=current|history&type=all|risk|severe`：监控池。
 - `GET /api/monitor-pool?status=current|history&type=all|risk|severe`：监控池的 PRD 兼容路径。
-- `GET /api/predictions?scope=today|next_day`：当日或次日预测。
-- `POST /api/predictions/refresh`：强制刷新指定预测范围，JSON body 为 `{ "scope": "today" }`。
+- `GET /api/predictions?scope=today|next_day`：当日或次日预测。首次访问或快照过期时立即返回最近快照，并通过 `refreshing=true` 表示后台正在更新。
+- `POST /api/predictions/refresh`：触发指定预测范围的后台刷新，立即返回当前快照；JSON body 为 `{ "scope": "today" }`。客户端应在 `refreshing=true` 时短轮询 GET，避免阻塞等待全市场扫描。
 - `GET /api/market/status`：最近交易日和数据源状态。
 
   交易所正式监控期公告不是 Tushare 标准行情接口的一部分，当前 API 会明确返回 `isOfficialMonitorPeriod=false`；UI 不应把规则计算结果误称为交易所公告。

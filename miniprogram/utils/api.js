@@ -14,15 +14,15 @@ function getStockAnnouncements(tsCode) {
 }
 
 function getMonitor(options = {}) {
-  return request({ url: '/api/monitor', data: options, timeout: 30000 }).then((response) => response.data || { items: [], updatedAt: '' })
+  return request({ url: '/api/monitor', data: options, timeout: 8000 }).then((response) => response.data || { items: [], updatedAt: '' })
 }
 
 function getPredictions(scope) {
-  return request({ url: '/api/predictions', data: { scope }, timeout: 30000 }).then((response) => response.data || { items: [], updatedAt: '' })
+  return request({ url: '/api/predictions', data: { scope }, timeout: 8000 }).then((response) => response.data || { items: [], updatedAt: '' })
 }
 
 function refreshPredictions(scope) {
-  return request({ url: '/api/predictions/refresh', method: 'POST', data: { scope }, timeout: 60000, retry: 0 }).then((response) => response.data || { items: [], updatedAt: '' })
+  return request({ url: '/api/predictions/refresh', method: 'POST', data: { scope }, timeout: 10000, retry: 0 }).then((response) => response.data || { items: [], updatedAt: '' })
 }
 
 module.exports = { searchStocks, getStockDetail, getStockAnnouncements, getMonitor, getPredictions, refreshPredictions }

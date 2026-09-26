@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import os
 import json
+import time
+from threading import Lock
 from datetime import date, timedelta
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -56,6 +58,8 @@ class TushareClient:
         # 优先环境变量，方便部署；本地开发再读取未提交的 key 文件。
         self.token = (token or os.getenv("TUSHARE_TOKEN") or _read_local_token()).strip()
         self._pro = None
+        self._cache: Dict[str, tuple[float, Any]] = {}
+        self._cache_lock = Lock()
 
     @property
     def available(self) -> bool:
@@ -81,20 +85,41 @@ class TushareClient:
                 raise TushareUnavailable("Tushare 授权或接口权限不可用") from exc
             raise TushareUnavailable(f"Tushare {method} 请求失败") from exc
 
+    def _cached(self, key: str, ttl: int, loader):
+        """进程内短缓存，避免页面切换重复请求同一份日历/行情。"""
+
+        now = time.monotonic()
+        with self._cache_lock:
+            cached = self._cache.get(key)
+            if cached and now - cached[0] < ttl:
+                value = cached[1]
+                return value.copy() if hasattr(value, "copy") else value
+            value = loader()
+            self._cache[key] = (now, value)
+            return value.copy() if hasattr(value, "copy") else value
+
     def stock_basic(self):
         """读取全部上市 A 股基础资料。"""
 
-        return self.call(
-            "stock_basic",
-            exchange="",
-            list_status="L",
-            fields="ts_code,symbol,name,market,exchange,list_date",
+        return self._cached(
+            "stock_basic:L",
+            21600,
+            lambda: self.call(
+                "stock_basic",
+                exchange="",
+                list_status="L",
+                fields="ts_code,symbol,name,market,exchange,list_date",
+            ),
         )
 
     def trade_cal(self, start_date: str, end_date: str):
         """读取交易日历。"""
 
-        return self.call("trade_cal", exchange="SSE", start_date=start_date, end_date=end_date)
+        return self._cached(
+            f"trade_cal:SSE:{start_date}:{end_date}",
+            43200,
+            lambda: self.call("trade_cal", exchange="SSE", start_date=start_date, end_date=end_date),
+        )
 
     def daily(self, ts_code: Optional[str] = None, trade_date: Optional[str] = None, start_date: Optional[str] = None, end_date: Optional[str] = None):
         """读取日行情；支持单票区间和单交易日全市场。"""
@@ -108,7 +133,8 @@ class TushareClient:
             params["start_date"] = start_date
         if end_date:
             params["end_date"] = end_date
-        return self.call("daily", **params)
+        key = "daily:" + json.dumps(params, ensure_ascii=False, sort_keys=True)
+        return self._cached(key, 300 if trade_date else 900, lambda: self.call("daily", **params))
 
     def index_daily(self, ts_code: Optional[str] = None, trade_date: Optional[str] = None, start_date: Optional[str] = None, end_date: Optional[str] = None):
         """读取指数日行情；指数数据必须使用 index_daily 接口。"""
@@ -122,7 +148,8 @@ class TushareClient:
             params["start_date"] = start_date
         if end_date:
             params["end_date"] = end_date
-        return self.call("index_daily", **params)
+        key = "index_daily:" + json.dumps(params, ensure_ascii=False, sort_keys=True)
+        return self._cached(key, 1800, lambda: self.call("index_daily", **params))
 
     def daily_basic(self, ts_code: Optional[str] = None, trade_date: Optional[str] = None, start_date: Optional[str] = None, end_date: Optional[str] = None):
         """读取换手率等日频指标。"""
@@ -136,7 +163,8 @@ class TushareClient:
             params["start_date"] = start_date
         if end_date:
             params["end_date"] = end_date
-        return self.call("daily_basic", **params)
+        key = "daily_basic:" + json.dumps(params, ensure_ascii=False, sort_keys=True)
+        return self._cached(key, 900, lambda: self.call("daily_basic", **params))
 
     def latest_trade_date(self) -> str:
         """返回最近一个交易日，优先查历年最近 20 天。"""

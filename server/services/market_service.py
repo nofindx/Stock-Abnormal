@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from datetime import date, datetime, timedelta
 from functools import lru_cache
+from concurrent.futures import ThreadPoolExecutor
 from threading import Lock
 from typing import Any, Dict, Iterable, List, Optional
 
@@ -51,6 +52,10 @@ class MarketService:
         self._stocks_cache: Optional[tuple[datetime, List[Dict[str, Any]]]] = None
         self._daily_cache: Dict[tuple[str, str, str], Any] = {}
         self._prediction_cache: Dict[str, tuple[datetime, List[Dict[str, Any]]]] = {}
+        self._prediction_locks = {"today": Lock(), "next_day": Lock()}
+        self._prediction_refreshing = set()
+        self._prediction_last_error: Dict[str, str] = {}
+        self._prediction_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="prediction")
         self._realtime = RealtimeQuoteClient()
         # V1 不接历史数据库，容器内保存最近一次监控快照；候选消失后自动进入历史。
         self._monitor_lock = Lock()
@@ -214,13 +219,8 @@ class MarketService:
             "dataQuality": {"source": "tushare+腾讯行情" if quote else "tushare", "tradeDate": latest, "isComplete": len(stock_bars) >= 31, "intraday": bool(quote), "quoteUpdatedAt": quote.get("updatedAt") if quote else ""},
         }
 
-    def _prediction_items(self, scope: str, force: bool = False) -> List[Dict[str, Any]]:
+    def _compute_prediction_items(self, scope: str) -> List[Dict[str, Any]]:
         """扫描全市场。日行情接口按交易日批量拉取，缓存后避免重复请求。"""
-
-        now = datetime.utcnow()
-        cached = self._prediction_cache.get(scope)
-        if cached and not force and (now - cached[0]).total_seconds() < 60:
-            return cached[1]
 
         latest = self.client.latest_trade_date()
         latest_day = datetime.strptime(latest, "%Y%m%d")
@@ -228,7 +228,8 @@ class MarketService:
         stocks = self._stock_rows()
         # Tushare daily 支持 trade_date 全市场查询；按日期拉取并按股票聚合。
         trade_dates = self.client.trade_cal(start, latest)
-        open_dates = [str(item["cal_date"]) for item in trade_dates.to_dict("records") if int(item["is_open"]) == 1][-35:]
+        # 30 日规则只需要最近 31 个交易日，减少一次全市场日线请求。
+        open_dates = [str(item["cal_date"]) for item in trade_dates.to_dict("records") if int(item["is_open"]) == 1][-31:]
         grouped: Dict[str, List[Dict[str, Any]]] = {}
         for trade_date in open_dates:
             frame = self.client.daily(trade_date=trade_date)
@@ -283,15 +284,53 @@ class MarketService:
                 item["quoteSource"] = quote.get("source", "腾讯行情")
         result.sort(key=lambda item: abs(float(item["deviation"].split()[-1].replace("日", "").replace("%", ""))) if item.get("deviation") else 999, reverse=True)
         output = result[:100]
-        self._prediction_cache[scope] = (now, output)
+        # 更新时间以扫描完成为准，避免把后台计算耗时误算进快照年龄。
+        self._prediction_cache[scope] = (datetime.now(), output)
         return output
+
+    def _refresh_prediction_worker(self, scope: str) -> None:
+        """后台生成快照；异常只记录状态，不影响已经可用的旧快照。"""
+
+        try:
+            self._compute_prediction_items(scope)
+            self._prediction_last_error.pop(scope, None)
+        except Exception as exc:  # noqa: BLE001 - 后台线程不能把异常抛给请求线程
+            self._prediction_last_error[scope] = str(exc)
+        finally:
+            with self._prediction_locks[scope]:
+                self._prediction_refreshing.discard(scope)
+
+    def _start_prediction_refresh(self, scope: str) -> bool:
+        """幂等地启动后台刷新，返回本次是否新启动任务。"""
+
+        with self._prediction_locks[scope]:
+            if scope in self._prediction_refreshing:
+                return False
+            self._prediction_refreshing.add(scope)
+            self._prediction_executor.submit(self._refresh_prediction_worker, scope)
+            return True
 
     def predictions(self, scope: str, force: bool = False) -> Dict[str, Any]:
         if scope not in ("today", "next_day"):
             raise ValueError("scope 必须是 today 或 next_day")
-        items = self._prediction_items(scope, force=force)
+        now = datetime.now()
+        cached = self._prediction_cache.get(scope)
+        stale = not cached or (now - cached[0]).total_seconds() >= 60
+        # GET 首次访问和过期访问都只触发后台任务，立即返回已有快照。
+        # POST force 同样不阻塞，避免用户点击刷新后等待全市场扫描。
+        if force or stale:
+            self._start_prediction_refresh(scope)
+        items = cached[1] if cached else []
         has_realtime = any(item.get("quoteSource") for item in items)
-        return {"scope": scope, "items": items, "updatedAt": datetime.now().strftime("%H:%M:%S"), "dataQuality": {"source": "tushare+腾讯行情" if has_realtime else "tushare", "intraday": has_realtime}}
+        updated_at = cached[0].strftime("%H:%M:%S") if cached else ""
+        return {
+            "scope": scope,
+            "items": items,
+            "updatedAt": updated_at,
+            "refreshing": scope in self._prediction_refreshing,
+            "error": self._prediction_last_error.get(scope, ""),
+            "dataQuality": {"source": "tushare+腾讯行情" if has_realtime else "tushare", "intraday": has_realtime},
+        }
 
     def monitor(self, status: str = "current", monitor_type: str = "all") -> Dict[str, Any]:
         """监控池接口。
@@ -302,12 +341,13 @@ class MarketService:
 
         if status not in ("current", "history"):
             raise ValueError("status 必须是 current 或 history")
-        # 个人开发者版本先对预测候选进行单票复核，避免无界面触发数千次请求。
-        # 监控期共用一份交易日历，避免每只股票重复请求交易日历接口。
-        latest = self.client.latest_trade_date()
-        future_dates = self._future_trade_date_values(latest, 30)
+        # 监控池只读取预测快照，不在用户请求链路中同步扫描全市场。
+        prediction = self.predictions("today")
+        items_source = prediction.get("items", [])
+        latest = self.client.latest_trade_date() if items_source else ""
+        future_dates = self._future_trade_date_values(latest, 30) if latest else []
         candidates: Dict[str, Dict[str, Any]] = {}
-        for item in self._prediction_items("today")[:50]:
+        for item in items_source[:50]:
             is_severe_30 = "200" in item["rule"]
             is_severe_10 = not is_severe_30 and "100" in item["rule"]
             monitor_key = "severe_30d" if is_severe_30 else "severe_10d" if is_severe_10 else "ordinary"
@@ -364,4 +404,10 @@ class MarketService:
                 items.append({**item, "isHistory": status == "history", "days": 0 if status == "history" else item.get("days", 0)})
 
         items.sort(key=lambda item: (item.get("days", 0), item.get("monitorStartDate", "")))
-        return {"tab": status, "items": items, "updatedAt": datetime.now().strftime("%H:%M:%S"), "dataQuality": {"source": "tushare+规则计算", "isOfficialMonitorPeriod": False, "historyPersistence": "memory"}}
+        return {
+            "tab": status,
+            "items": items,
+            "updatedAt": datetime.now().strftime("%H:%M:%S"),
+            "refreshing": bool(prediction.get("refreshing")),
+            "dataQuality": {"source": "tushare+规则计算", "isOfficialMonitorPeriod": False, "historyPersistence": "memory"},
+        }
