@@ -31,7 +31,7 @@ Page({
   schedulePoll() {
     if (this.pollTimer) clearTimeout(this.pollTimer)
     this.pollAttempts = (this.pollAttempts || 0) + 1
-    if (this.pollAttempts > 12) {
+    if (this.pollAttempts > 25) {
       this.setData({ refreshing: false })
       return
     }

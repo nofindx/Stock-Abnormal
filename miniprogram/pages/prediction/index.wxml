@@ -5,6 +5,7 @@
   <view wx:if="{{loading}}" class="card loading-state">正在加载预测快照…</view>
   <view wx:if="{{error}}" class="card error-state">{{error}}</view>
   <view class="prediction-list"><view wx:for="{{items}}" wx:key="ts_code" class="prediction-row" hover-class="tap-feedback" bindtap="openStock" data-code="{{item.ts_code}}"><view class="prediction-top"><view class="prediction-stock"><view class="stock-line"><text class="stock-name">{{item.name}}</text><text class="stock-meta">{{item.symbol}}</text></view></view><view class="prediction-quote"><view class="quote-copy"><text class="quote-label">当前涨跌</text><text class="prediction-change change {{item.change[0] === '-' ? 'down' : 'up'}}">{{item.change}}</text></view><text class="scope-mark">{{item.scope}}</text></view></view><view class="prediction-middle"><view class="trigger-field"><text class="prediction-label">触发条件</text><text class="trigger-value">{{item.trigger}}</text></view><view class="deviation-field"><text class="prediction-label">偏离值</text><text class="deviation">{{item.deviation}}</text></view></view><view class="prediction-rule"><text class="prediction-label">异动规则</text><text class="rule-value">{{item.rule}}</text></view></view></view>
-  <view wx:if="{{!items.length}}" class="card empty">当前范围暂无候选股票</view>
+  <view wx:if="{{refreshing && !items.length}}" class="card loading-state">正在更新预测快照…</view>
+  <view wx:if="{{!items.length && !refreshing}}" class="card empty">当前范围暂无候选股票</view>
   <view class="disclaimer-card"><text class="disclaimer-title">免责声明：</text><text class="disclaimer-body">本工具基于交易所最新规则，使用公开网络数据源进行辅助计算，结果仅供参考，不构成投资建议或买卖依据。请以交易所公告和上市公司公告为准。</text></view>
 </view>
