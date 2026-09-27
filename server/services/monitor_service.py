@@ -423,8 +423,10 @@ class OfficialMonitorService:
         snapshot = self.repository.active_snapshot()
         if not snapshot:
             return {
-                "tab": status, "items": [], "updatedAt": "", "refreshing": True,
-                "error": self.last_error or "今日监控快照尚未生成，后台正在获取",
+                # 没有成功快照时只在后台线程确实仍在采集才返回 refreshing。
+                # 采集失败后必须进入错误空态，避免小程序无限显示骨架或轮询。
+                "tab": status, "items": [], "updatedAt": "", "refreshing": bool(self.refreshing),
+                "error": self.last_error or ("今日监控快照尚未生成，后台正在获取" if self.refreshing else "今日监控快照获取失败，请稍后重试"),
                 "dataQuality": {"source": "公告快照", "isComplete": False},
             }
         # 读取接口只使用快照字段和上海本地日期，不会触发上游请求。

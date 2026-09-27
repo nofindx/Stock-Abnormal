@@ -1,6 +1,7 @@
 import os
 import tempfile
 import unittest
+from unittest.mock import Mock
 
 from server.services.monitor_service import OfficialMonitorService
 
@@ -89,6 +90,49 @@ class MonitorWindowTests(unittest.TestCase):
     def test_history_endpoint_is_removed(self):
         with self.assertRaises(ValueError):
             self.service.read("history", "all")
+
+    def test_backup_is_not_called_when_primary_is_unavailable(self):
+        announcements = Mock()
+        announcements.query_broker_risk_alerts.return_value = {
+            "available": False, "items": [], "error": "primary unavailable"
+        }
+        service = OfficialMonitorService(client=object(), announcements=announcements)
+        try:
+            result = service.refresh()
+            self.assertIn("18.cn 主源", result["error"])
+            announcements.query_market.assert_not_called()
+            response = service.read("current", "all")
+            self.assertFalse(response["refreshing"])
+            self.assertEqual(response["items"], [])
+            self.assertIn("18.cn 主源", response["error"])
+        finally:
+            service.close()
+
+    def test_backup_is_called_only_after_primary_succeeds(self):
+        announcements = Mock()
+        announcements.query_broker_risk_alerts.return_value = {
+            "available": True,
+            "items": [{
+                "title": "风险提示", "date": "2026-09-27", "stockCode": "000993",
+                "stockName": "闽东电力", "url": "https://18.cn/a/1",
+                "source": "东方财富证券 18.cn", "sourceType": "broker-risk-alert",
+                "sourceRole": "broker_primary", "sourcePriority": 1,
+                "sourceLabel": "18.cn 主源",
+                "body": "交易所将对以上证券的异常交易行为进行从严认定",
+            }],
+        }
+        announcements.query_market.return_value = {"available": False, "partial": True, "items": []}
+        service = OfficialMonitorService(client=object(), announcements=announcements)
+        try:
+            result = service.refresh()
+            self.assertTrue(result["started"])
+            announcements.query_market.assert_called_once()
+            snapshot = service.repository.active_snapshot()
+            self.assertIsNotNone(snapshot)
+            self.assertEqual(len(snapshot["items"]), 1)
+            self.assertEqual(snapshot["dataQuality"]["sourceHealth"]["issuerBackup"], "degraded")
+        finally:
+            service.close()
 
 
 if __name__ == "__main__":
