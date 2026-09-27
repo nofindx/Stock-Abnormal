@@ -79,7 +79,7 @@
 .stock-line { display: flex; align-items: baseline; gap: 14rpx; }
 .monitor-period { color: #6B7280; font-size: 22rpx; font-variant-numeric: tabular-nums; }
 .monitor-row-bottom { margin-top: 16rpx; padding-top: 13rpx; border-top: 1rpx solid #F2F2F7; }
-.monitor-row-actions { display: flex; min-width: 310rpx; align-items: center; justify-content: flex-end; gap: 22rpx; }
+.monitor-risk { display: inline-flex; min-width: 0; align-items: center; gap: 18rpx; }
 .source-link { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 4rpx; color: #2F80ED; font-size: 21rpx; font-weight: 600; line-height: 32rpx; }
 .source-link-icon { font-size: 25rpx; line-height: 28rpx; }
 .monitor-page .stock-name { flex: 0 1 auto; color: #1A1A1A; font-size: 28rpx; font-weight: 600; white-space: nowrap; }

@@ -159,22 +159,33 @@ class OfficialMonitorService:
 
     @staticmethod
     def _monitor_type(title: str, body: str) -> tuple[str, str]:
-        """只按公告明确的类型分类，不用偏离值阈值猜测监管记录类型。"""
+        """只按公告明确的严重异动口径分类，不把上市公司普通风险提示当监管。"""
 
         text = re.sub(r"\s+", "", f"{title}\n{body}")
-        if "30个交易日" in text or "200%" in text or "300%" in text:
+        if ("严重异常波动" in text and "30个交易日" in text) or re.search(r"连续30个交易日.{0,120}(?:200%|300%)", text):
             return "30日严重异动", "severe-30d"
-        if "严重异常波动" in text or "10个交易日" in text or "100%" in text or "150%" in text:
+        if "严重异常波动" in text or re.search(r"连续10个交易日.{0,120}(?:100%|150%)", text):
+            return "10日严重异动", "severe-10d"
+        # 普通风险提示不是交易所重点监控记录，调用方应在入池前过滤。
+        return "", ""
+
+    @staticmethod
+    def _broker_monitor_type(title: str, body: str) -> tuple[str, str]:
+        """18.cn 只有明确严重异动措辞才升级；普通重点监控提示为风险提示。"""
+
+        text = re.sub(r"\s+", "", f"{title}\n{body}")
+        if ("严重异常波动" in text and "30个交易日" in text) or re.search(r"连续30个交易日.{0,120}(?:200%|300%)", text):
+            return "30日严重异动", "severe-30d"
+        if "严重异常波动" in text or re.search(r"连续10个交易日.{0,120}(?:100%|150%)", text):
             return "10日严重异动", "severe-10d"
         return "风险提示", "ordinary"
 
     @staticmethod
-    def _broker_monitor_type(title: str, body: str) -> tuple[str, str]:
-        """券商详情页只有明确严重异常波动措辞才升级，避免脚本数字误触发。"""
+    def _is_accepted_broker_alert(title: str, body: str) -> bool:
+        """只接受证券被列为重点监控或明确严重异动的 18.cn 提示。"""
 
-        if "严重异常波动" in f"{title} {body}":
-            return "10日严重异动", "severe-10d"
-        return "风险提示", "ordinary"
+        text = re.sub(r"\s+", "", f"{title}\n{body}")
+        return "列为重点监控证券" in text or "严重异常波动" in text
 
     @staticmethod
     def _monitor_period(source_date: str, source_type: str) -> tuple[str, str]:
@@ -257,6 +268,10 @@ class OfficialMonitorService:
                     continue
                 body = self.announcements.extract_pdf_text(announcement["url"])
                 monitor_type, risk_tone = self._monitor_type(title, body)
+                # 巨潮资讯是上市公司法定披露备源：普通“风险提示/异常波动”不代表进入监管池，
+                # 仅保留明确的严重异常波动公告及严重阈值公告。
+                if not risk_tone:
+                    continue
                 if not announcement.get("date"):
                     continue
                 monitor_start, monitor_end = self._monitor_period(announcement["date"], "issuer-disclosure")
@@ -280,6 +295,10 @@ class OfficialMonitorService:
                     "monitorPeriod": f"公告日起至第 {MONITOR_WINDOW_OFFSET_DAYS} 个自然日",
                 })
             for alert in broker_result.get("items", []):
+                # 18.cn 列表包含大量公司自发风险提示；只有正文明确写“列为重点监控证券”
+                # 或严重异常波动，才进入监管池。提及重点监控账户不算证券监管记录。
+                if not self._is_accepted_broker_alert(alert["title"], alert.get("body", "")):
+                    continue
                 monitor_start, monitor_end = self._monitor_period(alert["date"], alert["sourceType"])
                 # 18.cn 页面脚本可能含无关的百分号数字；只有正文明确出现严重异常波动才升级。
                 monitor_type, risk_tone = self._broker_monitor_type(alert["title"], alert.get("body", ""))

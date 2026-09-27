@@ -71,6 +71,15 @@ class MonitorWindowTests(unittest.TestCase):
         self.assertEqual(OfficialMonitorService._broker_monitor_type("关于股票交易风险提示的公告", noisy_page), ("风险提示", "ordinary"))
         self.assertEqual(OfficialMonitorService._broker_monitor_type("关于股票交易严重异常波动的风险提示", noisy_page), ("10日严重异动", "severe-10d"))
 
+    def test_issuer_ordinary_risk_prompt_is_not_a_monitor_record(self):
+        self.assertEqual(OfficialMonitorService._monitor_type("股票交易异常波动风险提示公告", "公司基本面未发生重大变化"), ("", ""))
+        self.assertEqual(OfficialMonitorService._monitor_type("股票交易严重异常波动公告", "连续10个交易日涨幅偏离值累计达到100%"), ("10日严重异动", "severe-10d"))
+        self.assertEqual(OfficialMonitorService._monitor_type("股票交易异常波动公告", "连续30个交易日涨幅偏离值累计达到200%"), ("30日严重异动", "severe-30d"))
+
+    def test_broker_alert_requires_security_monitoring_wording(self):
+        self.assertFalse(OfficialMonitorService._is_accepted_broker_alert("关于股票交易风险提示的公告", "将视情况从重采取被列为重点监控账户措施"))
+        self.assertTrue(OfficialMonitorService._is_accepted_broker_alert("关于股票交易风险提示的公告", "交易所已将证券列为重点监控证券"))
+
     def test_history_endpoint_is_removed(self):
         with self.assertRaises(ValueError):
             self.service.read("history", "all")
