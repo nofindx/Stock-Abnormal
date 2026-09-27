@@ -261,8 +261,18 @@ class MarketService:
                 window = 3
             deviation = calculate_deviation(stock_bars, index_bars, window).deviation
             threshold = BOARD_BY_MARKET.get(stock["board"], Board.MAIN)
-            target = 200 if window == 30 else 100 if window == 10 else BOARD_RULES[threshold].ordinary_deviation
-            distance = abs(target) - abs(deviation)
+            board_rule = BOARD_RULES[threshold]
+            if window == 30:
+                target_up = board_rule.severe_30d_threshold.up
+                target_down = board_rule.severe_30d_threshold.down
+            elif window == 10:
+                target_up = board_rule.severe_10d_threshold.up
+                target_down = board_rule.severe_10d_threshold.down
+            else:
+                target_up = board_rule.ordinary_deviation
+                target_down = -board_rule.ordinary_deviation
+            target = target_up if deviation >= 0 else target_down
+            distance = abs(target - deviation)
             if distance > 20:
                 continue
             last = sorted(rows, key=lambda item: str(item["trade_date"]))[-1]
@@ -270,9 +280,9 @@ class MarketService:
                 **stock,
                 "scope": "当日" if scope == "today" else "次日",
                 "change": _pct(last.get("pct_chg")),
-                "trigger": f"上涨 ≥ {max(0.01, distance):.2f}%" if distance > 0 else "已达到阈值",
+                "trigger": (f"上涨 ≥ {max(0.01, distance):.2f}%" if target > 0 else f"下跌 ≤ -{max(0.01, distance):.2f}%") if distance > 0 else "已达到阈值",
                 "deviation": f"{window}日 {_pct(deviation)}",
-                "rule": f"连续{window}个交易日内日收盘价格涨跌幅偏离值累计达到±{target:.0f}%",
+                "rule": f"连续{window}个交易日内日收盘价格涨跌幅偏离值累计达到+{target_up:.0f}% / {target_down:.0f}%",
                 "tradeDate": latest,
             })
         quotes = self._realtime.fetch_many(item["ts_code"] for item in result)

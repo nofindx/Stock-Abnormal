@@ -98,3 +98,16 @@ class AbnormalRulesTest(unittest.TestCase):
         turnover_records = [item for item in records if not item.counts_for_same_direction]
         self.assertTrue(turnover_records)
         self.assertEqual(turnover_records[-1].direction, Direction.NONE)
+
+    def test_bse_uses_current_exchange_thresholds(self):
+        """北交所应使用 2026-07-06 生效的独立方向阈值。"""
+
+        stock, index = make_bars([100] + [250] * 10, [100] * 11)
+        result = detect_severe_abnormal(stock, index, Board.BSE)
+        self.assertIsNotNone(result.severe_10d)
+        self.assertAlmostEqual(result.severe_10d.deviation, 150.0)
+
+        stock, index = make_bars([100] + [25] * 30, [100] * 31)
+        result = detect_severe_abnormal(stock, index, Board.BSE)
+        self.assertIsNotNone(result.severe_30d)
+        self.assertAlmostEqual(result.severe_30d.deviation, -75.0)

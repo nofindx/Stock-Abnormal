@@ -3,11 +3,21 @@ const CLOUD_ENV = 'prod-d1g25zvvkd79d524b'
 
 App({
   onLaunch() {
-    if (!wx.cloud) return
-    wx.cloud.init({
-      env: CLOUD_ENV,
-      traceUser: false
-    })
+    if (wx.cloud) {
+      wx.cloud.init({
+        env: CLOUD_ENV,
+        traceUser: false
+      })
+    }
+    // 规则页是纯静态页，启动时预加载，点击“规则说明”时直接切换页面。
+    if (typeof wx.preloadPage === 'function') {
+      try {
+        const preload = wx.preloadPage({ url: '/pages/rules/index' })
+        if (preload && typeof preload.catch === 'function') preload.catch(() => {})
+      } catch (error) {
+        // 旧版基础库不支持预加载时，继续使用普通路由，不影响功能。
+      }
+    }
   },
   globalData: {
     // 生产环境通过 callContainer 访问云托管，不需要配置 request 合法域名。

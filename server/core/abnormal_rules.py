@@ -84,8 +84,8 @@ class BoardRule:
 
 
 # 普通 A 股口径：主板连续 3 个交易日累计偏离 ±20%；创业板和科创板为 ±30%。
-# 北交所的异常波动口径在不同规则版本和股票状态下存在差异，先保守使用显式配置，
-# 不把主板规则悄悄套用到北交所。
+# 北交所按《北京证券交易所交易规则》（2026-07-06 生效）第 5.4.2 至 5.4.5 条配置。
+# 3 日普通异动为 ±40%；10 日、30 日严重异常为 +150%/-60%、+300%/-75%。
 BOARD_RULES = {
     Board.MAIN: BoardRule(
         3, 20.0, 100.0, 200.0, 4, 10.0,
@@ -93,7 +93,11 @@ BOARD_RULES = {
     ),
     Board.CHINEXT: BoardRule(3, 30.0, 100.0, 200.0, 3, 20.0),
     Board.STAR: BoardRule(3, 30.0, 100.0, 200.0, 3, 20.0),
-    Board.BSE: BoardRule(3, 30.0, 100.0, 200.0, 3, 30.0),
+    Board.BSE: BoardRule(
+        3, 40.0, 150.0, 300.0, 3, 30.0,
+        severe_10d_threshold=SevereThreshold(150.0, -60.0),
+        severe_30d_threshold=SevereThreshold(300.0, -75.0),
+    ),
 }
 
 
@@ -136,8 +140,8 @@ class OrdinaryAbnormal:
 class SevereAbnormalResult:
     """一只股票当前是否触发严重异常波动，以及触发原因。"""
 
-    severe_10d: Optional[DeviationResult]  # 最近 10 个交易日是否达到上涨+100%或下跌-50%。
-    severe_30d: Optional[DeviationResult]  # 最近 30 个交易日是否达到上涨+200%或下跌-70%。
+    severe_10d: Optional[DeviationResult]  # 最近 10 个交易日是否达到当前板块的方向阈值。
+    severe_30d: Optional[DeviationResult]  # 最近 30 个交易日是否达到当前板块的方向阈值。
     same_direction_count: int  # 最近 10 个交易日内同向普通异动次数。
     same_direction_threshold: int  # 当前板块对应的同向次数阈值。
     same_direction: Direction  # 统计得到的主要方向。
