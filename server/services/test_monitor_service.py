@@ -66,6 +66,11 @@ class MonitorWindowTests(unittest.TestCase):
         self.assertEqual(periods["闽东电力"], ("2026-09-23", "2026-10-14"))
         self.assertEqual(periods["天普股份"], ("2026-09-24", "2026-10-15"))
 
+    def test_broker_page_noise_does_not_upgrade_risk_prompt(self):
+        noisy_page = "交易所已将证券列为重点监控证券；页面脚本中的100%不是异动规则。"
+        self.assertEqual(OfficialMonitorService._broker_monitor_type("关于股票交易风险提示的公告", noisy_page), ("风险提示", "ordinary"))
+        self.assertEqual(OfficialMonitorService._broker_monitor_type("关于股票交易严重异常波动的风险提示", noisy_page), ("10日严重异动", "severe-10d"))
+
 
 if __name__ == "__main__":
     unittest.main()

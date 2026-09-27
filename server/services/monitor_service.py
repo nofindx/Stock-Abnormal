@@ -169,6 +169,14 @@ class OfficialMonitorService:
         return "风险提示", "ordinary"
 
     @staticmethod
+    def _broker_monitor_type(title: str, body: str) -> tuple[str, str]:
+        """券商详情页只有明确严重异常波动措辞才升级，避免脚本数字误触发。"""
+
+        if "严重异常波动" in f"{title} {body}":
+            return "10日严重异动", "severe-10d"
+        return "风险提示", "ordinary"
+
+    @staticmethod
     def _monitor_period(source_date: str, source_type: str) -> tuple[str, str]:
         """将来源日期转换为截图口径；券商提示次日生效，公告以公告日生效。"""
 
@@ -273,7 +281,8 @@ class OfficialMonitorService:
                 })
             for alert in broker_result.get("items", []):
                 monitor_start, monitor_end = self._monitor_period(alert["date"], alert["sourceType"])
-                monitor_type, risk_tone = self._monitor_type(alert["title"], alert.get("body", ""))
+                # 18.cn 页面脚本可能含无关的百分号数字；只有正文明确出现严重异常波动才升级。
+                monitor_type, risk_tone = self._broker_monitor_type(alert["title"], alert.get("body", ""))
                 source_id = hashlib.sha256(alert["url"].encode("utf-8")).hexdigest()[:24]
                 parsed_events.append({
                     "sourceId": source_id, "monitorKey": source_id,
