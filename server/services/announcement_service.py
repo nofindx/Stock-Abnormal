@@ -186,9 +186,9 @@ class AnnouncementService:
             except Exception as exc:  # noqa: BLE001 - 部分详情失败时禁止悄悄发布不完整结果
                 return {"items": items, "available": False, "error": str(exc), "source": "东方财富证券 18.cn"}
             # 18.cn 只负责提供正文和链接；是否纳入及风险类型由监控服务统一按正文分类。
-            # 排除 ETF/基金代码。
+            # ETF、基金、北交所等非核心板块标的也必须保留，前端只做视觉弱化。
             code = code_match.group(1)
-            if not code.startswith(("0", "2", "3", "6", "8", "9")):
+            if not re.fullmatch(r"\d{6}", code):
                 continue
             name_match = re.search(r"关于[“\"](.+?)[（(]" + code + r"[）)]", row["title"])
             if not name_match:
