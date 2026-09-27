@@ -29,9 +29,9 @@ except ImportError:
 SHANGHAI_TZ = ZoneInfo("Asia/Shanghai") if ZoneInfo else timezone(timedelta(hours=8))
 # 监控窗口按交易日推进，不把 3 日普通异动写入监管池。
 MONITOR_WINDOW_TRADING_DAYS = {
-    "ordinary": 10,       # 18.cn 交易所风险提示的默认监控窗口
-    "severe-10d": 10,     # 严重一档：10 个后续交易日
-    "severe-30d": 30,     # 严重二档：30 个后续交易日
+    "ordinary": 10,       # 18.cn 交易所风险提示的默认监控窗口（起点计第 1 日）
+    "severe-10d": 10,     # 严重一档：共 10 个交易日，起点计第 1 日
+    "severe-30d": 30,     # 严重二档：共 30 个交易日，起点计第 1 日
 }
 
 
@@ -267,7 +267,7 @@ class OfficialMonitorService:
         ]
 
     def _monitor_period(self, source_date: str, source_type: str, risk_tone: str = "ordinary") -> tuple[str, str]:
-        """按附件口径计算监管期：起点取公告日所在或其后的首个交易日，结束为 N 个后续交易日。"""
+        """按附件口径计算监管期：起点取生效交易日，起点计第 1 日共 N 个交易日。"""
 
         window = MONITOR_WINDOW_TRADING_DAYS.get(risk_tone, MONITOR_WINDOW_TRADING_DAYS["ordinary"])
         dates = self._trade_dates(source_date, window)
@@ -277,7 +277,7 @@ class OfficialMonitorService:
         # 巨潮严重异动公告按公告日期所在交易日开始。
         comparator = (lambda value: value > source_date) if source_type == "broker-risk-alert" else (lambda value: value >= source_date)
         start_index = next((index for index, value in enumerate(dates) if comparator(value)), 0)
-        end_index = min(start_index + window, len(dates) - 1)
+        end_index = min(start_index + window - 1, len(dates) - 1)
         return dates[start_index], dates[end_index]
 
     @staticmethod
@@ -392,7 +392,7 @@ class OfficialMonitorService:
                     "monitorKey": hashlib.sha256(str(item["sourceId"]).encode("utf-8")).hexdigest()[:24],
                     "sourceUrls": [item["sourceUrl"]] if item.get("sourceUrl") else [],
                     "sourceCount": 1 if item.get("sourceUrl") else 0,
-                    "monitorPeriod": f"起始日起至第 {MONITOR_WINDOW_TRADING_DAYS.get(item.get('riskTone'), 10)} 个后续交易日",
+                    "monitorPeriod": f"起始日起共 {MONITOR_WINDOW_TRADING_DAYS.get(item.get('riskTone'), 10)} 个交易日（起点计第1日）",
                 })
         for item in selected_items:
             if item.get("riskTone") == "ordinary":
@@ -458,7 +458,7 @@ class OfficialMonitorService:
                     "sourcePriority": 2, "sourceLabel": "巨潮资讯备源",
                     "confirmationStatus": "issuer-disclosure-confirmed",
                     "contentHash": hashlib.sha256(f"{title}\n{body}".encode("utf-8")).hexdigest(),
-                    "monitorPeriod": f"起始日起至第 {MONITOR_WINDOW_TRADING_DAYS.get(risk_tone, 10)} 个后续交易日",
+                    "monitorPeriod": f"起始日起共 {MONITOR_WINDOW_TRADING_DAYS.get(risk_tone, 10)} 个交易日（起点计第1日）",
                 })
             for alert in broker_result.get("items", []) if broker_available else []:
                 # 18.cn 是主源；只有正文满足风险提示或 10/30 日阈值语义才进入监控池。
@@ -482,7 +482,7 @@ class OfficialMonitorService:
                     "sourcePriority": alert["sourcePriority"], "sourceLabel": alert["sourceLabel"],
                     "confirmationStatus": "broker-notice-quotes-exchange-status",
                     "contentHash": hashlib.sha256(alert["body"].encode("utf-8")).hexdigest(),
-                    "monitorPeriod": f"起始日起至第 {MONITOR_WINDOW_TRADING_DAYS.get(risk_tone, 10)} 个后续交易日",
+                    "monitorPeriod": f"起始日起共 {MONITOR_WINDOW_TRADING_DAYS.get(risk_tone, 10)} 个交易日（起点计第1日）",
                 })
             # 18.cn 页面只展示滚动的最近条目；仅在 18.cn 成功时保留旧窗口，避免主源滚动造成记录消失。
             previous_snapshot = self.repository.active_snapshot() or {}
@@ -517,7 +517,7 @@ class OfficialMonitorService:
                     },
                     "activeSource": active_source,
                     "isOfficialMonitorPeriod": False,
-                    "periodCalculation": "监控期按交易日计算；3日普通异动不进入监控池，10日严重异动取10个后续交易日，30日严重异动取30个后续交易日",
+                    "periodCalculation": "监控期按交易日计算并将起点计为第1日；3日普通异动不进入监控池，10日严重异动共10个交易日，30日严重异动共30个交易日",
                     "coverage": "18.cn 正常时为主源；18.cn 不可用时由巨潮资讯接替；同源记录按股票和风险类型取最新",
                 },
             }

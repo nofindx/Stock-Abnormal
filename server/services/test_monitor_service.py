@@ -40,7 +40,8 @@ class MonitorWindowTests(unittest.TestCase):
             for index in range(60)
             if (date(2026, 9, 1) + timedelta(days=index)).weekday() < 5
             and not date(2026, 9, 1) + timedelta(days=index) in {
-                date(2026, 10, day) for day in range(1, 8)
+                date(2026, 9, 25),
+                *{date(2026, 10, day) for day in range(1, 8)},
             }
         ]
         self.service._trade_dates = lambda source_date, days: dates
@@ -73,7 +74,8 @@ class MonitorWindowTests(unittest.TestCase):
             for index in range(60)
             if (date(2026, 9, 1) + timedelta(days=index)).weekday() < 5
             and not date(2026, 9, 1) + timedelta(days=index) in {
-                date(2026, 10, day) for day in range(1, 8)
+                date(2026, 9, 25),
+                *{date(2026, 10, day) for day in range(1, 8)},
             }
         ]
         self.service._trade_dates = lambda source_date, days: dates
