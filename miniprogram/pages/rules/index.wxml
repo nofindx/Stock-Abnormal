@@ -1,19 +1,18 @@
 <view class="rules-page">
   <view class="rules-section">
-    <view class="rules-heading">偏离值怎么算</view>
-    <view class="formula">偏离值 =（证券期末收盘价 ÷ 证券期初前收盘价 − 1）× 100% −（对应指数期末点数 ÷ 指数期初点数 − 1）× 100%</view>
-    <view class="rules-copy">期初前收盘价指区间起始日前一交易日收盘价。对应指数按股票所属板块选取，不是全站同一指数。结果是个股涨幅与指数涨幅之差，同涨时偏离值可能很小。</view>
-  </view>
-
-  <view class="rules-section">
-    <view class="rules-heading">按板块的阈值矩阵</view>
+    <view class="rules-heading">交易所规则</view>
     <view class="threshold-card">
       <view class="threshold-row"><view><text class="threshold-name">主板（沪 / 深）</text><text class="threshold-values">3日 ±20% · 10日 +100% / −50% · 30日 +200% / −70%</text></view><text class="same-count">同向 4 次</text></view>
       <view class="threshold-row"><view><text class="threshold-name">创业板</text><text class="threshold-values">3日 ±30% · 10日 +100% / −50% · 30日 +200% / −70%</text></view><text class="same-count">同向 3 次</text></view>
       <view class="threshold-row"><view><text class="threshold-name">科创板</text><text class="threshold-values">3日 ±30% · 10日 +100% / −50% · 30日 +200% / −70%</text></view><text class="same-count">同向 3 次</text></view>
-      <view class="threshold-row"><view><text class="threshold-name">北交所</text><text class="threshold-values">3日 ±30% · 10日 +100% / −50% · 30日 +200% / −70%</text></view><text class="same-count">同向 3 次</text></view>
     </view>
-    <view class="rules-copy">北交所按项目配置口径计算，偏离值为股票区间涨跌幅减同期指数涨跌幅；正式生产数据接入前需按北交所最新公告复核特殊状态和涨跌幅限制。</view>
+    <view class="rules-version">阈值以交易所最新规则为准 · 核对日期 2026-09-25</view>
+  </view>
+
+  <view class="rules-section">
+    <view class="rules-heading">偏离值</view>
+    <view class="formula">偏离值 =（证券期末收盘价 ÷ 证券期初前收盘价 − 1）× 100% −（对应指数期末点数 ÷ 指数期初点数 − 1）× 100%</view>
+    <view class="rules-copy">期初前收盘价指区间起始日前一交易日收盘价。对应指数按股票所属板块选取，结果是个股涨幅与指数涨幅之差。</view>
   </view>
 
   <view class="rules-section">
@@ -26,6 +25,5 @@
   <view class="rules-section rules-risk">
     <view class="rules-heading">风险提示</view>
     <view class="rules-copy">本工具基于公开网络数据进行规则辅助计算，结果仅供参考，不构成投资建议或买卖依据。请以上市公司公告和交易所公告为准。</view>
-    <view class="rules-version">阈值以交易所最新规则为准 · 核对日期 2026-09-25</view>
   </view>
 </view>

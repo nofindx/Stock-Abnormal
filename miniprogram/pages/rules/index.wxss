@@ -5,7 +5,7 @@
   color: #1C1C1E;
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Helvetica Neue", sans-serif;
 }
-.rules-version { margin-top: 16rpx; padding: 14rpx 16rpx; border: 1rpx solid #E5E5EA; border-radius: 14rpx; background: #FFFFFF; color: #636366; font-size: 21rpx; line-height: 30rpx; }
+.rules-version { margin-top: 16rpx; padding: 14rpx 16rpx 0; border-top: 1rpx solid #E5E5EA; color: #636366; font-size: 21rpx; line-height: 30rpx; }
 .rules-section { margin-top: 22rpx; padding: 20rpx; border: 1rpx solid #E5E5EA; border-radius: 18rpx; background: #FFFFFF; }
 .rules-heading { margin-bottom: 14rpx; color: #1C1C1E; font-size: 25rpx; font-weight: 600; line-height: 34rpx; }
 .formula { color: #1C1C1E; font-size: 22rpx; line-height: 36rpx; text-indent: 2em; }
@@ -20,7 +20,6 @@
 .rules-risk { border-color: #F0D8D5; background: #FFF9F8; }
 .rules-risk .rules-heading { color: #B93833; }
 .rules-risk .rules-copy { color: #73504D; }
-.rules-risk .rules-version { margin-top: 12rpx; padding: 0; border: 0; background: transparent; color: #73504D; }
 .rules-page .free-note { display: none; }
 
 @media (max-width: 390px) {

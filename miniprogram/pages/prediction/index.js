@@ -4,6 +4,16 @@ const { getPredictions, refreshPredictions } = require('../../utils/api')
 Page({
   data: { scope: 'today', items: [], refreshing: false, loading: false, error: '', updatedAt: '' },
   onLoad() { this.loadData() },
+  openRules() {
+    if (this.rulesNavigating) return
+    this.rulesNavigating = true
+    wx.navigateTo({
+      url: '/pages/rules/index',
+      animationType: 'none',
+      animationDuration: 0,
+      complete: () => { this.rulesNavigating = false }
+    })
+  },
   switchScope(event) {
     const scope = event.currentTarget.dataset.scope
     if (scope === this.data.scope) return

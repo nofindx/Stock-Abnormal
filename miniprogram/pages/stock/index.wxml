@@ -1,5 +1,5 @@
 <view class="page stock-page">
-  <view class="page-header"><text class="page-title">单股异动计算</text><view class="page-tools"><navigator class="rules-link" hover-class="tap-feedback" url="/pages/rules/index">规则说明</navigator></view></view>
+  <view class="page-header"><text class="page-title">单股异动计算</text><view class="page-tools"><view class="rules-link" hover-class="tap-feedback" bindtap="openRules">规则说明</view></view></view>
 
   <view class="search-wrap">
     <view class="search-box {{searchFocused ? 'focused' : ''}}">
