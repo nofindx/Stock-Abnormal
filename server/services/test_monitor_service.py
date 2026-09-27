@@ -42,7 +42,7 @@ class MonitorWindowTests(unittest.TestCase):
         self.assertEqual(self.service._remaining_natural_days("2026-10-14", "2026-09-27"), 17)
         self.assertTrue(self.service._is_history("2026-09-28", "2026-09-29"))
 
-    def test_same_type_overlapping_period_extends_but_different_types_remain_separate(self):
+    def test_same_type_overlapping_period_uses_latest_record_but_different_types_remain_separate(self):
         risk_first = self.event("2026-09-23", "2026-10-14", "ordinary")
         risk_renewal = self.event("2026-10-10", "2026-10-31", "ordinary")
         severe = self.event("2026-09-23", "2026-10-14", "severe-10d")
@@ -52,7 +52,7 @@ class MonitorWindowTests(unittest.TestCase):
         self.assertEqual(len(result), 2)
         risk = next(item for item in result if item["riskTone"] == "ordinary")
         severe_result = next(item for item in result if item["riskTone"] == "severe-10d")
-        self.assertEqual(risk["monitorStartDate"], "2026-09-23")
+        self.assertEqual(risk["monitorStartDate"], "2026-10-10")
         self.assertEqual(risk["monitorEndDate"], "2026-10-31")
         self.assertEqual(severe_result["monitorEndDate"], "2026-10-14")
 
@@ -67,18 +67,24 @@ class MonitorWindowTests(unittest.TestCase):
         self.assertEqual(periods["天普股份"], ("2026-09-24", "2026-10-15"))
 
     def test_broker_page_noise_does_not_upgrade_risk_prompt(self):
-        noisy_page = "交易所已将证券列为重点监控证券；页面脚本中的100%不是异动规则。"
+        noisy_page = "交易所将对以上证券的异常交易行为进行从严认定；页面脚本中的100%不是异动规则。"
         self.assertEqual(OfficialMonitorService._broker_monitor_type("关于股票交易风险提示的公告", noisy_page), ("风险提示", "ordinary"))
-        self.assertEqual(OfficialMonitorService._broker_monitor_type("关于股票交易严重异常波动的风险提示", noisy_page), ("10日严重异动", "severe-10d"))
+        self.assertEqual(OfficialMonitorService._broker_monitor_type("关于股票交易严重异常波动的风险提示", "严重异常波动，但未披露10日或30日阈值"), ("", ""))
 
     def test_issuer_ordinary_risk_prompt_is_not_a_monitor_record(self):
         self.assertEqual(OfficialMonitorService._monitor_type("股票交易异常波动风险提示公告", "公司基本面未发生重大变化"), ("", ""))
+        self.assertEqual(OfficialMonitorService._monitor_type("股票交易严重异常波动公告", "严重异常波动，但未披露10日或30日阈值"), ("", ""))
         self.assertEqual(OfficialMonitorService._monitor_type("股票交易严重异常波动公告", "连续10个交易日涨幅偏离值累计达到100%"), ("10日严重异动", "severe-10d"))
         self.assertEqual(OfficialMonitorService._monitor_type("股票交易异常波动公告", "连续30个交易日涨幅偏离值累计达到200%"), ("30日严重异动", "severe-30d"))
 
     def test_broker_alert_requires_security_monitoring_wording(self):
         self.assertFalse(OfficialMonitorService._is_accepted_broker_alert("关于股票交易风险提示的公告", "将视情况从重采取被列为重点监控账户措施"))
-        self.assertTrue(OfficialMonitorService._is_accepted_broker_alert("关于股票交易风险提示的公告", "交易所已将证券列为重点监控证券"))
+        self.assertFalse(OfficialMonitorService._is_accepted_broker_alert("关于股票交易风险提示的公告", "交易所已将证券列为重点监控证券"))
+        self.assertTrue(OfficialMonitorService._is_accepted_broker_alert("关于股票交易风险提示的公告", "交易所将对以上证券的异常交易行为进行从严认定"))
+
+    def test_semantic_threshold_variants_are_supported(self):
+        self.assertEqual(OfficialMonitorService._monitor_type("风险提示", "10 个交易日内涨幅偏离值累计超过100％以上"), ("10日严重异动", "severe-10d"))
+        self.assertEqual(OfficialMonitorService._monitor_type("风险提示", "30个交易日内日收盘价格涨幅偏离值累计达到200.15%"), ("30日严重异动", "severe-30d"))
 
     def test_history_endpoint_is_removed(self):
         with self.assertRaises(ValueError):

@@ -26,11 +26,11 @@ except ImportError:
 
 
 SHANGHAI_TZ = ZoneInfo("Asia/Shanghai") if ZoneInfo else timezone(timedelta(hours=8))
-MONITOR_WINDOW_OFFSET_DAYS = 21  # 起始日加 21 个自然日；按用户提供的截图校准，非交易所法定期限。
+MONITOR_WINDOW_OFFSET_DAYS = 21  # 起始日加 21 个自然日；产品监控口径，不代表法定期限。
 
 
 class MonitorRepository:
-    """用事务保存公告原文和监管池快照，失败任务不会覆盖活动快照。"""
+    """用事务保存公告元数据和当前监控快照，不保存公告文件或正文。"""
 
     def __init__(self, path: Optional[str] = None) -> None:
         value = path or os.getenv("MONITOR_DB_PATH", "/tmp/stock-abnormal/monitor.db")
@@ -76,6 +76,16 @@ class MonitorRepository:
             """).fetchone()
         return json.loads(row["payload"]) if row else None
 
+    def states(self) -> Dict[str, str]:
+        with self._connect() as db:
+            rows = db.execute("SELECT state_key, state_value FROM monitor_state").fetchall()
+        return {str(row["state_key"]): str(row["state_value"]) for row in rows}
+
+    def set_state(self, key: str, value: str) -> None:
+        with self._lock, self._connect() as db:
+            db.execute("INSERT OR REPLACE INTO monitor_state VALUES (?, ?)", (key, value))
+            db.commit()
+
     def publish(self, snapshot: Dict[str, Any], announcements: List[Dict[str, Any]], run_id: str) -> None:
         payload = json.dumps(snapshot, ensure_ascii=False, separators=(",", ":"))
         with self._lock, self._connect() as db:
@@ -100,16 +110,30 @@ class MonitorRepository:
                 snapshot["dataQuality"]["announcementStatus"], len(snapshot["items"]), payload,
             ))
             db.execute("INSERT OR REPLACE INTO monitor_state VALUES ('active_snapshot_id', ?)", (snapshot["snapshotId"],))
+            db.execute("INSERT OR REPLACE INTO monitor_state VALUES ('last_status', 'success')")
+            db.execute("INSERT OR REPLACE INTO monitor_state VALUES ('last_failure_date', '')")
+            # 只保留当前成功快照和当前来源元数据；不保留历史监控快照。
+            db.execute("DELETE FROM monitor_snapshot WHERE snapshot_id != ?", (snapshot["snapshotId"],))
+            source_ids = [item["sourceId"] for item in announcements if item.get("sourceId")]
+            if source_ids:
+                placeholders = ",".join("?" for _ in source_ids)
+                db.execute(f"DELETE FROM announcement_raw WHERE source_id NOT IN ({placeholders})", source_ids)
+            else:
+                db.execute("DELETE FROM announcement_raw")
             db.execute("INSERT OR REPLACE INTO ingest_run VALUES (?, ?, ?, 'success', ?, '')", (
                 run_id, snapshot["startedAt"], snapshot["updatedAt"], len(snapshot["items"]),
             ))
+            db.execute("DELETE FROM ingest_run WHERE run_id != ?", (run_id,))
             db.commit()
 
     def record_failure(self, run_id: str, started_at: str, message: str) -> None:
-        with self._connect() as db:
+        with self._lock, self._connect() as db:
             db.execute("INSERT OR REPLACE INTO ingest_run VALUES (?, ?, ?, 'failed', 0, ?)", (
                 run_id, started_at, datetime.now(SHANGHAI_TZ).strftime("%Y-%m-%d %H:%M"), message,
             ))
+            db.execute("INSERT OR REPLACE INTO monitor_state VALUES ('last_status', 'failed')")
+            db.execute("INSERT OR REPLACE INTO monitor_state VALUES ('last_failure_date', ?)", (started_at[:10],))
+            db.commit()
 
 
 class OfficialMonitorService:
@@ -140,52 +164,72 @@ class OfficialMonitorService:
         self._scheduler_stop.set()
 
     def _scheduler_loop(self) -> None:
-        # 启动后先读快照，不抢占 HTTP 健康检查；到点后执行一次，失败在窗口内继续重试。
+        # 启动后先读当前快照；00:00 后每日首次采集，失败只在次日 01:00-09:00 每小时重试。
         self._scheduler_stop.wait(0.5)
         while not self._scheduler_stop.is_set():
             try:
                 now = datetime.now(SHANGHAI_TZ)
-                latest = self.repository.active_snapshot()
-                snapshot_date = str(latest.get("snapshotDate", "")) if latest else ""
-                due = not latest or snapshot_date != now.strftime("%Y-%m-%d")
-                # 00:05 后生成；失败只在当天确认窗口内重试，避免全天打满公告源。
-                after_midnight = (now.hour, now.minute) >= (0, 5)
-                before_confirm_end = (now.hour, now.minute) < (8, 30)
-                if due and ((after_midnight and before_confirm_end) or not latest):
+                today = now.strftime("%Y-%m-%d")
+                state = self.repository.states()
+                last_attempt_date = state.get("last_attempt_date", "")
+                # 无当前快照时冷启动立即补采；有当前快照时每天 00:00 后只尝试一次。
+                if (not self.repository.active_snapshot() and not last_attempt_date) or (
+                    now.hour == 0 and last_attempt_date != today
+                ):
                     self.refresh()
+                elif 1 <= now.hour <= 9:
+                    # 只在失败次日 01:00-09:00 按小时重试；成功后不再重复采集。
+                    failure_date = state.get("last_failure_date", "")
+                    retry_date = (datetime.strptime(failure_date, "%Y-%m-%d") + timedelta(days=1)).strftime("%Y-%m-%d") if failure_date else ""
+                    retry_key = f"retry_{today}_{now.hour:02d}"
+                    if retry_date == today and state.get(retry_key) != "1" and state.get("last_status") == "failed":
+                        self.refresh()
+                        self.repository.set_state(retry_key, "1")
             except Exception as exc:  # noqa: BLE001 - 调度线程必须保持存活
                 self.last_error = str(exc)
-            self._scheduler_stop.wait(600)
+            self._scheduler_stop.wait(60)
 
     @staticmethod
-    def _monitor_type(title: str, body: str) -> tuple[str, str]:
-        """只按公告明确的严重异动口径分类，不把上市公司普通风险提示当监管。"""
+    def _classify_monitor_text(title: str, body: str) -> tuple[str, str]:
+        """按 18.cn/巨潮正文语义分类：30 日、10 日、风险提示；无法确认则丢弃。"""
 
-        text = re.sub(r"\s+", "", f"{title}\n{body}")
-        if ("严重异常波动" in text and "30个交易日" in text) or re.search(r"连续30个交易日.{0,120}(?:200%|300%)", text):
+        # 标题只用于日志定位，分类严格基于正文；正文为空时不纳入。
+        del title
+        text = re.sub(r"\s+", "", body or "").replace("％", "%")
+        has_30_window = "30个交易日" in text
+        has_10_window = "10个交易日" in text
+        has_30_threshold = bool(
+            re.search(r"30个交易日.{0,160}(?:200|300)(?:\.\d+)?%", text)
+            or re.search(r"(?:200|300)(?:\.\d+)?%.{0,160}30个交易日", text)
+        )
+        has_10_threshold = bool(
+            re.search(r"10个交易日.{0,160}(?:100|150)(?:\.\d+)?%", text)
+            or re.search(r"(?:100|150)(?:\.\d+)?%.{0,160}10个交易日", text)
+        )
+        has_risk_wording = (
+            "交易所将对以上证券的异常交易行为进行从严认定" in text
+        )
+        if has_30_window and has_30_threshold:
             return "30日严重异动", "severe-30d"
-        if "严重异常波动" in text or re.search(r"连续10个交易日.{0,120}(?:100%|150%)", text):
+        if has_10_window and has_10_threshold:
             return "10日严重异动", "severe-10d"
-        # 普通风险提示不是交易所重点监控记录，调用方应在入池前过滤。
+        if has_risk_wording:
+            return "风险提示", "ordinary"
         return "", ""
 
     @staticmethod
-    def _broker_monitor_type(title: str, body: str) -> tuple[str, str]:
-        """18.cn 只有明确严重异动措辞才升级；普通重点监控提示为风险提示。"""
+    def _monitor_type(title: str, body: str) -> tuple[str, str]:
+        return OfficialMonitorService._classify_monitor_text(title, body)
 
-        text = re.sub(r"\s+", "", f"{title}\n{body}")
-        if ("严重异常波动" in text and "30个交易日" in text) or re.search(r"连续30个交易日.{0,120}(?:200%|300%)", text):
-            return "30日严重异动", "severe-30d"
-        if "严重异常波动" in text or re.search(r"连续10个交易日.{0,120}(?:100%|150%)", text):
-            return "10日严重异动", "severe-10d"
-        return "风险提示", "ordinary"
+    @staticmethod
+    def _broker_monitor_type(title: str, body: str) -> tuple[str, str]:
+        return OfficialMonitorService._classify_monitor_text(title, body)
 
     @staticmethod
     def _is_accepted_broker_alert(title: str, body: str) -> bool:
-        """只接受证券被列为重点监控或明确严重异动的 18.cn 提示。"""
+        """18.cn 只接受正文能归类为风险提示或严重异动的记录。"""
 
-        text = re.sub(r"\s+", "", f"{title}\n{body}")
-        return "列为重点监控证券" in text or "严重异常波动" in text
+        return bool(OfficialMonitorService._classify_monitor_text(title, body)[1])
 
     @staticmethod
     def _monitor_period(source_date: str, source_type: str) -> tuple[str, str]:
@@ -202,44 +246,56 @@ class OfficialMonitorService:
         return {"severe-30d": 3, "severe-10d": 2, "ordinary": 1}.get(str(item.get("riskTone")), 0)
 
     def _collapse_by_stock(self, items: List[Dict[str, Any]], snapshot_date: str) -> List[Dict[str, Any]]:
-        """合并同股同类型且重叠的窗口；风险提示与严重异动分别保留。"""
+        """同股同类型重叠时只保留最新记录；同日不同来源仅作为佐证链接附加。"""
 
-        del snapshot_date  # 当前/历史状态在 read 阶段按自然日判定。
+        del snapshot_date  # 当前状态在 read 阶段按自然日判定。
         grouped: Dict[tuple[str, str], List[Dict[str, Any]]] = {}
         for item in items:
             grouped.setdefault((str(item.get("symbol")), str(item.get("riskTone"))), []).append(item)
 
-        merged_items: List[Dict[str, Any]] = []
+        selected_items: List[Dict[str, Any]] = []
         for group in grouped.values():
-            group.sort(key=lambda item: (item["monitorStartDate"], item["announcementDate"]))
-            periods: List[List[Dict[str, Any]]] = []
-            period_end = ""
-            for item in group:
-                if periods and item["monitorStartDate"] <= period_end:
-                    periods[-1].append(item)
-                    period_end = max(period_end, item["monitorEndDate"])
-                else:
-                    periods.append([item])
-                    period_end = item["monitorEndDate"]
-
-            for events in periods:
-                latest_event = max(events, key=lambda item: item["announcementDate"])
-                same_date = [item for item in events if item["announcementDate"] == latest_event["announcementDate"]]
-                preferred_event = min(same_date, key=lambda item: int(item.get("sourcePriority", 99)))
-                start_date = min(item["monitorStartDate"] for item in events)
-                end_date = max(item["monitorEndDate"] for item in events)
-                urls = sorted({item["sourceUrl"] for item in events if item.get("sourceUrl")})
-                merged_items.append({
-                    **preferred_event,
-                    "monitorKey": hashlib.sha256("\n".join(sorted(item["sourceId"] for item in events)).encode("utf-8")).hexdigest()[:24],
-                    "monitorStart": start_date[5:], "monitorStartDate": start_date,
-                    "monitorEnd": end_date[5:], "monitorEndDate": end_date,
-                    "daysTotal": (datetime.strptime(end_date, "%Y-%m-%d") - datetime.strptime(start_date, "%Y-%m-%d")).days + 1,
-                    "sourceUrls": urls,
-                    "sourceCount": len(urls),
-                    "monitorPeriod": f"起始日后 {MONITOR_WINDOW_OFFSET_DAYS} 个自然日；非交易所法定期限",
+            # 日期倒序、同日来源优先级升序：18.cn 优先于巨潮作为主链接。
+            ordered = sorted(group, key=lambda item: (item.get("announcementDate", ""), -int(item.get("sourcePriority", 99))), reverse=True)
+            for item in ordered:
+                same_date = next((chosen for chosen in selected_items
+                                  if chosen["symbol"] == item["symbol"]
+                                  and chosen["riskTone"] == item["riskTone"]
+                                  and chosen["announcementDate"] == item["announcementDate"]), None)
+                if same_date:
+                    urls = set(same_date.get("sourceUrls", []))
+                    if item.get("sourceUrl"):
+                        urls.add(item["sourceUrl"])
+                    same_date["sourceUrls"] = sorted(urls)
+                    same_date["sourceCount"] = len(urls)
+                    same_date["monitorKey"] = hashlib.sha256("\n".join(sorted(
+                        [same_date["sourceId"], item["sourceId"]]
+                    )).encode("utf-8")).hexdigest()[:24]
+                    continue
+                overlaps = any(
+                    chosen["symbol"] == item["symbol"]
+                    and chosen["riskTone"] == item["riskTone"]
+                    and item.get("monitorStartDate", "") <= chosen.get("monitorEndDate", "")
+                    and item.get("monitorEndDate", "") >= chosen.get("monitorStartDate", "")
+                    for chosen in selected_items
+                )
+                if overlaps:
+                    # 最新记录已经覆盖这段时间，旧记录不再延长或合并。
+                    continue
+                selected_items.append({
+                    **item,
+                    "monitorKey": hashlib.sha256(str(item["sourceId"]).encode("utf-8")).hexdigest()[:24],
+                    "sourceUrls": [item["sourceUrl"]] if item.get("sourceUrl") else [],
+                    "sourceCount": 1 if item.get("sourceUrl") else 0,
+                    "monitorPeriod": f"以公告记录起始日后 {MONITOR_WINDOW_OFFSET_DAYS} 个自然日为结束日；非交易所法定期限",
                 })
-        return merged_items
+        for item in selected_items:
+            if item.get("riskTone") == "ordinary":
+                # 风险提示只显示分类，不向小程序提供公告入口。
+                item["sourceUrl"] = ""
+                item["sourceUrls"] = []
+                item["sourceCount"] = 0
+        return selected_items
 
     def refresh(self) -> Dict[str, Any]:
         """后台调用：公告源完整可用且快照校验通过后才原子发布。"""
@@ -252,14 +308,17 @@ class OfficialMonitorService:
         started_at = now.strftime("%Y-%m-%d %H:%M")
         # 允许失败后立即重试；秒级 ID 会在同一秒内重复并触发 SQLite 主键冲突。
         run_id = now.strftime("%Y%m%d%H%M%S%f")
+        self.repository.set_state("last_attempt_date", now.strftime("%Y-%m-%d"))
         try:
             # 覆盖最长 30 个交易日监管窗口及其后 30 个自然日历史留存。
             start_date = (now - timedelta(days=90)).strftime("%Y-%m-%d")
-            result = self.announcements.query_market(start_date, now.strftime("%Y-%m-%d"))
-            if not result.get("available") or result.get("partial"):
-                raise RuntimeError("公告数据源未完整返回")
             broker_result = self.announcements.query_broker_risk_alerts(start_date, now.strftime("%Y-%m-%d"))
-            broker_available = bool(broker_result.get("available"))
+            if not broker_result.get("available"):
+                raise RuntimeError("18.cn 主源未完整返回")
+            broker_available = True
+            # 巨潮资讯是备源；备源失败不阻塞 18.cn 主源发布。
+            result = self.announcements.query_market(start_date, now.strftime("%Y-%m-%d"))
+            issuer_available = bool(result.get("available")) and not bool(result.get("partial"))
             parsed_events: List[Dict[str, Any]] = []
             for announcement in result.get("items", []):
                 title = announcement["title"]
@@ -268,8 +327,7 @@ class OfficialMonitorService:
                     continue
                 body = self.announcements.extract_pdf_text(announcement["url"])
                 monitor_type, risk_tone = self._monitor_type(title, body)
-                # 巨潮资讯是上市公司法定披露备源：普通“风险提示/异常波动”不代表进入监管池，
-                # 仅保留明确的严重异常波动公告及严重阈值公告。
+                # 巨潮资讯是备源：必须按同一正文语义规则确认风险类型，普通公司风险公告丢弃。
                 if not risk_tone:
                     continue
                 if not announcement.get("date"):
@@ -287,20 +345,19 @@ class OfficialMonitorService:
                     "monitorDates": [],
                     "monitorType": monitor_type, "riskTone": risk_tone,
                     "isST": "ST" in announcement["stockName"].upper(),
-                    "source": announcement["source"], "sourceUrl": announcement["url"],
+                    "source": announcement["source"], "sourceUrl": announcement["url"] if risk_tone != "ordinary" else "",
                     "sourceType": "issuer-disclosure", "sourceRole": "issuer_disclosure_backup",
-                    "sourcePriority": 3, "sourceLabel": "上市公司法定披露",
+                    "sourcePriority": 2, "sourceLabel": "巨潮资讯备源",
                     "confirmationStatus": "issuer-disclosure-confirmed",
                     "contentHash": hashlib.sha256(f"{title}\n{body}".encode("utf-8")).hexdigest(),
                     "monitorPeriod": f"公告日起至第 {MONITOR_WINDOW_OFFSET_DAYS} 个自然日",
                 })
             for alert in broker_result.get("items", []):
-                # 18.cn 列表包含大量公司自发风险提示；只有正文明确写“列为重点监控证券”
-                # 或严重异常波动，才进入监管池。提及重点监控账户不算证券监管记录。
+                # 18.cn 是主源；只有正文满足风险提示或 10/30 日阈值语义才进入监控池。
                 if not self._is_accepted_broker_alert(alert["title"], alert.get("body", "")):
                     continue
                 monitor_start, monitor_end = self._monitor_period(alert["date"], alert["sourceType"])
-                # 18.cn 页面脚本可能含无关的百分号数字；只有正文明确出现严重异常波动才升级。
+                # 页面脚本中的无关数字不单独触发，分类已在正文语义规则中完成。
                 monitor_type, risk_tone = self._broker_monitor_type(alert["title"], alert.get("body", ""))
                 source_id = hashlib.sha256(alert["url"].encode("utf-8")).hexdigest()[:24]
                 parsed_events.append({
@@ -312,7 +369,7 @@ class OfficialMonitorService:
                     "days": None, "daysTotal": MONITOR_WINDOW_OFFSET_DAYS + 1, "monitorDates": [],
                     "monitorType": monitor_type, "riskTone": risk_tone,
                     "isST": "ST" in alert["stockName"].upper(),
-                    "source": alert["source"], "sourceUrl": alert["url"],
+                    "source": alert["source"], "sourceUrl": alert["url"] if risk_tone != "ordinary" else "",
                     "sourceType": alert["sourceType"], "sourceRole": alert["sourceRole"],
                     "sourcePriority": alert["sourcePriority"], "sourceLabel": alert["sourceLabel"],
                     "confirmationStatus": "broker-notice-quotes-exchange-status",
@@ -333,23 +390,21 @@ class OfficialMonitorService:
                 "startedAt": started_at, "updatedAt": updated_at, "items": parsed,
                 "refreshing": False, "error": "",
                 "dataQuality": {
-                    "source": "东方财富证券 18.cn 重要公告 + 巨潮资讯法定披露公告",
+                    "source": "东方财富证券 18.cn 主源 + 巨潮资讯备源",
                     "announcementStatus": "source-specific",
                     "verifiedSources": ["东方财富证券 18.cn", "巨潮资讯"],
-                    "officialExchangeVerification": "18.cn 为券商风险提示转述；严重异动事实链接上市公司法定披露文件",
                     "sourcePolicy": [
-                        {"role": "exchange_official", "label": "交易所官方", "priority": 1, "status": "未接入公开接口"},
-                        {"role": "broker_primary", "label": "券商风险提示", "priority": 2, "status": "东方财富证券 18.cn"},
-                        {"role": "issuer_disclosure_backup", "label": "上市公司法定披露", "priority": 3, "status": "巨潮资讯"},
+                        {"role": "broker_primary", "label": "18.cn 主源", "priority": 1, "status": "东方财富证券 18.cn"},
+                        {"role": "issuer_disclosure_backup", "label": "巨潮资讯备源", "priority": 2, "status": "巨潮资讯"},
                     ],
                     "sourceHealth": {
                         "brokerPrimary": "available" if broker_available else "degraded",
-                        "issuerBackup": "available",
+                        "issuerBackup": "available" if issuer_available else "degraded",
                         "brokerError": "" if broker_available else str(broker_result.get("error") or "18.cn 未完整返回"),
                     },
                     "isOfficialMonitorPeriod": False,
                     "periodCalculation": f"起始日后 {MONITOR_WINDOW_OFFSET_DAYS} 个自然日为结束日；为产品监控口径，非交易所法定期限",
-                    "coverage": "18.cn 页面当前公开列表与巨潮资讯公开披露；不等于交易所完整重点监控名单",
+                    "coverage": "18.cn 当前公开公告列表，巨潮资讯作为补充佐证",
                 },
             }
             self.repository.publish(snapshot, parsed_events, run_id)

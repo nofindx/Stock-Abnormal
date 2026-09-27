@@ -19,11 +19,10 @@ class AnnouncementService:
     keywords = ("股票交易异常波动", "股票交易严重异常波动", "股票交易风险提示", "停牌核查")
     broker_alert_list = "https://wap.18.cn/article/zygg"
     broker_alert_root = "https://wap.18.cn"
-    # 来源优先级：交易所公开原文 > 当前监管提示主源 > 上市公司法定披露备源。
+    # 来源优先级：18.cn 主源 > 巨潮资讯备源。
     source_policy = {
-        "exchange_official": {"priority": 1, "label": "交易所官方"},
-        "broker-risk-alert": {"priority": 2, "label": "券商风险提示"},
-        "issuer-disclosure": {"priority": 3, "label": "上市公司法定披露"},
+        "broker-risk-alert": {"priority": 1, "label": "18.cn 主源"},
+        "issuer-disclosure": {"priority": 2, "label": "巨潮资讯备源"},
     }
 
     def _request(self, payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -161,7 +160,7 @@ class AnnouncementService:
                 self.parts.append(text)
 
     def query_broker_risk_alerts(self, start_date: str, end_date: str) -> Dict[str, Any]:
-        """获取 18.cn 东方财富证券重要公告中明确提及重点监控证券的提示。"""
+        """获取 18.cn 东方财富证券重要公告正文和链接，分类由监控服务统一完成。"""
 
         try:
             request = Request(self.broker_alert_list, headers={"User-Agent": "Mozilla/5.0"})
@@ -186,8 +185,8 @@ class AnnouncementService:
                 body = " ".join(body_parser.parts)
             except Exception as exc:  # noqa: BLE001 - 部分详情失败时禁止悄悄发布不完整结果
                 return {"items": items, "available": False, "error": str(exc), "source": "东方财富证券 18.cn"}
-            # 18.cn 的风险提示可能直接写“列为重点监控证券”，也可能只转述异常交易从严认定。
-            # 这里保留股票风险提示，监控服务再按正文中的严重异常波动文字分类；排除 ETF/基金代码。
+            # 18.cn 只负责提供正文和链接；是否纳入及风险类型由监控服务统一按正文分类。
+            # 排除 ETF/基金代码。
             code = code_match.group(1)
             if not code.startswith(("0", "2", "3", "6", "8", "9")):
                 continue

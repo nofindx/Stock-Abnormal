@@ -91,37 +91,18 @@ Page({
   openSource(event) {
     const url = event.currentTarget.dataset.url
     if (!url) return
-    // 新版基础库可直接交给系统浏览器；旧版回退到小程序内打开文档或复制链接。
+    // 只交给系统浏览器或复制链接，不在小程序内下载、缓存公告文件。
     if (typeof wx.openUrl === 'function') {
       wx.openUrl({
         url,
-        fail: () => this.openSourceFallback(url)
+        fail: () => this.copySourceLink(url)
       })
       return
     }
-    this.openSourceFallback(url)
+    this.copySourceLink(url)
   },
-  openSourceFallback(url) {
-    wx.showLoading({ title: '打开公告' })
-    wx.downloadFile({
-      url,
-      success: (res) => {
-        wx.hideLoading()
-        if (res.statusCode === 200) {
-          wx.openDocument({
-            filePath: res.tempFilePath,
-            showMenu: true,
-            fail: () => wx.setClipboardData({ data: url, success: () => wx.showToast({ title: '原文链接已复制', icon: 'none' }) })
-          })
-        } else {
-          wx.setClipboardData({ data: url, success: () => wx.showToast({ title: '原文链接已复制', icon: 'none' }) })
-        }
-      },
-      fail: () => {
-        wx.hideLoading()
-        wx.setClipboardData({ data: url, success: () => wx.showToast({ title: '原文链接已复制', icon: 'none' }) })
-      }
-    })
+  copySourceLink(url) {
+    wx.setClipboardData({ data: url, success: () => wx.showToast({ title: '原文链接已复制', icon: 'none' }) })
   },
   onUnload() {
     if (this.pollTimer) clearTimeout(this.pollTimer)
