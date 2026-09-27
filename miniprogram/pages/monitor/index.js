@@ -2,7 +2,7 @@
 const { getMonitor } = require('../../utils/api')
 
 Page({
-  data: { tab: 'current', type: 'all', hideST: false, items: [], rawItems: [], updatedAt: '', loading: false, refreshing: false, manualRefreshing: false, error: '', skeletonRows: [0, 1, 2, 3], types: [{ key: 'all', label: '全部' }, { key: 'risk', label: '风险提示' }, { key: 'severe', label: '严重异动' }] },
+  data: { tab: 'current', type: 'all', hideST: false, items: [], rawItems: [], visibleCount: 0, updatedAt: '', loading: false, refreshing: false, error: '', skeletonRows: [0, 1, 2, 3], types: [{ key: 'all', label: '全部' }, { key: 'risk', label: '风险提示' }, { key: 'severe', label: '严重异动' }] },
   onLoad() { this.restoreCache(); this.loadData() },
   onPullDownRefresh() { this.loadData().finally(() => wx.stopPullDownRefresh()) },
   selectTab(event) {
@@ -15,25 +15,16 @@ Page({
     this.pollAttempts = 0
     this.setData({ type: event.currentTarget.dataset.type }, () => { if (!this.restoreCache()) this.setData({ items: [], rawItems: [], updatedAt: '' }); this.loadData() })
   },
-  toggleST() { this.setData({ hideST: !this.data.hideST }, () => this.applyFilters(this.data.rawItems || [])) },
+  toggleST(event) {
+    const hasSwitchValue = event && event.detail && typeof event.detail.value !== 'undefined'
+    const hideST = hasSwitchValue ? Boolean(event.detail.value) : !this.data.hideST
+    this.setData({ hideST }, () => this.applyFilters(this.data.rawItems || []))
+  },
   refreshSnapshot() {
-    if (this.data.manualRefreshing) return
+    if (this.data.loading || this.data.refreshing) return
     this.pollAttempts = 0
     if (this.pollTimer) clearTimeout(this.pollTimer)
-    this.setData({ manualRefreshing: true, error: '' })
-    getMonitor({ status: this.data.tab, type: this.data.type }).then((result) => {
-      const items = result.items || []
-      const waiting = Boolean(result.refreshing) && !items.length
-      if (!waiting) {
-        this.saveCache(result)
-        this.setData({ rawItems: items, updatedAt: result.updatedAt || '' })
-        this.applyFilters(items)
-      }
-      this.setData({ manualRefreshing: Boolean(result.refreshing), refreshing: Boolean(result.refreshing), error: result.error || '' })
-      if (result.refreshing) this.schedulePoll()
-    }).catch(() => {
-      this.setData({ manualRefreshing: false, error: '快照同步失败，请稍后重试' })
-    })
+    this.loadData()
   },
   cacheKey() { return `monitorSnapshot:v2:${this.data.tab}:${this.data.type}` },
   restoreCache() {
@@ -74,7 +65,7 @@ Page({
     if (this.pollTimer) clearTimeout(this.pollTimer)
     this.pollAttempts = (this.pollAttempts || 0) + 1
     if (this.pollAttempts > 15) {
-      this.setData({ loading: false, manualRefreshing: false, refreshing: false, error: this.data.items.length ? '今日快照更新超时，当前仍显示上次成功数据' : '今日监控快照获取超时，请稍后重试' })
+      this.setData({ loading: false, refreshing: false, error: this.data.items.length ? '今日快照更新超时，当前仍显示上次成功数据' : '今日监控快照获取超时，请稍后重试' })
       return
     }
     this.pollTimer = setTimeout(() => {
@@ -86,7 +77,7 @@ Page({
           this.setData({ rawItems: items, updatedAt: result.updatedAt || '' })
           this.applyFilters(items)
         }
-        this.setData({ loading: waiting && !(this.data.rawItems || []).length, manualRefreshing: Boolean(result.refreshing) ? this.data.manualRefreshing : false, refreshing: Boolean(result.refreshing), error: result.error || '' })
+        this.setData({ loading: waiting && !(this.data.rawItems || []).length, refreshing: Boolean(result.refreshing), error: result.error || '' })
         if (result.refreshing) this.schedulePoll()
         else this.pollAttempts = 0
       }).catch(() => this.schedulePoll())
@@ -99,7 +90,7 @@ Page({
     }))
     if (this.data.hideST) filtered = filtered.filter(item => !item.isST && !String(item.name || '').toUpperCase().includes('ST'))
     filtered.sort((left, right) => Number(left.days == null ? 9999 : left.days) - Number(right.days == null ? 9999 : right.days))
-    this.setData({ items: filtered })
+    this.setData({ items: filtered, visibleCount: filtered.length })
   },
   onUnload() {
     if (this.pollTimer) clearTimeout(this.pollTimer)

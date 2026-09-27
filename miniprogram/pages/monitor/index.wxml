@@ -1,7 +1,23 @@
 <view class="page monitor-page">
   <view class="segmented card"><view class="segment {{tab === 'current' ? 'active' : ''}}" hover-class="tap-feedback" data-tab="current" bindtap="selectTab">当前监控</view><view class="segment {{tab === 'history' ? 'active' : ''}}" hover-class="tap-feedback" data-tab="history" bindtap="selectTab">历史监控</view></view>
-  <view class="filter-row"><view wx:for="{{types}}" wx:key="key" class="filter-chip filter-{{item.key}} {{type === item.key ? 'active' : ''}}" hover-class="chip-feedback" data-type="{{item.key}}" bindtap="selectType">{{item.label}}</view><view class="filter-chip st-toggle {{hideST ? 'active' : ''}}" hover-class="chip-feedback" bindtap="toggleST">去除 ST</view><button class="filter-chip snapshot-refresh {{manualRefreshing ? 'is-refreshing' : ''}}" loading="{{manualRefreshing}}" disabled="{{manualRefreshing}}" hover-class="button-feedback" bindtap="refreshSnapshot">刷新</button></view>
-  <view wx:if="{{updatedAt}}" class="snapshot-meta"><text>数据更新于 {{updatedAt}}</text></view><view wx:elif="{{refreshing}}" class="snapshot-meta"><text>正在获取今日快照</text></view>
+  <view class="filter-row">
+    <view class="type-filters">
+      <view wx:for="{{types}}" wx:key="key" class="filter-segment filter-segment-{{item.key}} {{type === item.key ? 'active' : ''}}" hover-class="chip-feedback" data-type="{{item.key}}" bindtap="selectType">{{item.label}}</view>
+    </view>
+    <view class="st-control">
+      <text class="st-label">ST</text>
+      <view class="st-native-switch-wrap"><switch class="st-native-switch" checked="{{hideST}}" color="#0E8796" bindchange="toggleST" /></view>
+    </view>
+  </view>
+  <view class="snapshot-row">
+    <view class="snapshot-summary">
+      <text>共 <text class="snapshot-count">{{visibleCount}}</text> 条</text>
+      <text wx:if="{{updatedAt || refreshing}}" class="snapshot-dot">·</text>
+      <text wx:if="{{updatedAt}}">数据更新于 {{updatedAt}}</text>
+      <text wx:elif="{{refreshing}}" class="snapshot-pending">正在获取数据</text>
+    </view>
+    <button class="snapshot-refresh" loading="{{loading || refreshing}}" disabled="{{loading || refreshing}}" hover-class="button-feedback" bindtap="refreshSnapshot">刷新</button>
+  </view>
   <view wx:if="{{error}}" class="card error-state">{{error}}</view>
   <view wx:if="{{items.length}}" class="monitor-list"><view wx:for="{{items}}" wx:key="monitorKey" class="monitor-row monitor-tone-{{item.riskTone}}"><view class="monitor-row-top"><view class="monitor-stock"><view class="stock-line"><text class="stock-name">{{item.name}}</text><text class="stock-meta">{{item.symbol}}</text></view></view><text class="monitor-period">{{item.monitorStart}} 至 {{item.monitorEnd}}</text></view><view class="monitor-row-bottom"><text class="badge badge-{{item.riskTone}}">{{item.monitorType}}</text><text wx:if="{{!item.isHistory}}" class="days-value days-{{item.riskTone}}">剩余 <text class="days-number">{{item.days}}</text> 个交易日</text><text wx:else class="history-label">历史监控</text></view></view></view>
   <view wx:elif="{{loading}}" class="monitor-list monitor-skeleton" aria-label="正在加载监控池"><view wx:for="{{skeletonRows}}" wx:key="*this" class="monitor-row skeleton-row"><view class="skeleton-line skeleton-name"></view><view class="skeleton-line skeleton-code"></view><view class="skeleton-divider"></view><view class="skeleton-line skeleton-badge"></view><view class="skeleton-line skeleton-days"></view></view></view>

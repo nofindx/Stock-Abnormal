@@ -5,44 +5,67 @@
   margin-top: 14rpx;
   border: 0;
   border-radius: 15rpx;
-  background: #F7F8FA;
-  border: 1rpx solid #EBEDF0;
+  background: #E5E5EA;
 }
 .monitor-page .segment {
   flex: 1;
   padding: 13rpx 0;
   border-radius: 11rpx;
-  color: #6B7280;
+  color: #636366;
   font-size: 23rpx;
   line-height: 32rpx;
   text-align: center;
 }
-.monitor-page .segment.active { background: #EEF2F7; color: #405A78; font-weight: 700; box-shadow: 0 1rpx 4rpx rgba(64, 90, 120, .10); }
-.filter-row { display: flex; align-items: center; gap: 6rpx; margin-top: 14rpx; }
-.filter-chip {
-  flex: 1 1 0;
-  min-width: 0;
-  min-height: 54rpx;
-  padding: 0 4rpx;
-  border: 1rpx solid #EBEDF0;
-  border-radius: 27rpx;
+.monitor-page .segment.active { background: #FFFFFF; color: #1C1C1E; font-weight: 600; box-shadow: 0 1rpx 4rpx rgba(28, 28, 30, .10); }
+.filter-row { display: flex; align-items: center; justify-content: space-between; gap: 18rpx; margin-top: 16rpx; }
+.type-filters { display: flex; flex: 0 0 50%; width: 50%; min-width: 0; align-items: center; justify-content: space-between; gap: 0; }
+.filter-segment {
+  flex: 0 0 88rpx;
+  width: 88rpx;
+  min-width: 88rpx;
+  height: 48rpx;
+  padding: 0;
+  box-sizing: border-box;
+  border: 1rpx solid #DDE3EA;
+  border-radius: 11rpx;
   background: #FFFFFF;
   color: #6B7280;
-  font-size: 18rpx;
-  line-height: 52rpx;
+  font-size: 22rpx;
+  font-weight: 600;
+  line-height: 46rpx;
+  text-align: center;
   white-space: nowrap;
 }
-.st-toggle { text-align: center; }
-.snapshot-refresh { height: 54rpx; margin: 0; border: 1rpx solid #C8D4E3; border-radius: 27rpx; background: #EEF2F7; color: #405A78; font-size: 18rpx; line-height: 52rpx; }
+.filter-segment-risk, .filter-segment-severe {
+  flex-basis: auto;
+  width: auto;
+  min-width: 112rpx;
+  padding: 0 20rpx;
+}
+.filter-segment-all { font-size: 20rpx; }
+.filter-segment.active { border-color: #0E8796; background: #0E8796; color: #FFFFFF; box-shadow: 0 2rpx 6rpx rgba(14, 135, 150, .16); }
+.filter-segment-risk.active { border-color: #D5B84A; background: #FFF7E0; color: #8A6D0B; box-shadow: none; }
+.filter-segment-severe.active { border-color: #E49A8E; background: #FDEBE8; color: #C0271E; box-shadow: none; }
+.st-control {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 10rpx;
+}
+.st-label { color: #6B7280; font-size: 22rpx; font-weight: 600; white-space: nowrap; }
+.st-native-switch-wrap { display: flex; width: 78rpx; height: 48rpx; align-items: center; justify-content: flex-end; overflow: visible; }
+.st-native-switch { flex: 0 0 auto; transform: scale(.75); transform-origin: right center; }
+.snapshot-row { position: relative; display: flex; align-items: center; margin-top: 14rpx; min-height: 48rpx; padding-right: 120rpx; box-sizing: border-box; }
+.snapshot-summary { display: flex; min-width: 0; max-width: 100%; align-items: baseline; gap: 10rpx; color: #6B7280; font-size: 22rpx; line-height: 30rpx; white-space: nowrap; overflow: hidden; }
+.snapshot-count { color: #1A1A1A; font-size: 28rpx; font-weight: 700; font-variant-numeric: tabular-nums; }
+.snapshot-dot { color: #9CA3AF; }
+.snapshot-pending { color: #9CA3AF; }
+.snapshot-refresh { position: absolute; top: 50%; right: 0; display: flex; width: 120rpx; min-width: 120rpx; max-width: 120rpx; height: 48rpx; align-items: center; justify-content: center; margin: 0; padding: 0 !important; border: 1rpx solid #DDE3EA; border-radius: 11rpx; background: #FFFFFF; color: #405A78; font-size: 20rpx; font-weight: 600; line-height: 1; transform: translateY(-50%); }
+.snapshot-refresh::after { display: none; }
 .snapshot-refresh[disabled] { opacity: .56; }
 .days-number { display: inline-block; margin: 0 3rpx; font-size: 34rpx; font-weight: 700; line-height: 38rpx; }
 .history-label { color: #9CA3AF; font-size: 22rpx; }
-.filter-chip.active { border-color: #C8D4E3; background: #EEF2F7; color: #405A78; font-weight: 600; }
-.filter-chip.filter-risk { border-color: #E5D59B; color: #8A6D0B; }
-.filter-chip.filter-severe { border-color: #E4B4AD; color: #C0271E; }
-.filter-chip.filter-risk.active { border-color: #D5B84A; background: #FFF7D6; color: #765B00; }
-.filter-chip.filter-severe.active { border-color: #E49A8E; background: #FDE9E6; color: #A82118; }
-.snapshot-meta { display: flex; justify-content: flex-end; margin: 12rpx 2rpx 0; color: #6B7280; font-size: 20rpx; line-height: 28rpx; text-align: right; }
+.snapshot-meta { display: none; }
 .snapshot-state { color: #9CA3AF; }
 .list-meta { display: none; }
 .monitor-list { margin-top: 16rpx; }

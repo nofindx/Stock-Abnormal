@@ -78,9 +78,10 @@ class MarketService:
         self._monitor_snapshot_day = ""
         self._monitor_snapshot_error = ""
         self._monitor_snapshot_failure_day = ""
+        # 监控池已迁移到 OfficialMonitorService 的公告快照链路。
+        # 这里保留旧方法以兼容历史调用，但绝不在 MarketService 初始化时启动全市场扫描线程。
         self._snapshot_stop = Event()
-        self._snapshot_thread = Thread(target=self._snapshot_loop, name="market-snapshot", daemon=True)
-        self._snapshot_thread.start()
+        self._snapshot_thread = None
 
     def _snapshot_loop(self) -> None:
         """每日定点生成监控快照，失败时在后台重试，用户请求只读取成功结果。"""

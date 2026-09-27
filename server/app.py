@@ -15,11 +15,14 @@ from urllib.parse import parse_qs, urlparse
 
 from .services.market_service import MarketService
 from .services.announcement_service import AnnouncementService
+from .services.monitor_service import OfficialMonitorService
 from .services.tushare_client import TushareUnavailable
 
 
 SERVICE = MarketService()
 ANNOUNCEMENTS = AnnouncementService()
+# 监管池是独立的公告快照链路，不再从全市场预测结果推导。
+OFFICIAL_MONITOR = OfficialMonitorService(SERVICE.client, ANNOUNCEMENTS)
 
 
 def _json_bytes(value):
@@ -52,7 +55,12 @@ class ApiHandler(BaseHTTPRequestHandler):
         query = parse_qs(parsed.query)
         try:
             if parsed.path == "/health":
-                self._respond({"code": 0, "data": {"service": "ok", "tushareConfigured": SERVICE.client.available}, "message": "ok"})
+                self._respond({"code": 0, "data": {
+                    "service": "ok",
+                    "tushareConfigured": SERVICE.client.available,
+                    "monitorSnapshot": bool(OFFICIAL_MONITOR.repository.active_snapshot()),
+                    "monitorRefreshing": OFFICIAL_MONITOR.refreshing,
+                }, "message": "ok"})
                 return
             if parsed.path == "/api/market/status":
                 latest = SERVICE.client.latest_trade_date()
@@ -70,7 +78,8 @@ class ApiHandler(BaseHTTPRequestHandler):
             elif parsed.path == "/api/predictions":
                 data = SERVICE.predictions(query.get("scope", ["today"])[0])
             elif parsed.path == "/api/monitor" or parsed.path == "/api/monitor-pool":
-                data = SERVICE.monitor(query.get("status", ["current"])[0], query.get("type", ["all"])[0])
+                # GET 只读最近一次成功快照，不启动公告采集或行情扫描。
+                data = OFFICIAL_MONITOR.read(query.get("status", ["current"])[0], query.get("type", ["all"])[0])
             else:
                 self._respond({"code": 404, "data": None, "message": "接口不存在"}, status=404)
                 return
@@ -117,8 +126,13 @@ def main() -> None:
     host = os.getenv("HOST", "127.0.0.1")
     port = int(os.getenv("PORT", "8787"))
     server = ThreadingHTTPServer((host, port), ApiHandler)
+    OFFICIAL_MONITOR.start_scheduler()
     print(f"Stock-Abnormal API listening on http://{host}:{port}")
-    server.serve_forever()
+    try:
+        server.serve_forever()
+    finally:
+        OFFICIAL_MONITOR.close()
+        SERVICE.close()
 
 
 if __name__ == "__main__":
