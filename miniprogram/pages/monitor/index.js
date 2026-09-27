@@ -91,6 +91,17 @@ Page({
   openSource(event) {
     const url = event.currentTarget.dataset.url
     if (!url) return
+    // 新版基础库可直接交给系统浏览器；旧版回退到小程序内打开文档或复制链接。
+    if (typeof wx.openUrl === 'function') {
+      wx.openUrl({
+        url,
+        fail: () => this.openSourceFallback(url)
+      })
+      return
+    }
+    this.openSourceFallback(url)
+  },
+  openSourceFallback(url) {
     wx.showLoading({ title: '打开公告' })
     wx.downloadFile({
       url,

@@ -62,7 +62,7 @@
 .snapshot-pending { color: #9CA3AF; }
 .snapshot-refresh { position: absolute; top: 50%; right: 0; display: flex; width: 120rpx; min-width: 120rpx; max-width: 120rpx; height: 48rpx; align-items: center; justify-content: center; margin: 0; padding: 0 !important; border: 1rpx solid #DDE3EA; border-radius: 11rpx; background: #FFFFFF; color: #405A78; font-size: 20rpx; font-weight: 600; line-height: 1; transform: translateY(-50%); }
 .snapshot-refresh::after { display: none; }
-.snapshot-refresh[disabled] { opacity: .56; }
+.snapshot-refresh-disabled { opacity: .56; }
 .days-number { display: inline-block; margin: 0 3rpx; font-size: 34rpx; font-weight: 700; line-height: 38rpx; }
 .history-label { color: #9CA3AF; font-size: 22rpx; }
 .snapshot-meta { display: none; }
@@ -79,7 +79,9 @@
 .stock-line { display: flex; align-items: baseline; gap: 14rpx; }
 .monitor-period { color: #6B7280; font-size: 22rpx; font-variant-numeric: tabular-nums; }
 .monitor-row-bottom { margin-top: 16rpx; padding-top: 13rpx; border-top: 1rpx solid #F2F2F7; }
-.source-link { flex: 0 0 auto; color: #2F80ED; font-size: 22rpx; font-weight: 600; }
+.monitor-row-actions { display: flex; min-width: 310rpx; align-items: center; justify-content: flex-end; gap: 22rpx; }
+.source-link { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 4rpx; color: #2F80ED; font-size: 21rpx; font-weight: 600; line-height: 32rpx; }
+.source-link-icon { font-size: 25rpx; line-height: 28rpx; }
 .monitor-page .stock-name { flex: 0 1 auto; color: #1A1A1A; font-size: 28rpx; font-weight: 600; white-space: nowrap; }
 .monitor-page .stock-meta { flex: 0 0 auto; margin: 0 0 0 14rpx; color: #6B7280; font-size: 22rpx; }
 .muted-security .stock-name, .muted-security .stock-meta, .muted-security .monitor-period, .muted-security .days-value { color: #9CA3AF; }
@@ -91,7 +93,9 @@
 .row-grid { display: none; }
 .grid-label { display: block; color: #8E8E93; font-size: 19rpx; line-height: 26rpx; }
 .grid-value { display: block; margin-top: 4rpx; color: #1C1C1E; font-size: 22rpx; font-weight: 500; line-height: 30rpx; font-variant-numeric: tabular-nums; }
-.days-value { color: #1A1A1A; font-size: 20rpx; font-weight: 500; }
+.days-value { display: inline-flex; width: 184rpx; align-items: center; justify-content: flex-end; color: #1A1A1A; font-size: 20rpx; font-weight: 500; line-height: 38rpx; text-align: right; white-space: nowrap; }
+.days-label { flex: 0 0 auto; }
+.days-number { width: 48rpx; margin: 0 3rpx; text-align: center; }
 .days-value.days-ordinary { color: #8A6D0B; }
 .days-value.days-severe-10d { color: #E0501F; }
 .days-value.days-severe-30d { color: #C0271E; }
