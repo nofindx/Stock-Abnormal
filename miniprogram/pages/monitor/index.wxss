@@ -1,11 +1,12 @@
-.monitor-page .page-header { padding-bottom: 8rpx; }
+.monitor-page { background: #F2F3F5; }
 .monitor-page .segmented {
   display: flex;
   padding: 5rpx;
   margin-top: 14rpx;
   border: 0;
   border-radius: 15rpx;
-  background: #E5E5EA;
+  background: #F7F8FA;
+  border: 1rpx solid #EBEDF0;
 }
 .monitor-page .segment {
   flex: 1;
@@ -16,53 +17,65 @@
   line-height: 32rpx;
   text-align: center;
 }
-.monitor-page .segment.active { background: #FFFFFF; color: #1C1C1E; font-weight: 600; box-shadow: 0 1rpx 4rpx rgba(28, 28, 30, .10); }
+.monitor-page .segment.active { background: #FFFFFF; color: #1A1A1A; font-weight: 700; box-shadow: 0 1rpx 4rpx rgba(26, 26, 26, .08); }
 .filter-row { display: flex; align-items: center; gap: 8rpx; margin-top: 14rpx; }
 .filter-chip {
   min-height: 54rpx;
   padding: 0 17rpx;
-  border: 1rpx solid #E5E5EA;
+  border: 1rpx solid #EBEDF0;
   border-radius: 27rpx;
   background: #FFFFFF;
-  color: #636366;
+  color: #6B7280;
   font-size: 21rpx;
   line-height: 52rpx;
   white-space: nowrap;
 }
 .st-switch { display: flex; align-items: center; gap: 4rpx; margin-left: auto; white-space: nowrap; }
-.st-switch-label { color: #636366; font-size: 20rpx; }
+.st-switch-label { color: #6B7280; font-size: 20rpx; }
 .st-switch switch { transform: scale(.72); transform-origin: right center; }
 .days-number { display: inline-block; margin: 0 3rpx; font-size: 34rpx; font-weight: 700; line-height: 38rpx; }
-.history-label { color: #8E8E93; font-size: 22rpx; }
-.filter-chip.active { border-color: #1C1C1E; background: #1C1C1E; color: #FFFFFF; }
-.filter-chip.filter-risk { border-color: #F3D39B; color: #9A5A05; }
-.filter-chip.filter-severe { border-color: #E7B0AD; color: #B93833; }
-.filter-chip.filter-risk.active { border-color: #E3A72F; background: #FFF1CF; color: #8A4F00; }
-.filter-chip.filter-severe.active { border-color: #D94A45; background: #FCEBEA; color: #B93833; }
+.history-label { color: #9CA3AF; font-size: 22rpx; }
+.filter-chip.active { border-color: #1A1A1A; background: #1A1A1A; color: #FFFFFF; }
+.filter-chip.filter-risk { border-color: #E5D59B; color: #8A6D0B; }
+.filter-chip.filter-severe { border-color: #E4B4AD; color: #C0271E; }
+.filter-chip.filter-risk.active { border-color: #8A6D0B; background: #FFFCF8; color: #8A6D0B; }
+.filter-chip.filter-severe.active { border-color: #C0271E; background: #FDF3F2; color: #C0271E; }
+.snapshot-meta { display: flex; justify-content: space-between; margin: 12rpx 2rpx 0; color: #9CA3AF; font-size: 20rpx; line-height: 28rpx; }
 .list-meta { display: none; }
 .monitor-list { margin-top: 16rpx; }
-.monitor-row { margin-top: 12rpx; padding: 18rpx; border: 1rpx solid #E5E5EA; border-radius: 14rpx; background: #FFFFFF; box-shadow: 0 2rpx 8rpx rgba(28, 28, 30, .035); }
+.monitor-row { position: relative; margin-top: 12rpx; padding: 18rpx; border: 1rpx solid #EBEDF0; border-radius: 14rpx; background: #FFFFFF; box-shadow: 0 2rpx 8rpx rgba(26, 26, 26, .025); }
+.monitor-tone-ordinary { background: #FFFCF8; }
+.monitor-tone-severe-10d { background: #FFFDFC; }
+.monitor-tone-severe-30d { background: #FDF3F2; }
 .monitor-row:first-child { margin-top: 0; }
 .monitor-row-top, .monitor-row-bottom { display: flex; align-items: center; justify-content: space-between; gap: 12rpx; }
 .monitor-stock { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 8rpx; }
 .stock-line { display: flex; align-items: baseline; gap: 14rpx; }
-.monitor-period { color: #8E8E93; font-size: 19rpx; font-variant-numeric: tabular-nums; }
+.monitor-period { color: #6B7280; font-size: 22rpx; font-variant-numeric: tabular-nums; }
 .monitor-row-bottom { margin-top: 16rpx; padding-top: 13rpx; border-top: 1rpx solid #F2F2F7; }
-.monitor-page .stock-name { flex: 0 1 auto; font-size: 27rpx; white-space: nowrap; }
-.monitor-page .stock-meta { flex: 0 0 auto; margin: 0 0 0 10rpx; color: #6E6E73; font-size: 20rpx; }
+.monitor-page .stock-name { flex: 0 1 auto; color: #1A1A1A; font-size: 28rpx; font-weight: 600; white-space: nowrap; }
+.monitor-page .stock-meta { flex: 0 0 auto; margin: 0 0 0 14rpx; color: #6B7280; font-size: 22rpx; }
 .monitor-page .badge { max-width: 220rpx; }
-.monitor-page .badge-risk { background: #FFF1CF; color: #8A4F00; }
-.monitor-page .badge-severe { background: #FCEBEA; color: #B93833; }
+.monitor-page .badge-ordinary { background: #FFFCF8; color: #8A6D0B; }
+.monitor-page .badge-severe-10d { background: #FFF7F2; color: #E0501F; }
+.monitor-page .badge-severe-30d { background: #FDF3F2; color: #C0271E; }
 .row-grid { display: none; }
 .grid-label { display: block; color: #8E8E93; font-size: 19rpx; line-height: 26rpx; }
 .grid-value { display: block; margin-top: 4rpx; color: #1C1C1E; font-size: 22rpx; font-weight: 500; line-height: 30rpx; font-variant-numeric: tabular-nums; }
-.days-value { color: #1C1C1E; font-size: 20rpx; font-weight: 500; }
-.days-value.days-risk { color: #8A4F00; }
-.days-value.days-severe { color: #B93833; }
+.days-value { color: #1A1A1A; font-size: 20rpx; font-weight: 500; }
+.days-value.days-ordinary { color: #8A6D0B; }
+.days-value.days-severe-10d { color: #E0501F; }
+.days-value.days-severe-30d { color: #C0271E; }
 .days-unit { color: #8E8E93; font-size: 19rpx; font-weight: 400; }
 .monitor-page .empty { margin-top: 16rpx; background: #FFFFFF; }
-.monitor-page .loading-state, .monitor-page .error-state { margin-top: 16rpx; padding: 34rpx 24rpx; color: #8E8E93; text-align: center; }
-.monitor-page .error-state { color: #C83A36; }
-.monitor-page .free-note { margin-top: 24rpx; }
-.monitor-page .free-note { text-align: right; }
+.monitor-page .loading-state, .monitor-page .error-state { margin-top: 16rpx; padding: 34rpx 24rpx; color: #6B7280; text-align: center; }
+.monitor-page .error-state { border-color: #E4B4AD; background: #FDF3F2; color: #C0271E; }
+.monitor-skeleton { opacity: .95; }
+.skeleton-row { min-height: 156rpx; background: #FAFBFC; }
+.skeleton-line { border-radius: 6rpx; background: #E9EDF1; }
+.skeleton-name { width: 180rpx; height: 29rpx; }
+.skeleton-code { width: 100rpx; height: 20rpx; margin-top: 10rpx; }
+.skeleton-divider { height: 1rpx; margin: 18rpx 0 14rpx; background: #EBEDF0; }
+.skeleton-badge { width: 150rpx; height: 30rpx; }
+.skeleton-days { width: 200rpx; height: 25rpx; margin-left: auto; margin-top: -25rpx; }
 .chip-feedback { opacity: .72; }

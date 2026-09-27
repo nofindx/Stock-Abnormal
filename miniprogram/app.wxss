@@ -1,8 +1,9 @@
 page {
-  background: #F2F2F7;
-  color: #1C1C1E;
-  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Helvetica Neue", sans-serif;
-  font-size: 28rpx;
+  background: #F2F3F5;
+  color: #1A1A1A;
+  font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif;
+  font-size: 24rpx;
+  font-variant-numeric: tabular-nums;
 }
 
 view, text, button, input { box-sizing: border-box; }

@@ -5,11 +5,16 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from functools import lru_cache
 from concurrent.futures import ThreadPoolExecutor
-from threading import Lock
+from threading import Event, Lock, Thread
+import time
 from typing import Any, Dict, Iterable, List, Optional
+try:
+    from zoneinfo import ZoneInfo
+except ImportError:  # Python 3.8 本地开发环境兼容回退。
+    ZoneInfo = None
 
 from server.core.abnormal_rules import BOARD_RULES, Board, PriceBar, calculate_deviation, detect_ordinary_abnormal, detect_severe_abnormal
 from .realtime_quote import RealtimeQuoteClient
@@ -18,6 +23,8 @@ from .tushare_client import TushareClient, TushareUnavailable
 
 INDEX_BY_MARKET = {"SSE": "000001.SH", "SZSE": "399001.SZ", "BSE": "899050.BJ"}
 BOARD_BY_MARKET = {"主板": Board.MAIN, "创业板": Board.CHINEXT, "科创板": Board.STAR, "北交所": Board.BSE}
+SHANGHAI_TZ = ZoneInfo("Asia/Shanghai") if ZoneInfo else timezone(timedelta(hours=8))
+SNAPSHOT_INTERVAL_SECONDS = 60
 
 
 def _date(value: Any) -> date:
@@ -61,6 +68,32 @@ class MarketService:
         self._monitor_lock = Lock()
         self._monitor_current: Dict[str, Dict[str, Any]] = {}
         self._monitor_history: Dict[str, Dict[str, Any]] = {}
+        self._monitor_cache: Dict[tuple[str, str], tuple[datetime, Dict[str, Any]]] = {}
+        self._monitor_refreshing: set[tuple[str, str]] = set()
+        self._snapshot_stop = Event()
+        self._snapshot_thread = Thread(target=self._snapshot_loop, name="market-snapshot", daemon=True)
+        self._snapshot_thread.start()
+
+    def _snapshot_loop(self) -> None:
+        """按固定周期预热预测和监控快照，用户请求只读取缓存结果。"""
+
+        # 让 HTTP 服务先完成监听，再在后台开始首次快照，避免冷启动阻塞健康检查。
+        if self._snapshot_stop.wait(0.2):
+            return
+        while not self._snapshot_stop.is_set():
+            try:
+                self.predictions("today")
+                self.predictions("next_day")
+                self._schedule_monitor_refresh("current", "all")
+            except Exception:
+                # 单次上游失败不应终止定时线程；下一周期继续尝试并由接口返回旧快照。
+                pass
+            self._snapshot_stop.wait(SNAPSHOT_INTERVAL_SECONDS)
+
+    def close(self) -> None:
+        """停止后台快照线程，供测试和进程优雅退出使用。"""
+
+        self._snapshot_stop.set()
 
     def _stock_rows(self) -> List[Dict[str, Any]]:
         now = datetime.utcnow()
@@ -295,7 +328,7 @@ class MarketService:
         result.sort(key=lambda item: abs(float(item["deviation"].split()[-1].replace("日", "").replace("%", ""))) if item.get("deviation") else 999, reverse=True)
         output = result[:100]
         # 更新时间以扫描完成为准，避免把后台计算耗时误算进快照年龄。
-        self._prediction_cache[scope] = (datetime.now(), output)
+        self._prediction_cache[scope] = (datetime.now(SHANGHAI_TZ), output)
         return output
 
     def _refresh_prediction_worker(self, scope: str) -> None:
@@ -309,6 +342,8 @@ class MarketService:
         finally:
             with self._prediction_locks[scope]:
                 self._prediction_refreshing.discard(scope)
+            if scope == "today":
+                self._schedule_monitor_refresh("current", "all")
 
     def _start_prediction_refresh(self, scope: str) -> bool:
         """幂等地启动后台刷新，返回本次是否新启动任务。"""
@@ -323,7 +358,7 @@ class MarketService:
     def predictions(self, scope: str, force: bool = False) -> Dict[str, Any]:
         if scope not in ("today", "next_day"):
             raise ValueError("scope 必须是 today 或 next_day")
-        now = datetime.now()
+        now = datetime.now(SHANGHAI_TZ)
         cached = self._prediction_cache.get(scope)
         stale = not cached or (now - cached[0]).total_seconds() >= 60
         # GET 首次访问和过期访问都只触发后台任务，立即返回已有快照。
@@ -342,7 +377,7 @@ class MarketService:
             "dataQuality": {"source": "tushare+腾讯行情" if has_realtime else "tushare", "intraday": has_realtime},
         }
 
-    def monitor(self, status: str = "current", monitor_type: str = "all") -> Dict[str, Any]:
+    def _build_monitor_snapshot(self, status: str = "current", monitor_type: str = "all") -> Dict[str, Any]:
         """监控池接口。
 
         交易所公告监控并非 Tushare 的完整标准接口，当前以可复核的规则计算结果生成当前记录；
@@ -357,9 +392,9 @@ class MarketService:
         latest = self.client.latest_trade_date() if items_source else ""
         future_dates = self._future_trade_date_values(latest, 30) if latest else []
         candidates: Dict[str, Dict[str, Any]] = {}
-        for item in items_source[:50]:
-            is_severe_30 = "200" in item["rule"]
-            is_severe_10 = not is_severe_30 and "100" in item["rule"]
+        for item in items_source:
+            is_severe_30 = "连续30" in item["rule"]
+            is_severe_10 = not is_severe_30 and "连续10" in item["rule"]
             monitor_key = "severe_30d" if is_severe_30 else "severe_10d" if is_severe_10 else "ordinary"
             window_days = 30 if is_severe_30 else 10 if is_severe_10 else 3
             key = f"{item['ts_code']}-{monitor_key}"
@@ -367,6 +402,7 @@ class MarketService:
                 **item,
                 "monitorKey": key,
                 "riskLevel": "severe" if monitor_key != "ordinary" else "risk",
+                "riskTone": "severe-30d" if monitor_key == "severe_30d" else "severe-10d" if monitor_key == "severe_10d" else "ordinary",
                 "monitorType": "30日严重异动" if is_severe_30 else "10日严重异动" if is_severe_10 else "风险提示",
                 "windowDays": window_days,
                 "isHistory": status == "history",
@@ -417,7 +453,79 @@ class MarketService:
         return {
             "tab": status,
             "items": items,
-            "updatedAt": datetime.now().strftime("%H:%M:%S"),
+            "updatedAt": datetime.now(SHANGHAI_TZ).strftime("%H:%M:%S"),
             "refreshing": bool(prediction.get("refreshing")),
-            "dataQuality": {"source": "tushare+规则计算", "isOfficialMonitorPeriod": False, "historyPersistence": "memory"},
+            "dataQuality": {"source": "Tushare 日线 + 腾讯盘中行情 + 规则计算", "isOfficialMonitorPeriod": False, "historyPersistence": "memory", "monitorPeriod": "按规则窗口推算"},
         }
+
+    def _schedule_monitor_refresh(self, status: str, monitor_type: str) -> bool:
+        """幂等提交监控快照任务；调用方不等待行情扫描。"""
+
+        key = (status, monitor_type)
+        with self._monitor_lock:
+            if key in self._monitor_refreshing:
+                return False
+            self._monitor_refreshing.add(key)
+            self._prediction_executor.submit(self._refresh_monitor_snapshot, key)
+            return True
+
+    def _refresh_monitor_snapshot(self, key: tuple[str, str]) -> None:
+        retry = False
+        try:
+            status, monitor_type = key
+            snapshot = self._build_monitor_snapshot(status, monitor_type)
+            # 预测快照还在刷新时，不能把旧结果重新写成新的监控快照。
+            if snapshot.get("refreshing"):
+                retry = True
+            else:
+                self._monitor_cache[key] = (datetime.now(SHANGHAI_TZ), snapshot)
+                if status == "current" and monitor_type == "all":
+                    # 当前快照完成后同步生成历史快照；历史只保留本进程内已结束的记录。
+                    history = self._build_monitor_snapshot("history", "all")
+                    self._monitor_cache[("history", "all")] = (datetime.now(SHANGHAI_TZ), history)
+        finally:
+            with self._monitor_lock:
+                self._monitor_refreshing.discard(key)
+        if retry:
+            time.sleep(1)
+            with self._monitor_lock:
+                if key not in self._monitor_refreshing:
+                    self._monitor_refreshing.add(key)
+                    self._prediction_executor.submit(self._refresh_monitor_snapshot, key)
+
+    def monitor(self, status: str = "current", monitor_type: str = "all") -> Dict[str, Any]:
+        """返回后端定时生成的监控快照，前端请求不执行全市场扫描。"""
+
+        if status not in ("current", "history"):
+            raise ValueError("status 必须是 current 或 history")
+        if monitor_type not in ("all", "risk", "severe", "ordinary", "severe_10d", "severe_30d"):
+            raise ValueError("type 参数不合法")
+        key = (status, monitor_type)
+        # 前端请求只读取固定周期生成的 all 快照，再在服务端做轻量筛选。
+        base_key = (status, "all")
+        cached = self._monitor_cache.get(base_key)
+        if cached:
+            snapshot = dict(cached[1])
+            snapshot["items"] = self._filter_monitor_items(snapshot.get("items", []), monitor_type)
+            snapshot["refreshing"] = base_key in self._monitor_refreshing
+            return snapshot
+        return {
+            "tab": status,
+            "items": [],
+            "updatedAt": "",
+            "refreshing": True,
+            "dataQuality": {"source": "Tushare 日线 + 腾讯盘中行情 + 规则计算", "isOfficialMonitorPeriod": False, "monitorPeriod": "按规则窗口推算"},
+        }
+
+    @staticmethod
+    def _filter_monitor_items(items: List[Dict[str, Any]], monitor_type: str) -> List[Dict[str, Any]]:
+        """对已生成的监控快照做轻量风险筛选，不重新扫描行情。"""
+
+        if monitor_type == "all":
+            return list(items)
+        if monitor_type == "risk":
+            return [item for item in items if item.get("riskTone") == "ordinary"]
+        if monitor_type == "severe":
+            return [item for item in items if item.get("riskTone") in ("severe-10d", "severe-30d")]
+        tone = {"ordinary": "ordinary", "severe_10d": "severe-10d", "severe_30d": "severe-30d"}.get(monitor_type)
+        return [item for item in items if item.get("riskTone") == tone]
