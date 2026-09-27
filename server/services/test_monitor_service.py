@@ -71,6 +71,10 @@ class MonitorWindowTests(unittest.TestCase):
         self.assertEqual(OfficialMonitorService._broker_monitor_type("关于股票交易风险提示的公告", noisy_page), ("风险提示", "ordinary"))
         self.assertEqual(OfficialMonitorService._broker_monitor_type("关于股票交易严重异常波动的风险提示", noisy_page), ("10日严重异动", "severe-10d"))
 
+    def test_history_endpoint_is_removed(self):
+        with self.assertRaises(ValueError):
+            self.service.read("history", "all")
+
 
 if __name__ == "__main__":
     unittest.main()

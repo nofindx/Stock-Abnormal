@@ -344,8 +344,8 @@ class OfficialMonitorService:
             self.refreshing = False
 
     def read(self, status: str, monitor_type: str) -> Dict[str, Any]:
-        if status not in ("current", "history"):
-            raise ValueError("status 必须是 current 或 history")
+        if status != "current":
+            raise ValueError("监控池仅支持 current 当前监控")
         snapshot = self.repository.active_snapshot()
         if not snapshot:
             return {
@@ -355,14 +355,11 @@ class OfficialMonitorService:
             }
         # 读取接口只使用快照字段和上海本地日期，不会触发上游请求。
         today = datetime.now(SHANGHAI_TZ).strftime("%Y-%m-%d")
-        history_cutoff = (datetime.strptime(today, "%Y-%m-%d") - timedelta(days=30)).strftime("%Y-%m-%d")
         items = []
         for item in snapshot.get("items", []):
             end_date = str(item.get("monitorEndDate") or "")
             ended = self._is_history(end_date, today)
-            if ended and end_date < history_cutoff:
-                continue
-            if (status == "history") != ended:
+            if ended:
                 continue
             if monitor_type == "risk" and item.get("riskTone") != "ordinary":
                 continue
@@ -375,10 +372,7 @@ class OfficialMonitorService:
             remaining = self._remaining_natural_days(end_date, today)
             items.append({**item, "isHistory": ended, "days": 0 if ended else remaining})
         # 明确监管日期按自然日计算；未公开结束日的记录排在已确认日期之后。
-        if status == "current":
-            items.sort(key=lambda item: (item.get("days") is None, item.get("days") if item.get("days") is not None else 9999, item.get("announcementDate", "")))
-        else:
-            items.sort(key=lambda item: str(item.get("monitorEndDate") or item.get("announcementDate", "")), reverse=True)
+        items.sort(key=lambda item: (item.get("days") is None, item.get("days") if item.get("days") is not None else 9999, item.get("announcementDate", "")))
         return {
             **snapshot,
             "tab": status,

@@ -2,14 +2,9 @@
 const { getMonitor } = require('../../utils/api')
 
 Page({
-  data: { tab: 'current', type: 'all', hideST: false, items: [], rawItems: [], visibleCount: 0, updatedAt: '', loading: false, refreshing: false, error: '', skeletonRows: [0, 1, 2, 3], types: [{ key: 'all', label: '全部' }, { key: 'risk', label: '风险提示' }, { key: 'severe', label: '严重异动' }] },
+  data: { type: 'all', hideST: false, items: [], rawItems: [], visibleCount: 0, updatedAt: '', loading: false, refreshing: false, error: '', skeletonRows: [0, 1, 2, 3], types: [{ key: 'all', label: '全部' }, { key: 'risk', label: '风险提示' }, { key: 'severe', label: '严重异动' }] },
   onLoad() { this.restoreCache(); this.loadData() },
   onPullDownRefresh() { this.loadData().finally(() => wx.stopPullDownRefresh()) },
-  selectTab(event) {
-    if (this.pollTimer) clearTimeout(this.pollTimer)
-    this.pollAttempts = 0
-    this.setData({ tab: event.currentTarget.dataset.tab }, () => { if (!this.restoreCache()) this.setData({ items: [], rawItems: [], updatedAt: '' }); this.loadData() })
-  },
   selectType(event) {
     if (this.pollTimer) clearTimeout(this.pollTimer)
     this.pollAttempts = 0
@@ -26,7 +21,7 @@ Page({
     if (this.pollTimer) clearTimeout(this.pollTimer)
     this.loadData()
   },
-  cacheKey() { return `monitorSnapshot:v2:${this.data.tab}:${this.data.type}` },
+  cacheKey() { return `monitorSnapshot:v3:current:${this.data.type}` },
   restoreCache() {
     try {
       const cached = wx.getStorageSync(this.cacheKey())
@@ -46,7 +41,7 @@ Page({
     if (this.data.loading) return Promise.resolve()
     this.waitStartedAt = Date.now()
     this.setData({ loading: true, error: '' })
-    return getMonitor({ status: this.data.tab, type: this.data.type }).then((result) => {
+    return getMonitor({ status: 'current', type: this.data.type }).then((result) => {
       const items = result.items || []
       const waiting = Boolean(result.refreshing) && !items.length
       // 冷启动期间不覆盖本地成功快照，避免缓存内容被空响应清掉。
@@ -69,7 +64,7 @@ Page({
       return
     }
     this.pollTimer = setTimeout(() => {
-      getMonitor({ status: this.data.tab, type: this.data.type }).then((result) => {
+      getMonitor({ status: 'current', type: this.data.type }).then((result) => {
         const items = result.items || []
         const waiting = Boolean(result.refreshing) && !items.length
         if (!waiting) {
@@ -90,9 +85,7 @@ Page({
       riskTone: item.riskTone || (item.monitorType === '30日严重异动' ? 'severe-30d' : item.monitorType === '10日严重异动' ? 'severe-10d' : 'ordinary')
     }))
     if (this.data.hideST) filtered = filtered.filter(item => !item.isST && !String(item.name || '').toUpperCase().includes('ST'))
-    filtered.sort((left, right) => this.data.tab === 'history'
-      ? String(right.monitorEndDate || right.announcementDate || '').localeCompare(String(left.monitorEndDate || left.announcementDate || ''))
-      : Number(left.days == null ? 9999 : left.days) - Number(right.days == null ? 9999 : right.days))
+    filtered.sort((left, right) => Number(left.days == null ? 9999 : left.days) - Number(right.days == null ? 9999 : right.days))
     this.setData({ items: filtered, visibleCount: filtered.length })
   },
   openSource(event) {
