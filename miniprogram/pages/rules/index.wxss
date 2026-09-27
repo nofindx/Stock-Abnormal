@@ -5,18 +5,18 @@
   color: #1C1C1E;
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Helvetica Neue", sans-serif;
 }
-.rules-version { margin-top: 16rpx; padding: 14rpx 16rpx 0; border-top: 1rpx solid #E5E5EA; color: #636366; font-size: 21rpx; line-height: 30rpx; }
+.rules-version { margin-top: 16rpx; padding: 14rpx 16rpx 0; border-top: 1rpx solid #E5E5EA; color: #636366; font-size: 21rpx; line-height: 30rpx; text-align: right; }
 .rules-section { margin-top: 22rpx; padding: 20rpx; border: 1rpx solid #E5E5EA; border-radius: 18rpx; background: #FFFFFF; }
 .rules-heading { margin-bottom: 14rpx; color: #1C1C1E; font-size: 25rpx; font-weight: 600; line-height: 34rpx; }
-.formula { color: #1C1C1E; font-size: 22rpx; line-height: 36rpx; text-indent: 2em; }
-.rules-copy { margin-top: 12rpx; color: #636366; font-size: 21rpx; line-height: 34rpx; text-indent: 2em; }
+.formula { color: #1C1C1E; font-size: 22rpx; line-height: 36rpx; text-indent: 0; }
+.rules-copy { margin-top: 12rpx; color: #636366; font-size: 21rpx; line-height: 34rpx; text-indent: 0; }
 .threshold-card { overflow: hidden; border-radius: 12rpx; background: #F8F8FA; }
-.threshold-row { display: flex; align-items: center; justify-content: space-between; gap: 12rpx; padding: 15rpx 14rpx; border-bottom: 1rpx solid #E5E5EA; }
+.threshold-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 12rpx; padding: 15rpx 14rpx; border-bottom: 1rpx solid #E5E5EA; }
 .threshold-row:last-child { border-bottom: 0; }
 .threshold-row > view { min-width: 0; flex: 1; }
 .threshold-name { display: block; color: #1C1C1E; font-size: 22rpx; font-weight: 600; }
 .threshold-values { display: block; margin-top: 5rpx; color: #636366; font-size: 19rpx; line-height: 28rpx; }
-.same-count { flex: 0 0 auto; color: #636366; font-size: 19rpx; white-space: nowrap; }
+.same-count { flex: 0 0 auto; margin-top: 31rpx; color: #636366; font-size: 19rpx; white-space: nowrap; }
 .rules-risk { border-color: #F0D8D5; background: #FFF9F8; }
 .rules-risk .rules-heading { color: #B93833; }
 .rules-risk .rules-copy { color: #73504D; }

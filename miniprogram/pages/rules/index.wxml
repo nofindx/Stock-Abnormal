@@ -7,7 +7,6 @@
       <view class="threshold-row"><view><text class="threshold-name">科创板</text><text class="threshold-values">3日 ±30% · 10日 +100% / −50% · 30日 +200% / −70%</text></view><text class="same-count">同向 3 次</text></view>
       <view class="threshold-row"><view><text class="threshold-name">北交所</text><text class="threshold-values">3日 ±40% · 10日 +150% / −60% · 30日 +300% / −75%</text></view><text class="same-count">同向 3 次</text></view>
     </view>
-    <view class="rules-copy">北交所偏离值对应北证 50 成份指数；无价格涨跌幅限制的股票不纳入异常波动和严重异常波动指标计算。</view>
     <view class="rules-version">阈值以交易所最新规则为准 · 核对日期 2026-09-27</view>
   </view>
 
