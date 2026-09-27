@@ -2,7 +2,7 @@
 const { getMonitor } = require('../../utils/api')
 
 Page({
-  data: { tab: 'current', type: 'all', hideST: false, items: [], rawItems: [], updatedAt: '', loading: false, refreshing: false, waitingSeconds: 0, error: '', skeletonRows: [0, 1, 2, 3], types: [{ key: 'all', label: '全部' }, { key: 'risk', label: '风险提示' }, { key: 'severe', label: '严重异动' }] },
+  data: { tab: 'current', type: 'all', hideST: false, items: [], rawItems: [], updatedAt: '', loading: false, refreshing: false, manualRefreshing: false, error: '', skeletonRows: [0, 1, 2, 3], types: [{ key: 'all', label: '全部' }, { key: 'risk', label: '风险提示' }, { key: 'severe', label: '严重异动' }] },
   onLoad() { this.restoreCache(); this.loadData() },
   onPullDownRefresh() { this.loadData().finally(() => wx.stopPullDownRefresh()) },
   selectTab(event) {
@@ -16,6 +16,25 @@ Page({
     this.setData({ type: event.currentTarget.dataset.type }, () => { if (!this.restoreCache()) this.setData({ items: [], rawItems: [], updatedAt: '' }); this.loadData() })
   },
   toggleST(event) { this.setData({ hideST: event.detail.value }, () => this.applyFilters(this.data.rawItems || [])) },
+  refreshSnapshot() {
+    if (this.data.manualRefreshing) return
+    this.pollAttempts = 0
+    if (this.pollTimer) clearTimeout(this.pollTimer)
+    this.setData({ manualRefreshing: true, error: '' })
+    getMonitor({ status: this.data.tab, type: this.data.type }).then((result) => {
+      const items = result.items || []
+      const waiting = Boolean(result.refreshing) && !items.length
+      if (!waiting) {
+        this.saveCache(result)
+        this.setData({ rawItems: items, updatedAt: result.updatedAt || '' })
+        this.applyFilters(items)
+      }
+      this.setData({ manualRefreshing: Boolean(result.refreshing), refreshing: Boolean(result.refreshing), error: result.error || '' })
+      if (result.refreshing) this.schedulePoll()
+    }).catch(() => {
+      this.setData({ manualRefreshing: false, error: '快照同步失败，请稍后重试' })
+    })
+  },
   cacheKey() { return `monitorSnapshot:${this.data.tab}:${this.data.type}` },
   restoreCache() {
     try {
@@ -35,11 +54,6 @@ Page({
   loadData() {
     if (this.data.loading) return Promise.resolve()
     this.waitStartedAt = Date.now()
-    if (this.waitTimer) clearInterval(this.waitTimer)
-    this.waitTimer = setInterval(() => {
-      const seconds = Math.floor((Date.now() - this.waitStartedAt) / 1000)
-      this.setData({ waitingSeconds: seconds })
-    }, 1000)
     this.setData({ loading: true, error: '' })
     return getMonitor({ status: this.data.tab, type: this.data.type }).then((result) => {
       const items = result.items || []
@@ -50,20 +64,17 @@ Page({
         this.setData({ rawItems: items, updatedAt: result.updatedAt || '' })
         this.applyFilters(items)
       }
-      this.setData({ loading: waiting && !(this.data.rawItems || []).length, waitingSeconds: waiting ? this.data.waitingSeconds : 0, error: result.error || '', refreshing: Boolean(result.refreshing) })
-      if (!waiting && this.waitTimer) { clearInterval(this.waitTimer); this.waitTimer = null }
+      this.setData({ loading: waiting && !(this.data.rawItems || []).length, error: result.error || '', refreshing: Boolean(result.refreshing) })
       if (result.refreshing) this.schedulePoll()
     }).catch(() => {
-      if (this.waitTimer) { clearInterval(this.waitTimer); this.waitTimer = null }
-      this.setData({ loading: false, waitingSeconds: 0, error: '监控数据暂时不可用，请稍后重试' })
+      this.setData({ loading: false, error: '监控数据暂时不可用，请稍后重试' })
     })
   },
   schedulePoll() {
     if (this.pollTimer) clearTimeout(this.pollTimer)
     this.pollAttempts = (this.pollAttempts || 0) + 1
     if (this.pollAttempts > 15) {
-      if (this.waitTimer) { clearInterval(this.waitTimer); this.waitTimer = null }
-      this.setData({ loading: false, refreshing: false, waitingSeconds: 0, error: this.data.items.length ? '今日快照更新超时，当前仍显示上次成功数据' : '今日监控快照获取超时，请稍后重试' })
+      this.setData({ loading: false, manualRefreshing: false, refreshing: false, error: this.data.items.length ? '今日快照更新超时，当前仍显示上次成功数据' : '今日监控快照获取超时，请稍后重试' })
       return
     }
     this.pollTimer = setTimeout(() => {
@@ -75,8 +86,7 @@ Page({
           this.setData({ rawItems: items, updatedAt: result.updatedAt || '' })
           this.applyFilters(items)
         }
-        this.setData({ loading: waiting && !(this.data.rawItems || []).length, waitingSeconds: waiting ? this.data.waitingSeconds : 0, refreshing: Boolean(result.refreshing), error: result.error || '' })
-        if (!waiting && this.waitTimer) { clearInterval(this.waitTimer); this.waitTimer = null }
+        this.setData({ loading: waiting && !(this.data.rawItems || []).length, manualRefreshing: Boolean(result.refreshing) ? this.data.manualRefreshing : false, refreshing: Boolean(result.refreshing), error: result.error || '' })
         if (result.refreshing) this.schedulePoll()
         else this.pollAttempts = 0
       }).catch(() => this.schedulePoll())
@@ -93,6 +103,5 @@ Page({
   },
   onUnload() {
     if (this.pollTimer) clearTimeout(this.pollTimer)
-    if (this.waitTimer) clearInterval(this.waitTimer)
   }
 })
