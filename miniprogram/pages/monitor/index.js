@@ -81,7 +81,8 @@ Page({
   applyFilters(items) {
     let filtered = items.map(item => ({
       ...item,
-      mutedSecurity: /^(5|1)/.test(String(item.symbol || '')),
+      // 501/513/920 等非重点标的仍展示，但降低名称、代码和日期信息的视觉权重。
+      mutedSecurity: /^(1|5|9)/.test(String(item.symbol || '')),
       riskTone: item.riskTone || (item.monitorType === '30日严重异动' ? 'severe-30d' : item.monitorType === '10日严重异动' ? 'severe-10d' : 'ordinary')
     }))
     if (this.data.hideST) filtered = filtered.filter(item => !item.isST && !String(item.name || '').toUpperCase().includes('ST'))
