@@ -1,4 +1,4 @@
-// 监控池页面：监控期、风险类型和剩余交易日全部使用后端结果。
+// 监控池页面：监控期、风险类型和剩余自然日全部使用后端结果。
 const { getMonitor } = require('../../utils/api')
 
 Page({
@@ -86,11 +86,38 @@ Page({
   applyFilters(items) {
     let filtered = items.map(item => ({
       ...item,
+      mutedSecurity: /^(5|1)/.test(String(item.symbol || '')),
       riskTone: item.riskTone || (item.monitorType === '30日严重异动' ? 'severe-30d' : item.monitorType === '10日严重异动' ? 'severe-10d' : 'ordinary')
     }))
     if (this.data.hideST) filtered = filtered.filter(item => !item.isST && !String(item.name || '').toUpperCase().includes('ST'))
-    filtered.sort((left, right) => Number(left.days == null ? 9999 : left.days) - Number(right.days == null ? 9999 : right.days))
+    filtered.sort((left, right) => this.data.tab === 'history'
+      ? String(right.monitorEndDate || right.announcementDate || '').localeCompare(String(left.monitorEndDate || left.announcementDate || ''))
+      : Number(left.days == null ? 9999 : left.days) - Number(right.days == null ? 9999 : right.days))
     this.setData({ items: filtered, visibleCount: filtered.length })
+  },
+  openSource(event) {
+    const url = event.currentTarget.dataset.url
+    if (!url) return
+    wx.showLoading({ title: '打开公告' })
+    wx.downloadFile({
+      url,
+      success: (res) => {
+        wx.hideLoading()
+        if (res.statusCode === 200) {
+          wx.openDocument({
+            filePath: res.tempFilePath,
+            showMenu: true,
+            fail: () => wx.setClipboardData({ data: url, success: () => wx.showToast({ title: '原文链接已复制', icon: 'none' }) })
+          })
+        } else {
+          wx.setClipboardData({ data: url, success: () => wx.showToast({ title: '原文链接已复制', icon: 'none' }) })
+        }
+      },
+      fail: () => {
+        wx.hideLoading()
+        wx.setClipboardData({ data: url, success: () => wx.showToast({ title: '原文链接已复制', icon: 'none' }) })
+      }
+    })
   },
   onUnload() {
     if (this.pollTimer) clearTimeout(this.pollTimer)

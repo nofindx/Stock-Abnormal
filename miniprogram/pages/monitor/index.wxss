@@ -79,8 +79,11 @@
 .stock-line { display: flex; align-items: baseline; gap: 14rpx; }
 .monitor-period { color: #6B7280; font-size: 22rpx; font-variant-numeric: tabular-nums; }
 .monitor-row-bottom { margin-top: 16rpx; padding-top: 13rpx; border-top: 1rpx solid #F2F2F7; }
+.source-link { flex: 0 0 auto; color: #2F80ED; font-size: 22rpx; font-weight: 600; }
 .monitor-page .stock-name { flex: 0 1 auto; color: #1A1A1A; font-size: 28rpx; font-weight: 600; white-space: nowrap; }
 .monitor-page .stock-meta { flex: 0 0 auto; margin: 0 0 0 14rpx; color: #6B7280; font-size: 22rpx; }
+.muted-security .stock-name, .muted-security .stock-meta, .muted-security .monitor-period, .muted-security .days-value { color: #9CA3AF; }
+.muted-security .stock-name { font-weight: 500; }
 .monitor-page .badge { max-width: 220rpx; }
 .monitor-page .badge-ordinary { background: #FFFCF8; color: #8A6D0B; }
 .monitor-page .badge-severe-10d { background: #FFF7F2; color: #E0501F; }

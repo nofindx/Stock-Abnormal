@@ -26,6 +26,7 @@ except ImportError:
 
 
 SHANGHAI_TZ = ZoneInfo("Asia/Shanghai") if ZoneInfo else timezone(timedelta(hours=8))
+MONITOR_WINDOW_OFFSET_DAYS = 21  # 起始日加 21 个自然日；按用户提供的截图校准，非交易所法定期限。
 
 
 class MonitorRepository:
@@ -157,38 +158,69 @@ class OfficialMonitorService:
             self._scheduler_stop.wait(600)
 
     @staticmethod
-    def _monitor_type(title: str, body: str) -> tuple[str, str, int]:
+    def _monitor_type(title: str, body: str) -> tuple[str, str]:
+        """只按公告明确的类型分类，不用偏离值阈值猜测监管记录类型。"""
+
         text = re.sub(r"\s+", "", f"{title}\n{body}")
         if "30个交易日" in text or "200%" in text or "300%" in text:
-            return "30日严重异动", "severe-30d", 30
+            return "30日严重异动", "severe-30d"
         if "严重异常波动" in text or "10个交易日" in text or "100%" in text or "150%" in text:
-            return "10日严重异动", "severe-10d", 10
-        return "风险提示", "ordinary", 3
+            return "10日严重异动", "severe-10d"
+        return "风险提示", "ordinary"
 
-    def _future_open_dates(self, start_date: str, count: int) -> List[str]:
-        start = datetime.strptime(start_date, "%Y-%m-%d")
-        end = start + timedelta(days=60)
-        frame = self.client.trade_cal(start.strftime("%Y%m%d"), end.strftime("%Y%m%d"))
-        return [str(row["cal_date"]) for row in sorted(frame.to_dict("records"), key=lambda row: str(row["cal_date"])) if int(row.get("is_open", 0)) == 1][:count]
+    @staticmethod
+    def _monitor_period(source_date: str, source_type: str) -> tuple[str, str]:
+        """将来源日期转换为截图口径；券商提示次日生效，公告以公告日生效。"""
+
+        start = datetime.strptime(source_date, "%Y-%m-%d")
+        if source_type == "broker-risk-alert":
+            start += timedelta(days=1)
+        end = start + timedelta(days=MONITOR_WINDOW_OFFSET_DAYS)
+        return start.strftime("%Y-%m-%d"), end.strftime("%Y-%m-%d")
 
     @staticmethod
     def _risk_rank(item: Dict[str, Any]) -> int:
         return {"severe-30d": 3, "severe-10d": 2, "ordinary": 1}.get(str(item.get("riskTone")), 0)
 
-    def _collapse_by_stock(self, items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """同一股票有多条披露时只保留最新且风险等级最高的一条，避免卡片重复。"""
+    def _collapse_by_stock(self, items: List[Dict[str, Any]], snapshot_date: str) -> List[Dict[str, Any]]:
+        """合并同股同类型且重叠的窗口；风险提示与严重异动分别保留。"""
 
-        selected: Dict[str, Dict[str, Any]] = {}
+        del snapshot_date  # 当前/历史状态在 read 阶段按自然日判定。
+        grouped: Dict[tuple[str, str], List[Dict[str, Any]]] = {}
         for item in items:
-            key = str(item.get("symbol") or item.get("monitorKey"))
-            previous = selected.get(key)
-            if not previous or (
-                self._risk_rank(item), str(item.get("announcementDate", ""))
-            ) > (
-                self._risk_rank(previous), str(previous.get("announcementDate", ""))
-            ):
-                selected[key] = item
-        return list(selected.values())
+            grouped.setdefault((str(item.get("symbol")), str(item.get("riskTone"))), []).append(item)
+
+        merged_items: List[Dict[str, Any]] = []
+        for group in grouped.values():
+            group.sort(key=lambda item: (item["monitorStartDate"], item["announcementDate"]))
+            periods: List[List[Dict[str, Any]]] = []
+            period_end = ""
+            for item in group:
+                if periods and item["monitorStartDate"] <= period_end:
+                    periods[-1].append(item)
+                    period_end = max(period_end, item["monitorEndDate"])
+                else:
+                    periods.append([item])
+                    period_end = item["monitorEndDate"]
+
+            for events in periods:
+                latest_event = max(events, key=lambda item: item["announcementDate"])
+                same_date = [item for item in events if item["announcementDate"] == latest_event["announcementDate"]]
+                preferred_event = min(same_date, key=lambda item: int(item.get("sourcePriority", 99)))
+                start_date = min(item["monitorStartDate"] for item in events)
+                end_date = max(item["monitorEndDate"] for item in events)
+                urls = sorted({item["sourceUrl"] for item in events if item.get("sourceUrl")})
+                merged_items.append({
+                    **preferred_event,
+                    "monitorKey": hashlib.sha256("\n".join(sorted(item["sourceId"] for item in events)).encode("utf-8")).hexdigest()[:24],
+                    "monitorStart": start_date[5:], "monitorStartDate": start_date,
+                    "monitorEnd": end_date[5:], "monitorEndDate": end_date,
+                    "daysTotal": (datetime.strptime(end_date, "%Y-%m-%d") - datetime.strptime(start_date, "%Y-%m-%d")).days + 1,
+                    "sourceUrls": urls,
+                    "sourceCount": len(urls),
+                    "monitorPeriod": f"起始日后 {MONITOR_WINDOW_OFFSET_DAYS} 个自然日；非交易所法定期限",
+                })
+        return merged_items
 
     def refresh(self) -> Dict[str, Any]:
         """后台调用：公告源完整可用且快照校验通过后才原子发布。"""
@@ -199,59 +231,100 @@ class OfficialMonitorService:
             self.refreshing = True
         now = datetime.now(SHANGHAI_TZ)
         started_at = now.strftime("%Y-%m-%d %H:%M")
-        run_id = now.strftime("%Y%m%d%H%M%S")
+        # 允许失败后立即重试；秒级 ID 会在同一秒内重复并触发 SQLite 主键冲突。
+        run_id = now.strftime("%Y%m%d%H%M%S%f")
         try:
-            start_date = (now - timedelta(days=45)).strftime("%Y-%m-%d")
-            latest_trade_date = self.client.latest_trade_date()
+            # 覆盖最长 30 个交易日监管窗口及其后 30 个自然日历史留存。
+            start_date = (now - timedelta(days=90)).strftime("%Y-%m-%d")
             result = self.announcements.query_market(start_date, now.strftime("%Y-%m-%d"))
             if not result.get("available") or result.get("partial"):
                 raise RuntimeError("公告数据源未完整返回")
-            parsed: List[Dict[str, Any]] = []
+            broker_result = self.announcements.query_broker_risk_alerts(start_date, now.strftime("%Y-%m-%d"))
+            broker_available = bool(broker_result.get("available"))
+            parsed_events: List[Dict[str, Any]] = []
             for announcement in result.get("items", []):
                 title = announcement["title"]
-                body = self.announcements.extract_pdf_text(announcement["url"]) if "严重异常波动" in title else ""
-                monitor_type, risk_tone, window_days = self._monitor_type(title, body)
+                # 一般性的公司风险提示不等于交易所重点监控提示；后者单独使用 18.cn 券商公告源。
+                if "异常波动" not in title:
+                    continue
+                body = self.announcements.extract_pdf_text(announcement["url"])
+                monitor_type, risk_tone = self._monitor_type(title, body)
                 if not announcement.get("date"):
                     continue
-                dates = self._future_open_dates(announcement["date"], window_days)
-                end_date = dates[-1] if dates else ""
-                remaining = len([value for value in dates if value > latest_trade_date])
+                monitor_start, monitor_end = self._monitor_period(announcement["date"], "issuer-disclosure")
                 source_key = announcement["url"] or f"{announcement['stockCode']}:{announcement['date']}:{title}"
                 source_id = hashlib.sha256(source_key.encode("utf-8")).hexdigest()[:24]
-                parsed.append({
+                parsed_events.append({
                     "sourceId": source_id, "monitorKey": source_id,
                     "symbol": announcement["stockCode"], "name": announcement["stockName"],
                     "title": title, "announcementDate": announcement["date"],
-                    "monitorStart": announcement["date"][5:],
-                    "monitorEnd": f"{end_date[4:6]}-{end_date[6:8]}" if end_date else "待确认",
-                    "monitorEndDate": end_date, "days": remaining, "daysTotal": window_days,
-                    "monitorDates": dates,
+                    "monitorStart": monitor_start[5:], "monitorStartDate": monitor_start,
+                    "monitorEnd": monitor_end[5:] if monitor_end else "待核实",
+                    "monitorEndDate": monitor_end, "days": None, "daysTotal": MONITOR_WINDOW_OFFSET_DAYS + 1,
+                    "monitorDates": [],
                     "monitorType": monitor_type, "riskTone": risk_tone,
                     "isST": "ST" in announcement["stockName"].upper(),
                     "source": announcement["source"], "sourceUrl": announcement["url"],
-                    "confirmationStatus": "designated-disclosure-confirmed",
+                    "sourceType": "issuer-disclosure", "sourceRole": "issuer_disclosure_backup",
+                    "sourcePriority": 3, "sourceLabel": "上市公司法定披露",
+                    "confirmationStatus": "issuer-disclosure-confirmed",
                     "contentHash": hashlib.sha256(f"{title}\n{body}".encode("utf-8")).hexdigest(),
-                    "monitorPeriod": "按公告日和规则窗口推算",
+                    "monitorPeriod": f"公告日起至第 {MONITOR_WINDOW_OFFSET_DAYS} 个自然日",
                 })
-            parsed = self._collapse_by_stock(parsed)
-            if not parsed:
-                raise RuntimeError("公告源返回空结果，拒绝覆盖旧快照")
+            for alert in broker_result.get("items", []):
+                monitor_start, monitor_end = self._monitor_period(alert["date"], alert["sourceType"])
+                monitor_type, risk_tone = self._monitor_type(alert["title"], alert.get("body", ""))
+                source_id = hashlib.sha256(alert["url"].encode("utf-8")).hexdigest()[:24]
+                parsed_events.append({
+                    "sourceId": source_id, "monitorKey": source_id,
+                    "symbol": alert["stockCode"], "name": alert["stockName"],
+                    "title": alert["title"], "announcementDate": alert["date"],
+                    "monitorStart": monitor_start[5:], "monitorStartDate": monitor_start,
+                    "monitorEnd": monitor_end[5:], "monitorEndDate": monitor_end,
+                    "days": None, "daysTotal": MONITOR_WINDOW_OFFSET_DAYS + 1, "monitorDates": [],
+                    "monitorType": monitor_type, "riskTone": risk_tone,
+                    "isST": "ST" in alert["stockName"].upper(),
+                    "source": alert["source"], "sourceUrl": alert["url"],
+                    "sourceType": alert["sourceType"], "sourceRole": alert["sourceRole"],
+                    "sourcePriority": alert["sourcePriority"], "sourceLabel": alert["sourceLabel"],
+                    "confirmationStatus": "broker-notice-quotes-exchange-status",
+                    "contentHash": hashlib.sha256(alert["body"].encode("utf-8")).hexdigest(),
+                    "monitorPeriod": f"提示发布日期次日起至第 {MONITOR_WINDOW_OFFSET_DAYS} 个自然日",
+                })
+            # 18.cn 页面只展示滚动的最近条目；保留上次成功快照中的有效窗口，避免来源下滚造成记录消失。
+            previous_snapshot = self.repository.active_snapshot() or {}
+            previous_items = [
+                item for item in previous_snapshot.get("items", [])
+                if str(item.get("monitorEndDate") or "") >= (now - timedelta(days=30)).strftime("%Y-%m-%d")
+            ]
+            parsed = self._collapse_by_stock(parsed_events + previous_items, now.strftime("%Y-%m-%d"))
             updated_at = datetime.now(SHANGHAI_TZ).strftime("%Y-%m-%d %H:%M")
             snapshot = {
                 "snapshotId": run_id, "snapshotDate": now.strftime("%Y-%m-%d"),
-                "asOfTradeDate": latest_trade_date,
+                "asOfTradeDate": "",
                 "startedAt": started_at, "updatedAt": updated_at, "items": parsed,
                 "refreshing": False, "error": "",
                 "dataQuality": {
-                    "source": "巨潮资讯公开披露公告",
-                    "announcementStatus": "designated-disclosure-confirmed",
-                    "verifiedSources": ["巨潮资讯"],
-                    "officialExchangeVerification": "未接入交易所官方名单接口",
+                    "source": "东方财富证券 18.cn 重要公告 + 巨潮资讯法定披露公告",
+                    "announcementStatus": "source-specific",
+                    "verifiedSources": ["东方财富证券 18.cn", "巨潮资讯"],
+                    "officialExchangeVerification": "18.cn 为券商风险提示转述；严重异动事实链接上市公司法定披露文件",
+                    "sourcePolicy": [
+                        {"role": "exchange_official", "label": "交易所官方", "priority": 1, "status": "未接入公开接口"},
+                        {"role": "broker_primary", "label": "券商风险提示", "priority": 2, "status": "东方财富证券 18.cn"},
+                        {"role": "issuer_disclosure_backup", "label": "上市公司法定披露", "priority": 3, "status": "巨潮资讯"},
+                    ],
+                    "sourceHealth": {
+                        "brokerPrimary": "available" if broker_available else "degraded",
+                        "issuerBackup": "available",
+                        "brokerError": "" if broker_available else str(broker_result.get("error") or "18.cn 未完整返回"),
+                    },
                     "isOfficialMonitorPeriod": False,
-                    "coverage": "公开披露公告，不含非公开重点监控名单",
+                    "periodCalculation": f"起始日后 {MONITOR_WINDOW_OFFSET_DAYS} 个自然日为结束日；为产品监控口径，非交易所法定期限",
+                    "coverage": "18.cn 页面当前公开列表与巨潮资讯公开披露；不等于交易所完整重点监控名单",
                 },
             }
-            self.repository.publish(snapshot, parsed, run_id)
+            self.repository.publish(snapshot, parsed_events, run_id)
             self.last_error = ""
             return {"started": True, "refreshing": False, "count": len(parsed)}
         except Exception as exc:
@@ -271,11 +344,15 @@ class OfficialMonitorService:
                 "error": self.last_error or "今日监控快照尚未生成，后台正在获取",
                 "dataQuality": {"source": "公告快照", "isComplete": False},
             }
-        # 读取接口只使用快照字段，不能为了判断当前/历史再次访问行情源。
-        latest = str(snapshot.get("asOfTradeDate") or "")
+        # 读取接口只使用快照字段和上海本地日期，不会触发上游请求。
+        today = datetime.now(SHANGHAI_TZ).strftime("%Y-%m-%d")
+        history_cutoff = (datetime.strptime(today, "%Y-%m-%d") - timedelta(days=30)).strftime("%Y-%m-%d")
         items = []
         for item in snapshot.get("items", []):
-            ended = bool(item.get("monitorEndDate") and item["monitorEndDate"] < latest)
+            end_date = str(item.get("monitorEndDate") or "")
+            ended = self._is_history(end_date, today)
+            if ended and end_date < history_cutoff:
+                continue
             if (status == "history") != ended:
                 continue
             if monitor_type == "risk" and item.get("riskTone") != "ordinary":
@@ -286,13 +363,13 @@ class OfficialMonitorService:
                 expected = {"ordinary": "ordinary", "severe_10d": "severe-10d", "severe_30d": "severe-30d"}[monitor_type]
                 if item.get("riskTone") != expected:
                     continue
-            remaining = len([value for value in item.get("monitorDates", []) if value > latest])
+            remaining = self._remaining_natural_days(end_date, today)
             items.append({**item, "isHistory": ended, "days": 0 if ended else remaining})
-        # 当前监控按剩余交易日升序；历史按公告日期倒序，便于先看最近结束的记录。
+        # 明确监管日期按自然日计算；未公开结束日的记录排在已确认日期之后。
         if status == "current":
-            items.sort(key=lambda item: (item.get("days", 999), item.get("announcementDate", "")))
+            items.sort(key=lambda item: (item.get("days") is None, item.get("days") if item.get("days") is not None else 9999, item.get("announcementDate", "")))
         else:
-            items.sort(key=lambda item: str(item.get("announcementDate", "")), reverse=True)
+            items.sort(key=lambda item: str(item.get("monitorEndDate") or item.get("announcementDate", "")), reverse=True)
         return {
             **snapshot,
             "tab": status,
@@ -300,3 +377,17 @@ class OfficialMonitorService:
             "refreshing": self.refreshing,
             "error": self.last_error or snapshot.get("error", ""),
         }
+
+    @staticmethod
+    def _is_history(end_date: str, today: str) -> bool:
+        """结束日期当天仍为当前监控，次日才进入历史。"""
+
+        return bool(end_date and end_date < today)
+
+    @staticmethod
+    def _remaining_natural_days(end_date: str, today: str) -> Optional[int]:
+        """按自然日倒计时；来源未给结束日期时不生成猜测值。"""
+
+        if not end_date:
+            return None
+        return max(0, (datetime.strptime(end_date, "%Y-%m-%d") - datetime.strptime(today, "%Y-%m-%d")).days)

@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import re
 from datetime import datetime
+from html.parser import HTMLParser
 from io import BytesIO
 from typing import Any, Dict, List
 from urllib.parse import urlencode
@@ -16,6 +17,14 @@ class AnnouncementService:
     detail_prefix = "https://static.cninfo.com.cn/"
     # 只检索交易异动公告，避免把业绩、诉讼等普通风险公告误放入监管池。
     keywords = ("股票交易异常波动", "股票交易严重异常波动", "股票交易风险提示", "停牌核查")
+    broker_alert_list = "https://wap.18.cn/article/zygg"
+    broker_alert_root = "https://wap.18.cn"
+    # 来源优先级：交易所公开原文 > 当前监管提示主源 > 上市公司法定披露备源。
+    source_policy = {
+        "exchange_official": {"priority": 1, "label": "交易所官方"},
+        "broker-risk-alert": {"priority": 2, "label": "券商风险提示"},
+        "issuer-disclosure": {"priority": 3, "label": "上市公司法定披露"},
+    }
 
     def _request(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         request = Request(self.endpoint, data=urlencode(payload).encode("utf-8"), headers={
@@ -93,6 +102,7 @@ class AnnouncementService:
 
         if not url:
             return ""
+
         try:
             from pypdf import PdfReader
             request = Request(url, headers={"User-Agent": "Stock-Abnormal/1.0", "Referer": "https://www.cninfo.com.cn/"})
@@ -101,6 +111,98 @@ class AnnouncementService:
             return "\n".join((page.extract_text() or "") for page in reader.pages[:20])
         except Exception:
             return ""
+
+    class _AlertListParser(HTMLParser):
+        """读取 18.cn 重要公告列表中的标题、日期和详情路径。"""
+
+        def __init__(self) -> None:
+            super().__init__()
+            self.items: List[Dict[str, str]] = []
+            self.current: Dict[str, str] = {}
+            self.in_item = False
+            self.in_paragraph = False
+            self.paragraph = ""
+
+        def handle_starttag(self, tag: str, attrs) -> None:
+            values = dict(attrs)
+            if tag == "li" and values.get("url", "").startswith("/article/detail/"):
+                self.current = {"path": values["url"]}
+                self.in_item = True
+            elif tag == "p" and self.in_item:
+                self.in_paragraph = True
+                self.paragraph = ""
+
+        def handle_data(self, data: str) -> None:
+            if self.in_paragraph:
+                self.paragraph += data
+
+        def handle_endtag(self, tag: str) -> None:
+            if tag == "p" and self.in_paragraph:
+                value = self.paragraph.strip()
+                if value:
+                    self.current["title" if "title" not in self.current else "date"] = value
+                self.in_paragraph = False
+            elif tag == "li" and self.in_item:
+                if self.current.get("title") and self.current.get("date"):
+                    self.items.append(self.current)
+                self.current = {}
+                self.in_item = False
+
+    class _TextParser(HTMLParser):
+        """提取详情页正文文本，供关键监管原文匹配。"""
+
+        def __init__(self) -> None:
+            super().__init__()
+            self.parts: List[str] = []
+
+        def handle_data(self, data: str) -> None:
+            text = re.sub(r"\s+", " ", data).strip()
+            if text:
+                self.parts.append(text)
+
+    def query_broker_risk_alerts(self, start_date: str, end_date: str) -> Dict[str, Any]:
+        """获取 18.cn 东方财富证券重要公告中明确提及重点监控证券的提示。"""
+
+        try:
+            request = Request(self.broker_alert_list, headers={"User-Agent": "Mozilla/5.0"})
+            page = urlopen(request, timeout=12).read().decode("utf-8", "replace")
+            parser = self._AlertListParser()
+            parser.feed(page)
+        except Exception as exc:  # noqa: BLE001 - 上游错误由快照任务统一处理
+            return {"items": [], "available": False, "error": str(exc), "source": "东方财富证券 18.cn"}
+
+        items: List[Dict[str, Any]] = []
+        for row in parser.items:
+            date_match = re.search(r"\d{4}-\d{2}-\d{2}", row["date"])
+            code_match = re.search(r"[（(](\d{6})[）)]", row["title"])
+            if not date_match or not code_match or not (start_date <= date_match.group(0) <= end_date):
+                continue
+            url = self.broker_alert_root + row["path"]
+            try:
+                detail_request = Request(url, headers={"User-Agent": "Mozilla/5.0"})
+                detail = urlopen(detail_request, timeout=12).read().decode("utf-8", "replace")
+                body_parser = self._TextParser()
+                body_parser.feed(detail)
+                body = " ".join(body_parser.parts)
+            except Exception as exc:  # noqa: BLE001 - 部分详情失败时禁止悄悄发布不完整结果
+                return {"items": items, "available": False, "error": str(exc), "source": "东方财富证券 18.cn"}
+            # 18.cn 的风险提示可能直接写“列为重点监控证券”，也可能只转述异常交易从严认定。
+            # 这里保留股票风险提示，监控服务再按正文中的严重异常波动文字分类；排除 ETF/基金代码。
+            code = code_match.group(1)
+            if not code.startswith(("0", "2", "3", "6", "8", "9")):
+                continue
+            name_match = re.search(r"关于[“\"](.+?)[（(]" + code + r"[）)]", row["title"])
+            if not name_match:
+                continue
+            items.append({
+                "title": row["title"], "date": date_match.group(0),
+                "stockCode": code, "stockName": name_match.group(1),
+                "url": url, "source": "东方财富证券 18.cn",
+                "sourceType": "broker-risk-alert", "sourceRole": "broker_primary",
+                "sourcePriority": self.source_policy["broker-risk-alert"]["priority"],
+                "sourceLabel": self.source_policy["broker-risk-alert"]["label"], "body": body,
+            })
+        return {"items": items, "available": True, "source": "东方财富证券 18.cn", "sourceUrl": self.broker_alert_list}
 
     def query(self, symbol: str, name: str = "", limit: int = 10) -> Dict[str, Any]:
         symbol = str(symbol or "").strip()
