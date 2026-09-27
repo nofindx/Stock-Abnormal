@@ -82,20 +82,20 @@ class DeviationSnapshot:
 
 @dataclass(frozen=True)
 class AbnormalMonitorRecord:
-    """当前或历史监管监控记录。"""
+    """当前监管监控记录。"""
 
     record_id: str  # 记录唯一标识。
     ts_code: str  # 股票代码。
     stock_name: str  # 股票名称，减少小程序重复查询。
     start_date: date  # 监管期开始日期。
     end_date: Optional[date]  # 监管期结束日期；当前监管记录为空。
-    status: str  # current、pending 或 history。
+    status: str  # current 或 pending；本版本不提供历史监控接口。
     direction: Direction  # 上涨方向或下跌方向。
     source: str  # 记录来源，例如交易所公告、Tushare。
     source_url: Optional[str] = None  # 公告原文链接，允许为空。
     monitor_type: MonitorType = MonitorType.ORDINARY  # 监控池三类中的一种。
     rule_text: str = ""  # 页面展示的完整中文规则说明。
-    remaining_days: Optional[int] = None  # 剩余监控交易日；历史记录为空。
+    remaining_days: Optional[int] = None  # 剩余监控交易日。
     risk_warning: str = ""  # 面向用户的风险提示文本。
 
 

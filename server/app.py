@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 import os
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, quote, urlparse
 
 from .services.market_service import MarketService
 from .services.announcement_service import AnnouncementService
@@ -77,9 +77,35 @@ class ApiHandler(BaseHTTPRequestHandler):
                 data = SERVICE.detail(ts_code)
             elif parsed.path == "/api/predictions":
                 data = SERVICE.predictions(query.get("scope", ["today"])[0])
-            elif parsed.path == "/api/monitor" or parsed.path == "/api/monitor-pool":
+            elif parsed.path == "/api/monitor/announcement":
+                # 严重异动期内的 PDF 由后端缓存并以内联方式返回；出监管后路径立即失效。
+                monitor_key = query.get("key", [""])[0]
+                file_path = OFFICIAL_MONITOR.announcement_pdf_path(monitor_key)
+                if not file_path:
+                    self._respond({"code": 404, "data": None, "message": "公告文件不可用"}, status=404)
+                    return
+                payload = file_path.read_bytes()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/pdf")
+                self.send_header("Content-Length", str(len(payload)))
+                self.send_header("Content-Disposition", "inline")
+                self.send_header("Cache-Control", "private, max-age=3600")
+                self.end_headers()
+                self.wfile.write(payload)
+                return
+            elif parsed.path == "/api/monitor":
                 # GET 只读最近一次成功快照，不启动公告采集或行情扫描。
-                data = OFFICIAL_MONITOR.read(query.get("status", ["current"])[0], query.get("type", ["all"])[0])
+                status = query.get("status", ["current"])[0]
+                if status != "current":
+                    self._respond({"code": 404, "data": None, "message": "接口不存在"}, status=404)
+                    return
+                data = OFFICIAL_MONITOR.read(status, query.get("type", ["all"])[0])
+                # 小程序生产环境通过 callContainer 访问，统一返回可直接打开的公网代理地址。
+                public_base = os.getenv("MONITOR_PUBLIC_BASE_URL", "https://flask-9a5y-319926-10-1496305218.sh.run.tcloudbase.com").rstrip("/")
+                for item in data.get("items", []):
+                    if item.get("pdfCached"):
+                        key = quote(str(item.get("monitorKey") or ""), safe="")
+                        item["sourceUrl"] = f"{public_base}/api/monitor/announcement?key={key}"
             else:
                 self._respond({"code": 404, "data": None, "message": "接口不存在"}, status=404)
                 return

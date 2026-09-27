@@ -20,7 +20,7 @@ TUSHARE_TOKEN=你的token python3 -m server.app
 4. 部署后先访问 `/health`，确认 `tushareConfigured` 为 `true`，再测试 `/api/stocks/search?q=宁德` 和 `/api/monitor?status=current&type=all`。
 5. 小程序通过 `wx.cloud.callContainer` 调用服务，服务名必须与小程序 `app.js` 中的 `cloudService` 一致。
 
-监控池已经独立为公告快照链路：后台以东方财富证券 18.cn 为主源、巨潮资讯为备源，按正文语义分类后原子发布唯一当前快照；用户请求只读取当前快照，不会触发公告采集或全市场行情扫描。系统不接入交易所官方公告接口，也不保存公告 PDF、HTML 或正文文件，只保存必要元数据和 URL。生产环境可使用 `/tmp` 作为低成本临时快照目录；容器重启后无当前快照时会立即补采，已有当前快照则按定时策略运行。
+监控池已经独立为公告快照链路：后台采集东方财富证券 18.cn 主源和巨潮资讯备源，按四态策略原子发布唯一当前快照：两源成功时 18.cn 为主、巨潮辅助验证；18.cn 失败时由巨潮接替；两源都失败时保留旧快照，无旧快照返回错误空态。用户请求只读取当前快照，不会触发公告采集或全市场行情扫描。系统不接入交易所官方公告接口，不保存公告 HTML 或正文文件；严重异动期内的 PDF 仅按记录缓存到 `MONITOR_PDF_DIR`，结束后清理。
 
 ## 接口
 
@@ -29,8 +29,8 @@ TUSHARE_TOKEN=你的token python3 -m server.app
 - `GET /api/stocks/detail?ts_code=300750.SZ`：单股状态、偏离和预警。
 - `GET /api/stocks/announcements?ts_code=300750.SZ`：查询巨潮资讯中的交易所异动及风险提示公告。
 - `GET /api/stocks/300750.SZ/abnormal`：单股接口的 PRD 兼容路径。
-- `GET /api/monitor?status=current&type=all|risk|severe`：读取后端上海时间每日 00:00 后生成的当前公告监控快照；失败时仅在次日 01:00-09:00 每小时重试。请求只做快照筛选，不触发公告采集、行情请求或全市场扫描。更新时间为 `YYYY-MM-DD HH:mm`。仅支持 `status=current`，不提供历史监控接口。
-- `GET /api/monitor-pool?status=current&type=all|risk|severe`：监控池的 PRD 兼容路径，仅支持当前监控。
+- `GET /api/monitor?status=current&type=all|risk|severe`：读取后端上海时间每日 00:00 后生成的当前公告监控快照；失败时仅在次日 01:00-09:00 每小时重试。请求只做快照筛选，不触发公告采集、行情请求或全市场扫描。更新时间为 `YYYY-MM-DD HH:mm`，不提供历史监控接口。
+- `GET /api/monitor/announcement?key=...`：读取当前严重异动期内已缓存的 PDF；记录结束后返回 404。
 - `GET /api/predictions?scope=today|next_day`：当日或次日预测。首次访问或快照过期时立即返回最近快照，并通过 `refreshing=true` 表示后台正在更新。
 - `POST /api/predictions/refresh`：触发指定预测范围的后台刷新，立即返回当前快照；JSON body 为 `{ "scope": "today" }`。客户端应在 `refreshing=true` 时短轮询 GET，避免阻塞等待全市场扫描。
 - `GET /api/market/status`：最近交易日和数据源状态。

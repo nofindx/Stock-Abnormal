@@ -15,6 +15,7 @@ import re
 import sqlite3
 from threading import Event, Lock, Thread
 from typing import Any, Dict, List, Optional
+from urllib.request import Request, urlopen
 
 from .announcement_service import AnnouncementService
 from .tushare_client import TushareClient
@@ -143,6 +144,9 @@ class OfficialMonitorService:
         self.client = client
         self.announcements = announcements or AnnouncementService()
         self.repository = MonitorRepository()
+        # 只缓存当前严重异动期内且可直接下载的 PDF；默认使用容器临时盘，
+        # 可通过 MONITOR_PDF_DIR 指向持久化卷。文件不进入 SQLite，也不写入小程序。
+        self.pdf_dir = Path(os.getenv("MONITOR_PDF_DIR", "/tmp/stock-abnormal/monitor-pdf"))
         self.refreshing = False
         self.last_error = ""
         self._lock = Lock()
@@ -245,6 +249,72 @@ class OfficialMonitorService:
     def _risk_rank(item: Dict[str, Any]) -> int:
         return {"severe-30d": 3, "severe-10d": 2, "ordinary": 1}.get(str(item.get("riskTone")), 0)
 
+    def _pdf_path(self, monitor_key: str) -> Path:
+        """根据监控记录键生成固定 PDF 路径，不接受用户传入的文件名。"""
+
+        safe_key = re.sub(r"[^a-zA-Z0-9_-]", "", str(monitor_key or ""))
+        return self.pdf_dir / f"{safe_key}.pdf"
+
+    def _cache_active_pdfs(self, items: List[Dict[str, Any]], today: str) -> None:
+        """缓存当前严重异动期 PDF，并清理已出监管或已不在当前快照的文件。"""
+
+        try:
+            self.pdf_dir.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            return
+        active_keys = set()
+        for item in items:
+            if item.get("riskTone") not in ("severe-10d", "severe-30d"):
+                continue
+            end_date = str(item.get("monitorEndDate") or "")
+            if end_date and end_date < today:
+                continue
+            monitor_key = str(item.get("monitorKey") or "")
+            source_candidates = [str(item.get("sourceUrl") or "")] + [str(url) for url in item.get("sourceUrls", [])]
+            source_url = next((url for url in source_candidates if re.search(r"\.pdf(?:$|[?#])", url, re.I)), "")
+            if not monitor_key or not source_url or not re.search(r"\.pdf(?:$|[?#])", source_url, re.I):
+                continue
+            path = self._pdf_path(monitor_key)
+            active_keys.add(path.name)
+            if path.exists():
+                continue
+            temporary = path.with_suffix(".part")
+            try:
+                request = Request(source_url, headers={"User-Agent": "Stock-Abnormal/1.0"})
+                content = urlopen(request, timeout=15).read()
+                if not content.startswith(b"%PDF"):
+                    continue
+                temporary.write_bytes(content)
+                temporary.replace(path)
+            except Exception:
+                try:
+                    temporary.unlink(missing_ok=True)
+                except OSError:
+                    pass
+        try:
+            for path in self.pdf_dir.glob("*.pdf"):
+                if path.name not in active_keys:
+                    path.unlink(missing_ok=True)
+            for path in self.pdf_dir.glob("*.part"):
+                path.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+    def announcement_pdf_path(self, monitor_key: str) -> Optional[Path]:
+        """仅允许读取当前监控期内的严重异动 PDF。"""
+
+        snapshot = self.repository.active_snapshot()
+        if not snapshot:
+            return None
+        today = datetime.now(SHANGHAI_TZ).strftime("%Y-%m-%d")
+        item = next((row for row in snapshot.get("items", []) if row.get("monitorKey") == monitor_key), None)
+        if not item or item.get("riskTone") not in ("severe-10d", "severe-30d"):
+            return None
+        if self._is_expired(str(item.get("monitorEndDate") or ""), today):
+            return None
+        path = self._pdf_path(monitor_key)
+        return path if path.is_file() else None
+
     def _collapse_by_stock(self, items: List[Dict[str, Any]], snapshot_date: str) -> List[Dict[str, Any]]:
         """同股同类型重叠时只保留最新记录；同日不同来源仅作为佐证链接附加。"""
 
@@ -310,17 +380,20 @@ class OfficialMonitorService:
         run_id = now.strftime("%Y%m%d%H%M%S%f")
         self.repository.set_state("last_attempt_date", now.strftime("%Y-%m-%d"))
         try:
-            # 覆盖最长 30 个交易日监管窗口及其后 30 个自然日历史留存。
+            # 覆盖最长 30 个交易日监管窗口及其后 30 个自然日的当前记录校验窗口。
             start_date = (now - timedelta(days=90)).strftime("%Y-%m-%d")
             broker_result = self.announcements.query_broker_risk_alerts(start_date, now.strftime("%Y-%m-%d"))
-            if not broker_result.get("available"):
-                raise RuntimeError("18.cn 主源未完整返回")
-            broker_available = True
-            # 巨潮资讯是备源；备源失败不阻塞 18.cn 主源发布。
-            result = self.announcements.query_market(start_date, now.strftime("%Y-%m-%d"))
+            broker_available = bool(broker_result.get("available"))
+            # 两种来源都尝试：18.cn 成功时作为主源，18.cn 失败而巨潮成功时由巨潮接替主源。
+            try:
+                result = self.announcements.query_market(start_date, now.strftime("%Y-%m-%d"))
+            except Exception as exc:  # noqa: BLE001 - 备源错误进入四态决策
+                result = {"items": [], "available": False, "partial": True, "error": str(exc)}
             issuer_available = bool(result.get("available")) and not bool(result.get("partial"))
+            if not broker_available and not issuer_available:
+                raise RuntimeError("18.cn 主源与巨潮资讯备源均不可用")
             parsed_events: List[Dict[str, Any]] = []
-            for announcement in result.get("items", []):
+            for announcement in result.get("items", []) if issuer_available else []:
                 title = announcement["title"]
                 # 一般性的公司风险提示不等于交易所重点监控提示；后者单独使用 18.cn 券商公告源。
                 if "异常波动" not in title:
@@ -352,7 +425,7 @@ class OfficialMonitorService:
                     "contentHash": hashlib.sha256(f"{title}\n{body}".encode("utf-8")).hexdigest(),
                     "monitorPeriod": f"公告日起至第 {MONITOR_WINDOW_OFFSET_DAYS} 个自然日",
                 })
-            for alert in broker_result.get("items", []):
+            for alert in broker_result.get("items", []) if broker_available else []:
                 # 18.cn 是主源；只有正文满足风险提示或 10/30 日阈值语义才进入监控池。
                 if not self._is_accepted_broker_alert(alert["title"], alert.get("body", "")):
                     continue
@@ -376,35 +449,41 @@ class OfficialMonitorService:
                     "contentHash": hashlib.sha256(alert["body"].encode("utf-8")).hexdigest(),
                     "monitorPeriod": f"提示发布日期次日起至第 {MONITOR_WINDOW_OFFSET_DAYS} 个自然日",
                 })
-            # 18.cn 页面只展示滚动的最近条目；保留上次成功快照中的有效窗口，避免来源下滚造成记录消失。
+            # 18.cn 页面只展示滚动的最近条目；仅在 18.cn 成功时保留旧窗口，避免主源滚动造成记录消失。
             previous_snapshot = self.repository.active_snapshot() or {}
             previous_items = [
                 item for item in previous_snapshot.get("items", [])
                 if str(item.get("monitorEndDate") or "") >= (now - timedelta(days=30)).strftime("%Y-%m-%d")
             ]
-            parsed = self._collapse_by_stock(parsed_events + previous_items, now.strftime("%Y-%m-%d"))
+            merge_items = parsed_events + previous_items if broker_available else parsed_events
+            parsed = self._collapse_by_stock(merge_items, now.strftime("%Y-%m-%d"))
+            self._cache_active_pdfs(parsed, now.strftime("%Y-%m-%d"))
             updated_at = datetime.now(SHANGHAI_TZ).strftime("%Y-%m-%d %H:%M")
+            active_source = "broker_primary" if broker_available else "issuer_disclosure_backup"
+            source_label = "18.cn 主源" if broker_available else "巨潮资讯备源（主源降级接替）"
             snapshot = {
                 "snapshotId": run_id, "snapshotDate": now.strftime("%Y-%m-%d"),
                 "asOfTradeDate": "",
                 "startedAt": started_at, "updatedAt": updated_at, "items": parsed,
                 "refreshing": False, "error": "",
                 "dataQuality": {
-                    "source": "东方财富证券 18.cn 主源 + 巨潮资讯备源",
+                    "source": source_label,
                     "announcementStatus": "source-specific",
                     "verifiedSources": ["东方财富证券 18.cn", "巨潮资讯"],
                     "sourcePolicy": [
-                        {"role": "broker_primary", "label": "18.cn 主源", "priority": 1, "status": "东方财富证券 18.cn"},
-                        {"role": "issuer_disclosure_backup", "label": "巨潮资讯备源", "priority": 2, "status": "巨潮资讯"},
+                        {"role": "broker_primary", "label": "18.cn 主源", "priority": 1, "status": "available" if broker_available else "degraded"},
+                        {"role": "issuer_disclosure_backup", "label": "巨潮资讯备源", "priority": 2, "status": "available" if issuer_available else "degraded"},
                     ],
                     "sourceHealth": {
                         "brokerPrimary": "available" if broker_available else "degraded",
                         "issuerBackup": "available" if issuer_available else "degraded",
                         "brokerError": "" if broker_available else str(broker_result.get("error") or "18.cn 未完整返回"),
+                        "issuerError": "" if issuer_available else str(result.get("error") or "巨潮资讯未完整返回"),
                     },
+                    "activeSource": active_source,
                     "isOfficialMonitorPeriod": False,
                     "periodCalculation": f"起始日后 {MONITOR_WINDOW_OFFSET_DAYS} 个自然日为结束日；为产品监控口径，非交易所法定期限",
-                    "coverage": "18.cn 当前公开公告列表，巨潮资讯作为补充佐证",
+                    "coverage": "18.cn 正常时为主源；18.cn 不可用时由巨潮资讯接替；同源记录按股票和风险类型取最新",
                 },
             }
             self.repository.publish(snapshot, parsed_events, run_id)
@@ -434,8 +513,7 @@ class OfficialMonitorService:
         items = []
         for item in snapshot.get("items", []):
             end_date = str(item.get("monitorEndDate") or "")
-            ended = self._is_history(end_date, today)
-            if ended:
+            if self._is_expired(end_date, today):
                 continue
             if monitor_type == "risk" and item.get("riskTone") != "ordinary":
                 continue
@@ -446,7 +524,10 @@ class OfficialMonitorService:
                 if item.get("riskTone") != expected:
                     continue
             remaining = self._remaining_natural_days(end_date, today)
-            items.append({**item, "isHistory": ended, "days": 0 if ended else remaining})
+            row = {**item, "days": remaining}
+            if item.get("riskTone") in ("severe-10d", "severe-30d"):
+                row["pdfCached"] = bool(self.announcement_pdf_path(str(item.get("monitorKey") or "")))
+            items.append(row)
         # 明确监管日期按自然日计算；未公开结束日的记录排在已确认日期之后。
         items.sort(key=lambda item: (item.get("days") is None, item.get("days") if item.get("days") is not None else 9999, item.get("announcementDate", "")))
         return {
@@ -458,8 +539,8 @@ class OfficialMonitorService:
         }
 
     @staticmethod
-    def _is_history(end_date: str, today: str) -> bool:
-        """结束日期当天仍为当前监控，次日才进入历史。"""
+    def _is_expired(end_date: str, today: str) -> bool:
+        """结束日期当天仍为当前监控，次日才从当前列表移除。"""
 
         return bool(end_date and end_date < today)
 

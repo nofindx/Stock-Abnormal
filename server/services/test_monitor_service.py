@@ -38,10 +38,10 @@ class MonitorWindowTests(unittest.TestCase):
         self.assertEqual(self.service._monitor_period("2026-09-23", "issuer-disclosure"), ("2026-09-23", "2026-10-14"))
         self.assertEqual(self.service._monitor_period("2026-09-23", "broker-risk-alert"), ("2026-09-24", "2026-10-15"))
 
-    def test_end_date_is_current_zero_days_and_next_day_is_history(self):
-        self.assertFalse(self.service._is_history("2026-09-28", "2026-09-28"))
+    def test_end_date_is_current_zero_days_and_next_day_is_removed(self):
+        self.assertFalse(self.service._is_expired("2026-09-28", "2026-09-28"))
         self.assertEqual(self.service._remaining_natural_days("2026-10-14", "2026-09-27"), 17)
-        self.assertTrue(self.service._is_history("2026-09-28", "2026-09-29"))
+        self.assertTrue(self.service._is_expired("2026-09-28", "2026-09-29"))
 
     def test_same_type_overlapping_period_uses_latest_record_but_different_types_remain_separate(self):
         risk_first = self.event("2026-09-23", "2026-10-14", "ordinary")
@@ -91,20 +91,43 @@ class MonitorWindowTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.service.read("history", "all")
 
-    def test_backup_is_not_called_when_primary_is_unavailable(self):
+    def test_backup_becomes_primary_when_primary_is_unavailable(self):
         announcements = Mock()
         announcements.query_broker_risk_alerts.return_value = {
             "available": False, "items": [], "error": "primary unavailable"
         }
+        announcements.query_market.return_value = {
+            "available": True, "partial": False, "items": [{
+                "title": "股票交易严重异常波动公告", "date": "2026-09-27", "stockCode": "000993",
+                "stockName": "闽东电力", "url": "https://static.cninfo.com.cn/a.PDF",
+                "source": "巨潮资讯",
+            }]
+        }
+        announcements.extract_pdf_text.return_value = "连续10个交易日涨幅偏离值累计达到100%"
         service = OfficialMonitorService(client=object(), announcements=announcements)
         try:
             result = service.refresh()
-            self.assertIn("18.cn 主源", result["error"])
-            announcements.query_market.assert_not_called()
+            self.assertTrue(result["started"])
+            announcements.query_market.assert_called_once()
+            response = service.read("current", "all")
+            self.assertFalse(response["refreshing"])
+            self.assertEqual(len(response["items"]), 1)
+            self.assertEqual(response["dataQuality"]["activeSource"], "issuer_disclosure_backup")
+        finally:
+            service.close()
+
+    def test_both_sources_unavailable_keep_old_snapshot_or_return_empty_error(self):
+        announcements = Mock()
+        announcements.query_broker_risk_alerts.return_value = {"available": False, "items": [], "error": "primary down"}
+        announcements.query_market.return_value = {"available": False, "partial": True, "items": [], "error": "backup down"}
+        service = OfficialMonitorService(client=object(), announcements=announcements)
+        try:
+            result = service.refresh()
+            self.assertIn("均不可用", result["error"])
             response = service.read("current", "all")
             self.assertFalse(response["refreshing"])
             self.assertEqual(response["items"], [])
-            self.assertIn("18.cn 主源", response["error"])
+            self.assertIn("均不可用", response["error"])
         finally:
             service.close()
 
