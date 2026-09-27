@@ -27,7 +27,12 @@ except ImportError:
 
 
 SHANGHAI_TZ = ZoneInfo("Asia/Shanghai") if ZoneInfo else timezone(timedelta(hours=8))
-MONITOR_WINDOW_OFFSET_DAYS = 21  # 起始日加 21 个自然日；产品监控口径，不代表法定期限。
+# 监控窗口按交易日推进，不把 3 日普通异动写入监管池。
+MONITOR_WINDOW_TRADING_DAYS = {
+    "ordinary": 10,       # 18.cn 交易所风险提示的默认监控窗口
+    "severe-10d": 10,     # 严重一档：10 个后续交易日
+    "severe-30d": 30,     # 严重二档：30 个后续交易日
+}
 
 
 class MonitorRepository:
@@ -235,15 +240,45 @@ class OfficialMonitorService:
 
         return bool(OfficialMonitorService._classify_monitor_text(title, body)[1])
 
-    @staticmethod
-    def _monitor_period(source_date: str, source_type: str) -> tuple[str, str]:
-        """将来源日期转换为截图口径；券商提示次日生效，公告以公告日生效。"""
+    def _trade_dates(self, source_date: str, days: int) -> List[str]:
+        """读取交易日历；数据源暂时不可用时退化为工作日，绝不把自然日冒充交易日。"""
 
-        start = datetime.strptime(source_date, "%Y-%m-%d")
-        if source_type == "broker-risk-alert":
-            start += timedelta(days=1)
-        end = start + timedelta(days=MONITOR_WINDOW_OFFSET_DAYS)
-        return start.strftime("%Y-%m-%d"), end.strftime("%Y-%m-%d")
+        start = datetime.strptime(source_date, "%Y-%m-%d").date()
+        end = start + timedelta(days=max(45, days * 3 + 30))
+        try:
+            frame = self.client.trade_cal(start.strftime("%Y%m%d"), end.strftime("%Y%m%d"))
+            rows = frame.to_dict("records") if hasattr(frame, "to_dict") else frame
+            dates = []
+            for row in rows or []:
+                if int(row.get("is_open", 0)) != 1:
+                    continue
+                value = str(row.get("cal_date", "")).replace("-", "")
+                if len(value) == 8:
+                    dates.append(f"{value[:4]}-{value[4:6]}-{value[6:8]}")
+            if dates:
+                return sorted(set(dates))
+        except Exception:  # noqa: BLE001 - 交易日历降级不应阻断公告快照
+            pass
+        # 本地单测、Tushare 暂时不可用时只采用周一至周五，后续成功快照会用正式日历校正。
+        return [
+            (start + timedelta(days=offset)).strftime("%Y-%m-%d")
+            for offset in range((end - start).days + 1)
+            if (start + timedelta(days=offset)).weekday() < 5
+        ]
+
+    def _monitor_period(self, source_date: str, source_type: str, risk_tone: str = "ordinary") -> tuple[str, str]:
+        """按附件口径计算监管期：起点取公告日所在或其后的首个交易日，结束为 N 个后续交易日。"""
+
+        window = MONITOR_WINDOW_TRADING_DAYS.get(risk_tone, MONITOR_WINDOW_TRADING_DAYS["ordinary"])
+        dates = self._trade_dates(source_date, window)
+        if not dates:
+            raise ValueError(f"无法计算监管期：{source_date}")
+        # 18.cn 风险提示通常在收盘后发布，监管期从其后的首个交易日开始；
+        # 巨潮严重异动公告按公告日期所在交易日开始。
+        comparator = (lambda value: value > source_date) if source_type == "broker-risk-alert" else (lambda value: value >= source_date)
+        start_index = next((index for index, value in enumerate(dates) if comparator(value)), 0)
+        end_index = min(start_index + window, len(dates) - 1)
+        return dates[start_index], dates[end_index]
 
     @staticmethod
     def _risk_rank(item: Dict[str, Any]) -> int:
@@ -357,7 +392,7 @@ class OfficialMonitorService:
                     "monitorKey": hashlib.sha256(str(item["sourceId"]).encode("utf-8")).hexdigest()[:24],
                     "sourceUrls": [item["sourceUrl"]] if item.get("sourceUrl") else [],
                     "sourceCount": 1 if item.get("sourceUrl") else 0,
-                    "monitorPeriod": f"以公告记录起始日后 {MONITOR_WINDOW_OFFSET_DAYS} 个自然日为结束日；非交易所法定期限",
+                    "monitorPeriod": f"起始日起至第 {MONITOR_WINDOW_TRADING_DAYS.get(item.get('riskTone'), 10)} 个后续交易日",
                 })
         for item in selected_items:
             if item.get("riskTone") == "ordinary":
@@ -405,7 +440,7 @@ class OfficialMonitorService:
                     continue
                 if not announcement.get("date"):
                     continue
-                monitor_start, monitor_end = self._monitor_period(announcement["date"], "issuer-disclosure")
+                monitor_start, monitor_end = self._monitor_period(announcement["date"], "issuer-disclosure", risk_tone)
                 source_key = announcement["url"] or f"{announcement['stockCode']}:{announcement['date']}:{title}"
                 source_id = hashlib.sha256(source_key.encode("utf-8")).hexdigest()[:24]
                 parsed_events.append({
@@ -414,7 +449,7 @@ class OfficialMonitorService:
                     "title": title, "announcementDate": announcement["date"],
                     "monitorStart": monitor_start[5:], "monitorStartDate": monitor_start,
                     "monitorEnd": monitor_end[5:] if monitor_end else "待核实",
-                    "monitorEndDate": monitor_end, "days": None, "daysTotal": MONITOR_WINDOW_OFFSET_DAYS + 1,
+                    "monitorEndDate": monitor_end, "days": None, "daysTotal": MONITOR_WINDOW_TRADING_DAYS.get(risk_tone, 10) + 1,
                     "monitorDates": [],
                     "monitorType": monitor_type, "riskTone": risk_tone,
                     "isST": "ST" in announcement["stockName"].upper(),
@@ -423,15 +458,15 @@ class OfficialMonitorService:
                     "sourcePriority": 2, "sourceLabel": "巨潮资讯备源",
                     "confirmationStatus": "issuer-disclosure-confirmed",
                     "contentHash": hashlib.sha256(f"{title}\n{body}".encode("utf-8")).hexdigest(),
-                    "monitorPeriod": f"公告日起至第 {MONITOR_WINDOW_OFFSET_DAYS} 个自然日",
+                    "monitorPeriod": f"起始日起至第 {MONITOR_WINDOW_TRADING_DAYS.get(risk_tone, 10)} 个后续交易日",
                 })
             for alert in broker_result.get("items", []) if broker_available else []:
                 # 18.cn 是主源；只有正文满足风险提示或 10/30 日阈值语义才进入监控池。
                 if not self._is_accepted_broker_alert(alert["title"], alert.get("body", "")):
                     continue
-                monitor_start, monitor_end = self._monitor_period(alert["date"], alert["sourceType"])
-                # 页面脚本中的无关数字不单独触发，分类已在正文语义规则中完成。
                 monitor_type, risk_tone = self._broker_monitor_type(alert["title"], alert.get("body", ""))
+                monitor_start, monitor_end = self._monitor_period(alert["date"], alert["sourceType"], risk_tone)
+                # 页面脚本中的无关数字不单独触发，分类已在正文语义规则中完成。
                 source_id = hashlib.sha256(alert["url"].encode("utf-8")).hexdigest()[:24]
                 parsed_events.append({
                     "sourceId": source_id, "monitorKey": source_id,
@@ -439,7 +474,7 @@ class OfficialMonitorService:
                     "title": alert["title"], "announcementDate": alert["date"],
                     "monitorStart": monitor_start[5:], "monitorStartDate": monitor_start,
                     "monitorEnd": monitor_end[5:], "monitorEndDate": monitor_end,
-                    "days": None, "daysTotal": MONITOR_WINDOW_OFFSET_DAYS + 1, "monitorDates": [],
+                    "days": None, "daysTotal": MONITOR_WINDOW_TRADING_DAYS.get(risk_tone, 10) + 1, "monitorDates": [],
                     "monitorType": monitor_type, "riskTone": risk_tone,
                     "isST": "ST" in alert["stockName"].upper(),
                     "source": alert["source"], "sourceUrl": alert["url"] if risk_tone != "ordinary" else "",
@@ -447,7 +482,7 @@ class OfficialMonitorService:
                     "sourcePriority": alert["sourcePriority"], "sourceLabel": alert["sourceLabel"],
                     "confirmationStatus": "broker-notice-quotes-exchange-status",
                     "contentHash": hashlib.sha256(alert["body"].encode("utf-8")).hexdigest(),
-                    "monitorPeriod": f"提示发布日期次日起至第 {MONITOR_WINDOW_OFFSET_DAYS} 个自然日",
+                    "monitorPeriod": f"起始日起至第 {MONITOR_WINDOW_TRADING_DAYS.get(risk_tone, 10)} 个后续交易日",
                 })
             # 18.cn 页面只展示滚动的最近条目；仅在 18.cn 成功时保留旧窗口，避免主源滚动造成记录消失。
             previous_snapshot = self.repository.active_snapshot() or {}
@@ -482,7 +517,7 @@ class OfficialMonitorService:
                     },
                     "activeSource": active_source,
                     "isOfficialMonitorPeriod": False,
-                    "periodCalculation": f"起始日后 {MONITOR_WINDOW_OFFSET_DAYS} 个自然日为结束日；为产品监控口径，非交易所法定期限",
+                    "periodCalculation": "监控期按交易日计算；3日普通异动不进入监控池，10日严重异动取10个后续交易日，30日严重异动取30个后续交易日",
                     "coverage": "18.cn 正常时为主源；18.cn 不可用时由巨潮资讯接替；同源记录按股票和风险类型取最新",
                 },
             }

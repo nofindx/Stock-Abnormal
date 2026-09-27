@@ -1,6 +1,7 @@
 import os
 import tempfile
 import unittest
+from datetime import date, timedelta
 from unittest.mock import Mock
 
 from server.services.monitor_service import OfficialMonitorService
@@ -34,8 +35,17 @@ class MonitorWindowTests(unittest.TestCase):
         }
 
     def test_reference_window_uses_next_day_for_broker_alert_and_announcement_day_for_severe_notice(self):
+        dates = [
+            (date(2026, 9, 1) + timedelta(days=index)).strftime("%Y-%m-%d")
+            for index in range(60)
+            if (date(2026, 9, 1) + timedelta(days=index)).weekday() < 5
+            and not date(2026, 9, 1) + timedelta(days=index) in {
+                date(2026, 10, day) for day in range(1, 8)
+            }
+        ]
+        self.service._trade_dates = lambda source_date, days: dates
         self.assertEqual(self.service._monitor_period("2026-09-22", "broker-risk-alert"), ("2026-09-23", "2026-10-14"))
-        self.assertEqual(self.service._monitor_period("2026-09-23", "issuer-disclosure"), ("2026-09-23", "2026-10-14"))
+        self.assertEqual(self.service._monitor_period("2026-09-23", "issuer-disclosure", "severe-10d"), ("2026-09-23", "2026-10-14"))
         self.assertEqual(self.service._monitor_period("2026-09-23", "broker-risk-alert"), ("2026-09-24", "2026-10-15"))
 
     def test_end_date_is_current_zero_days_and_next_day_is_removed(self):
@@ -58,6 +68,15 @@ class MonitorWindowTests(unittest.TestCase):
         self.assertEqual(severe_result["monitorEndDate"], "2026-10-14")
 
     def test_reference_stocks_have_the_attachment_periods(self):
+        dates = [
+            (date(2026, 9, 1) + timedelta(days=index)).strftime("%Y-%m-%d")
+            for index in range(60)
+            if (date(2026, 9, 1) + timedelta(days=index)).weekday() < 5
+            and not date(2026, 9, 1) + timedelta(days=index) in {
+                date(2026, 10, day) for day in range(1, 8)
+            }
+        ]
+        self.service._trade_dates = lambda source_date, days: dates
         periods = {
             "五洲医疗": self.service._monitor_period("2026-09-22", "broker-risk-alert"),
             "闽东电力": self.service._monitor_period("2026-09-22", "broker-risk-alert"),

@@ -4,8 +4,9 @@ const { getMonitor } = require('../../utils/api')
 Page({
   data: { type: 'all', hideST: false, items: [], rawItems: [], visibleCount: 0, updatedAt: '', loading: false, refreshing: false, error: '', skeletonRows: [0, 1, 2, 3], types: [{ key: 'all', label: '全部' }, { key: 'risk', label: '风险提示' }, { key: 'severe', label: '严重异动' }] },
   onLoad() { this.restoreCache(); this.loadData() },
-  onPullDownRefresh() { this.loadData().finally(() => wx.stopPullDownRefresh()) },
+  onPullDownRefresh() { this.refreshSnapshot().finally(() => wx.stopPullDownRefresh()) },
   selectType(event) {
+    this.requestSeq = (this.requestSeq || 0) + 1
     if (this.pollTimer) clearTimeout(this.pollTimer)
     this.pollAttempts = 0
     this.setData({ type: event.currentTarget.dataset.type }, () => { if (!this.restoreCache()) this.setData({ items: [], rawItems: [], updatedAt: '' }); this.loadData() })
@@ -16,15 +17,15 @@ Page({
     this.setData({ hideST }, () => this.applyFilters(this.data.rawItems || []))
   },
   refreshSnapshot() {
-    if (this.data.loading || this.data.refreshing) return
+    if (this.data.loading || this.data.refreshing) return this.loadPromise || Promise.resolve()
     this.pollAttempts = 0
     if (this.pollTimer) clearTimeout(this.pollTimer)
-    this.loadData()
+    return this.loadData()
   },
-  cacheKey() { return `monitorSnapshot:v3:current:${this.data.type}` },
+  cacheKey(type = this.data.type) { return `monitorSnapshot:v3:current:${type}` },
   restoreCache() {
     try {
-      const cached = wx.getStorageSync(this.cacheKey())
+      const cached = wx.getStorageSync(this.cacheKey(this.data.type))
       if (!cached || !Array.isArray(cached.items)) return false
       this.setData({ rawItems: cached.items, updatedAt: cached.updatedAt || '', error: '' })
       this.applyFilters(cached.items)
@@ -34,27 +35,34 @@ Page({
       return false
     }
   },
-  saveCache(result) {
-    try { wx.setStorageSync(this.cacheKey(), { items: result.items || [], updatedAt: result.updatedAt || '' }) } catch (error) {}
+  saveCache(result, type = this.data.type) {
+    try { wx.setStorageSync(this.cacheKey(type), { items: result.items || [], updatedAt: result.updatedAt || '' }) } catch (error) {}
   },
   loadData() {
-    if (this.data.loading) return Promise.resolve()
+    if (this.data.loading) return this.loadPromise || Promise.resolve()
+    const requestType = this.data.type
+    const requestId = (this.requestSeq || 0) + 1
+    this.requestSeq = requestId
     this.waitStartedAt = Date.now()
     this.setData({ loading: true, error: '' })
-    return getMonitor({ status: 'current', type: this.data.type }).then((result) => {
+    const request = getMonitor({ status: 'current', type: requestType }).then((result) => {
+      // 筛选切换或新请求已经发生时，丢弃晚返回的旧响应，不能覆盖当前列表。
+      if (requestId !== this.requestSeq || requestType !== this.data.type) return
       const items = result.items || []
       const waiting = Boolean(result.refreshing) && !items.length
       // 冷启动期间不覆盖本地成功快照，避免缓存内容被空响应清掉。
       if (!waiting) {
-        this.saveCache(result)
+        this.saveCache(result, requestType)
         this.setData({ rawItems: items, updatedAt: result.updatedAt || '' })
         this.applyFilters(items)
       }
       this.setData({ loading: waiting && !(this.data.rawItems || []).length, error: result.error || '', refreshing: Boolean(result.refreshing) })
       if (result.refreshing) this.schedulePoll()
     }).catch(() => {
-      this.setData({ loading: false, error: '监控数据暂时不可用，请稍后重试' })
+      if (requestId === this.requestSeq && requestType === this.data.type) this.setData({ loading: false, error: '监控数据暂时不可用，请稍后重试' })
     })
+    this.loadPromise = request.finally(() => { if (requestId === this.requestSeq) this.loadPromise = null })
+    return this.loadPromise
   },
   schedulePoll() {
     if (this.pollTimer) clearTimeout(this.pollTimer)
@@ -63,12 +71,15 @@ Page({
       this.setData({ loading: false, refreshing: false, error: this.data.items.length ? '今日快照更新超时，当前仍显示上次成功数据' : '今日监控快照获取超时，请稍后重试' })
       return
     }
+    const pollType = this.data.type
+    const pollRequestId = this.requestSeq
     this.pollTimer = setTimeout(() => {
-      getMonitor({ status: 'current', type: this.data.type }).then((result) => {
+      getMonitor({ status: 'current', type: pollType }).then((result) => {
+        if (pollRequestId !== this.requestSeq || pollType !== this.data.type) return
         const items = result.items || []
         const waiting = Boolean(result.refreshing) && !items.length
         if (!waiting) {
-          this.saveCache(result)
+          this.saveCache(result, pollType)
           this.setData({ rawItems: items, updatedAt: result.updatedAt || '' })
           this.applyFilters(items)
         }
@@ -81,8 +92,9 @@ Page({
   applyFilters(items) {
     let filtered = items.map(item => ({
       ...item,
-      // 501/513/920 等非重点标的仍展示，但降低名称、代码和日期信息的视觉权重。
-      mutedSecurity: /^(1|5|9)/.test(String(item.symbol || '')),
+      // 所有标的都保留；仅主板、创业板、科创板以外的标的降低视觉权重。
+      // 例如 501、513、159、920 等基金、ETF、北交所标的仍可查看风险类型和公告。
+      mutedSecurity: !isCoreBoardSymbol(item.symbol),
       riskTone: item.riskTone || (item.monitorType === '30日严重异动' ? 'severe-30d' : item.monitorType === '10日严重异动' ? 'severe-10d' : 'ordinary')
     }))
     if (this.data.hideST) filtered = filtered.filter(item => !item.isST && !String(item.name || '').toUpperCase().includes('ST'))
@@ -109,3 +121,9 @@ Page({
     if (this.pollTimer) clearTimeout(this.pollTimer)
   }
 })
+
+// 沪深主板、创业板、科创板保持正常强调；其余证券仅做弱化展示，不参与过滤。
+function isCoreBoardSymbol(symbol) {
+  const code = String(symbol || '').match(/\d{6}/)?.[0] || ''
+  return /^(000|001|002|003|300|301|600|601|603|605|688)/.test(code)
+}

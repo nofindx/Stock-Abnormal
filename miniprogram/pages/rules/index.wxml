@@ -2,9 +2,9 @@
   <view class="rules-section">
     <view class="rules-heading">异动规则</view>
     <view class="threshold-card">
-      <view class="threshold-row"><view><text class="threshold-name">主板（沪 / 深）</text><text class="threshold-values">3日 ±20% · 10日 +100% / −50% · 30日 +200% / −70%</text></view><text class="same-count">同向 4 次</text></view>
-      <view class="threshold-row"><view><text class="threshold-name">创业板</text><text class="threshold-values">3日 ±30% · 10日 +100% / −50% · 30日 +200% / −70%</text></view><text class="same-count">同向 3 次</text></view>
-      <view class="threshold-row"><view><text class="threshold-name">科创板</text><text class="threshold-values">3日 ±30% · 10日 +100% / −50% · 30日 +200% / −70%</text></view><text class="same-count">同向 3 次</text></view>
+      <view class="threshold-row"><view><text class="threshold-name">主板（沪 / 深）</text><text class="threshold-values">3交易日 ±20% · 10交易日 +100% / −50% · 30交易日 +200% / −70%</text></view><text class="same-count">同向 4 次</text></view>
+      <view class="threshold-row"><view><text class="threshold-name">创业板</text><text class="threshold-values">3交易日 ±30% · 10交易日 +100% / −50% · 30交易日 +200% / −70%</text></view><text class="same-count">同向 3 次</text></view>
+      <view class="threshold-row"><view><text class="threshold-name">科创板</text><text class="threshold-values">3交易日 ±30% · 10交易日 +100% / −50% · 30交易日 +200% / −70%</text></view><text class="same-count">同向 3 次</text></view>
       <view class="threshold-row"><view><text class="threshold-name">北交所</text><text class="threshold-values">3日 ±40% · 10日 +150% / −60% · 30日 +300% / −75%</text></view><text class="same-count">同向 3 次</text></view>
     </view>
     <view class="rules-version">阈值以交易所最新规则为准 · 核对日期 2026-09-27</view>
@@ -20,7 +20,7 @@
     <view class="rules-heading">计算口径</view>
     <view class="rules-copy">10 日窗口使用最近 11 条有效交易日 K，30 日窗口使用最近 31 条。停牌、无效价格与缺失指数不做 0 填充。</view>
     <view class="rules-copy">普通异动按连续 3 个交易日收盘价偏离累计计算；同向次数按最近 10 个交易日滚动统计，上涨与下跌分开计数、不会相互抵消。</view>
-    <view class="rules-copy">交易所公布异动或股票复牌后，监控期自次一交易日起重新计算。特殊状态以交易所最新公告为准。</view>
+    <view class="rules-copy">监控池不纳入 3 日普通异动，只纳入交易所风险提示、10 日严重异动和 30 日严重异动。监控期按交易日计算：18.cn 从提示日后的首个交易日开始，巨潮严重异动公告从公告日所在交易日开始。</view>
   </view>
 
   <view class="rules-section rules-risk">
