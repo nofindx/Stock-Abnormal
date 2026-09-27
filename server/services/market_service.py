@@ -24,7 +24,9 @@ from .tushare_client import TushareClient, TushareUnavailable
 INDEX_BY_MARKET = {"SSE": "000001.SH", "SZSE": "399001.SZ", "BSE": "899050.BJ"}
 BOARD_BY_MARKET = {"主板": Board.MAIN, "创业板": Board.CHINEXT, "科创板": Board.STAR, "北交所": Board.BSE}
 SHANGHAI_TZ = ZoneInfo("Asia/Shanghai") if ZoneInfo else timezone(timedelta(hours=8))
-SNAPSHOT_INTERVAL_SECONDS = 60
+SNAPSHOT_CHECK_INTERVAL_SECONDS = 60
+DAILY_SNAPSHOT_HOUR = 16
+DAILY_SNAPSHOT_MINUTE = 30
 
 
 def _date(value: Any) -> date:
@@ -62,6 +64,7 @@ class MarketService:
         self._prediction_locks = {"today": Lock(), "next_day": Lock()}
         self._prediction_refreshing = set()
         self._prediction_last_error: Dict[str, str] = {}
+        self._prediction_trade_date: Dict[str, str] = {}
         self._prediction_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="prediction")
         self._realtime = RealtimeQuoteClient()
         # V1 不接历史数据库，容器内保存最近一次监控快照；候选消失后自动进入历史。
@@ -75,20 +78,37 @@ class MarketService:
         self._snapshot_thread.start()
 
     def _snapshot_loop(self) -> None:
-        """按固定周期预热预测和监控快照，用户请求只读取缓存结果。"""
+        """每日定点生成监控快照，失败时在后台重试，用户请求只读取成功结果。"""
 
         # 让 HTTP 服务先完成监听，再在后台开始首次快照，避免冷启动阻塞健康检查。
         if self._snapshot_stop.wait(0.2):
             return
         while not self._snapshot_stop.is_set():
             try:
-                self.predictions("today")
-                self.predictions("next_day")
-                self._schedule_monitor_refresh("current", "all")
+                self._run_daily_snapshot_if_due()
             except Exception:
-                # 单次上游失败不应终止定时线程；下一周期继续尝试并由接口返回旧快照。
+                # 单次上游失败不应终止定时线程；下一检查周期继续尝试。
                 pass
-            self._snapshot_stop.wait(SNAPSHOT_INTERVAL_SECONDS)
+            self._snapshot_stop.wait(SNAPSHOT_CHECK_INTERVAL_SECONDS)
+
+    def _run_daily_snapshot_if_due(self) -> None:
+        """交易日收盘后定点生成一次；没有成功快照时启动后仍会补算最近交易日。"""
+
+        now = datetime.now(SHANGHAI_TZ)
+        latest = self.client.latest_trade_date()
+        cached = self._monitor_cache.get(("current", "all"))
+        cached_trade_date = cached[1].get("tradeDate") if cached else ""
+        if cached_trade_date == latest:
+            return
+        # 当天交易日必须等到收盘后的定点；周末或服务冷启动则直接补算最近交易日。
+        is_today_trade_date = latest == now.strftime("%Y%m%d")
+        if is_today_trade_date and (now.hour, now.minute) < (DAILY_SNAPSHOT_HOUR, DAILY_SNAPSHOT_MINUTE):
+            return
+        with self._monitor_lock:
+            if ("current", "all") in self._monitor_refreshing:
+                return
+        self._start_prediction_refresh("today")
+        self._schedule_monitor_refresh("current", "all")
 
     def close(self) -> None:
         """停止后台快照线程，供测试和进程优雅退出使用。"""
@@ -329,6 +349,7 @@ class MarketService:
         output = result[:100]
         # 更新时间以扫描完成为准，避免把后台计算耗时误算进快照年龄。
         self._prediction_cache[scope] = (datetime.now(SHANGHAI_TZ), output)
+        self._prediction_trade_date[scope] = latest
         return output
 
     def _refresh_prediction_worker(self, scope: str) -> None:
@@ -342,8 +363,6 @@ class MarketService:
         finally:
             with self._prediction_locks[scope]:
                 self._prediction_refreshing.discard(scope)
-            if scope == "today":
-                self._schedule_monitor_refresh("current", "all")
 
     def _start_prediction_refresh(self, scope: str) -> bool:
         """幂等地启动后台刷新，返回本次是否新启动任务。"""
@@ -371,6 +390,7 @@ class MarketService:
         return {
             "scope": scope,
             "items": items,
+            "tradeDate": self._prediction_trade_date.get(scope, ""),
             "updatedAt": updated_at,
             "refreshing": scope in self._prediction_refreshing,
             "error": self._prediction_last_error.get(scope, ""),
@@ -389,7 +409,7 @@ class MarketService:
         # 监控池只读取预测快照，不在用户请求链路中同步扫描全市场。
         prediction = self.predictions("today")
         items_source = prediction.get("items", [])
-        latest = self.client.latest_trade_date() if items_source else ""
+        latest = prediction.get("tradeDate") or (items_source[0].get("tradeDate") if items_source else "")
         future_dates = self._future_trade_date_values(latest, 30) if latest else []
         candidates: Dict[str, Dict[str, Any]] = {}
         for item in items_source:
@@ -453,9 +473,11 @@ class MarketService:
         return {
             "tab": status,
             "items": items,
-            "updatedAt": datetime.now(SHANGHAI_TZ).strftime("%H:%M:%S"),
+            "tradeDate": latest,
+            "updatedAt": datetime.now(SHANGHAI_TZ).strftime("%Y-%m-%d %H:%M:%S"),
             "refreshing": bool(prediction.get("refreshing")),
-            "dataQuality": {"source": "Tushare 日线 + 腾讯盘中行情 + 规则计算", "isOfficialMonitorPeriod": False, "historyPersistence": "memory", "monitorPeriod": "按规则窗口推算"},
+            "error": prediction.get("error", ""),
+            "dataQuality": {"source": "Tushare 日线主源 + 腾讯/新浪/东方财富行情辅助校验 + 规则计算", "isOfficialMonitorPeriod": False, "historyPersistence": "memory", "monitorPeriod": "按规则窗口推算"},
         }
 
     def _schedule_monitor_refresh(self, status: str, monitor_type: str) -> bool:
@@ -477,6 +499,9 @@ class MarketService:
             # 预测快照还在刷新时，不能把旧结果重新写成新的监控快照。
             if snapshot.get("refreshing"):
                 retry = True
+            elif snapshot.get("error"):
+                # 上游失败交给下一次每日定点检查，不在失败窗口高频重试。
+                return
             else:
                 self._monitor_cache[key] = (datetime.now(SHANGHAI_TZ), snapshot)
                 if status == "current" and monitor_type == "all":
@@ -512,9 +537,11 @@ class MarketService:
         return {
             "tab": status,
             "items": [],
+            "tradeDate": "",
             "updatedAt": "",
             "refreshing": True,
-            "dataQuality": {"source": "Tushare 日线 + 腾讯盘中行情 + 规则计算", "isOfficialMonitorPeriod": False, "monitorPeriod": "按规则窗口推算"},
+            "error": "",
+            "dataQuality": {"source": "Tushare 日线主源 + 腾讯/新浪/东方财富行情辅助校验 + 规则计算", "isOfficialMonitorPeriod": False, "monitorPeriod": "按规则窗口推算"},
         }
 
     @staticmethod

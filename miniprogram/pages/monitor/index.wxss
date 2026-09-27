@@ -12,12 +12,12 @@
   flex: 1;
   padding: 13rpx 0;
   border-radius: 11rpx;
-  color: #636366;
+  color: #6B7280;
   font-size: 23rpx;
   line-height: 32rpx;
   text-align: center;
 }
-.monitor-page .segment.active { background: #FFFFFF; color: #1A1A1A; font-weight: 700; box-shadow: 0 1rpx 4rpx rgba(26, 26, 26, .08); }
+.monitor-page .segment.active { background: #1A1A1A; color: #FFFFFF; font-weight: 700; box-shadow: 0 1rpx 4rpx rgba(26, 26, 26, .12); }
 .filter-row { display: flex; align-items: center; gap: 8rpx; margin-top: 14rpx; }
 .filter-chip {
   min-height: 54rpx;
@@ -35,12 +35,13 @@
 .st-switch switch { transform: scale(.72); transform-origin: right center; }
 .days-number { display: inline-block; margin: 0 3rpx; font-size: 34rpx; font-weight: 700; line-height: 38rpx; }
 .history-label { color: #9CA3AF; font-size: 22rpx; }
-.filter-chip.active { border-color: #1A1A1A; background: #1A1A1A; color: #FFFFFF; }
+.filter-chip.active { border-color: #D8DEE8; background: #EEF2F7; color: #1A1A1A; font-weight: 600; }
 .filter-chip.filter-risk { border-color: #E5D59B; color: #8A6D0B; }
 .filter-chip.filter-severe { border-color: #E4B4AD; color: #C0271E; }
-.filter-chip.filter-risk.active { border-color: #8A6D0B; background: #FFFCF8; color: #8A6D0B; }
-.filter-chip.filter-severe.active { border-color: #C0271E; background: #FDF3F2; color: #C0271E; }
-.snapshot-meta { display: flex; justify-content: space-between; margin: 12rpx 2rpx 0; color: #9CA3AF; font-size: 20rpx; line-height: 28rpx; }
+.filter-chip.filter-risk.active { border-color: #D5B84A; background: #FFF7D6; color: #765B00; }
+.filter-chip.filter-severe.active { border-color: #E49A8E; background: #FDE9E6; color: #A82118; }
+.snapshot-meta { display: flex; justify-content: space-between; margin: 12rpx 2rpx 0; color: #6B7280; font-size: 20rpx; line-height: 28rpx; }
+.snapshot-state { color: #9CA3AF; }
 .list-meta { display: none; }
 .monitor-list { margin-top: 16rpx; }
 .monitor-row { position: relative; margin-top: 12rpx; padding: 18rpx; border: 1rpx solid #EBEDF0; border-radius: 14rpx; background: #FFFFFF; box-shadow: 0 2rpx 8rpx rgba(26, 26, 26, .025); }

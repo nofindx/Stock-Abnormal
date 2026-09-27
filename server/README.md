@@ -28,7 +28,7 @@ TUSHARE_TOKEN=你的token python3 -m server.app
 - `GET /api/stocks/detail?ts_code=300750.SZ`：单股状态、偏离和预警。
 - `GET /api/stocks/announcements?ts_code=300750.SZ`：查询巨潮资讯中的交易所异动及风险提示公告。
 - `GET /api/stocks/300750.SZ/abnormal`：单股接口的 PRD 兼容路径。
-- `GET /api/monitor?status=current|history&type=all|risk|severe`：读取后端固定周期生成的监控快照；请求只做风险筛选，不触发全市场扫描。
+- `GET /api/monitor?status=current|history&type=all|risk|severe`：读取后端按交易日每日定点生成的最近成功监控快照；请求只做风险筛选，不触发全市场扫描。
 - `GET /api/monitor-pool?status=current|history&type=all|risk|severe`：监控池的 PRD 兼容路径。
 - `GET /api/predictions?scope=today|next_day`：当日或次日预测。首次访问或快照过期时立即返回最近快照，并通过 `refreshing=true` 表示后台正在更新。
 - `POST /api/predictions/refresh`：触发指定预测范围的后台刷新，立即返回当前快照；JSON body 为 `{ "scope": "today" }`。客户端应在 `refreshing=true` 时短轮询 GET，避免阻塞等待全市场扫描。
