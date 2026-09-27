@@ -24,9 +24,11 @@ from .tushare_client import TushareClient, TushareUnavailable
 INDEX_BY_MARKET = {"SSE": "000001.SH", "SZSE": "399001.SZ", "BSE": "899050.BJ"}
 BOARD_BY_MARKET = {"主板": Board.MAIN, "创业板": Board.CHINEXT, "科创板": Board.STAR, "北交所": Board.BSE}
 SHANGHAI_TZ = ZoneInfo("Asia/Shanghai") if ZoneInfo else timezone(timedelta(hours=8))
-SNAPSHOT_CHECK_INTERVAL_SECONDS = 60
+SNAPSHOT_CHECK_INTERVAL_SECONDS = 600
 DAILY_SNAPSHOT_HOUR = 0
 DAILY_SNAPSHOT_MINUTE = 5
+SNAPSHOT_RETRY_END_HOUR = 8
+SNAPSHOT_RETRY_END_MINUTE = 30
 
 
 def _date(value: Any) -> date:
@@ -75,6 +77,7 @@ class MarketService:
         self._monitor_refreshing: set[tuple[str, str]] = set()
         self._monitor_snapshot_day = ""
         self._monitor_snapshot_error = ""
+        self._monitor_snapshot_failure_day = ""
         self._snapshot_stop = Event()
         self._snapshot_thread = Thread(target=self._snapshot_loop, name="market-snapshot", daemon=True)
         self._snapshot_thread.start()
@@ -104,6 +107,9 @@ class MarketService:
         has_cache = ("current", "all") in self._monitor_cache
         # 有旧快照时严格等到每日定点；冷启动没有快照时立即补算，避免页面长时间无数据。
         if has_cache and (now.hour, now.minute) < (DAILY_SNAPSHOT_HOUR, DAILY_SNAPSHOT_MINUTE):
+            return
+        # 当日确认窗口结束后不再反复请求上游，等待下一次定点；旧快照继续可读。
+        if self._monitor_snapshot_failure_day == today and (now.hour, now.minute) >= (SNAPSHOT_RETRY_END_HOUR, SNAPSHOT_RETRY_END_MINUTE):
             return
         with self._monitor_lock:
             if ("current", "all") in self._monitor_refreshing:
@@ -476,7 +482,7 @@ class MarketService:
             "items": items,
             "tradeDate": latest,
             "snapshotDate": self._monitor_snapshot_day,
-            "updatedAt": datetime.now(SHANGHAI_TZ).strftime("%Y-%m-%d %H:%M:%S"),
+            "updatedAt": datetime.now(SHANGHAI_TZ).strftime("%Y-%m-%d %H:%M"),
             "refreshing": bool(prediction.get("refreshing")),
             "error": prediction.get("error", "") or self._monitor_snapshot_error,
             "dataQuality": {"source": "Tushare 日线主源 + 腾讯/新浪/东方财富行情辅助校验 + 规则计算", "isOfficialMonitorPeriod": False, "historyPersistence": "memory", "monitorPeriod": "按规则窗口推算"},
@@ -504,18 +510,21 @@ class MarketService:
             elif snapshot.get("error"):
                 # 上游失败交给下一次每日定点检查，不在失败窗口高频重试。
                 self._monitor_snapshot_error = snapshot.get("error", "监控快照生成失败，请等待后台重试")
+                self._monitor_snapshot_failure_day = datetime.now(SHANGHAI_TZ).strftime("%Y-%m-%d")
                 return
             else:
                 snapshot["snapshotDate"] = datetime.now(SHANGHAI_TZ).strftime("%Y-%m-%d")
                 self._monitor_cache[key] = (datetime.now(SHANGHAI_TZ), snapshot)
                 self._monitor_snapshot_day = snapshot["snapshotDate"]
                 self._monitor_snapshot_error = ""
+                self._monitor_snapshot_failure_day = ""
                 if status == "current" and monitor_type == "all":
                     # 当前快照完成后同步生成历史快照；历史只保留本进程内已结束的记录。
                     history = self._build_monitor_snapshot("history", "all")
                     self._monitor_cache[("history", "all")] = (datetime.now(SHANGHAI_TZ), history)
         except Exception as exc:  # noqa: BLE001 - 后台任务记录错误，等待下一次定点确认
             self._monitor_snapshot_error = "监控快照生成失败，请等待后台重试"
+            self._monitor_snapshot_failure_day = datetime.now(SHANGHAI_TZ).strftime("%Y-%m-%d")
         finally:
             with self._monitor_lock:
                 self._monitor_refreshing.discard(key)

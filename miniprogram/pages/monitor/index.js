@@ -15,7 +15,7 @@ Page({
     this.pollAttempts = 0
     this.setData({ type: event.currentTarget.dataset.type }, () => { if (!this.restoreCache()) this.setData({ items: [], rawItems: [], updatedAt: '' }); this.loadData() })
   },
-  toggleST(event) { this.setData({ hideST: event.detail.value }, () => this.applyFilters(this.data.rawItems || [])) },
+  toggleST() { this.setData({ hideST: !this.data.hideST }, () => this.applyFilters(this.data.rawItems || [])) },
   refreshSnapshot() {
     if (this.data.manualRefreshing) return
     this.pollAttempts = 0
@@ -35,7 +35,7 @@ Page({
       this.setData({ manualRefreshing: false, error: '快照同步失败，请稍后重试' })
     })
   },
-  cacheKey() { return `monitorSnapshot:${this.data.tab}:${this.data.type}` },
+  cacheKey() { return `monitorSnapshot:v2:${this.data.tab}:${this.data.type}` },
   restoreCache() {
     try {
       const cached = wx.getStorageSync(this.cacheKey())
