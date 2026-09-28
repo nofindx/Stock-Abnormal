@@ -559,10 +559,11 @@ class MarketService:
             future_dates = self._future_trade_dates(latest_date.replace("-", ""), 10)
         except Exception:
             future_dates = []
+        common_days = len(set(item.get("date") for item in stock_vector if item.get("date")) & set(item.get("date") for item in index_vector if item.get("date")))
         warnings = [
-            {"title": "3 日偏离", "value": _pct(deviations[3]), "target": f"阈值 ±{rule.ordinary_deviation:.0f}%", "className": "risk" if deviations[3] is not None and abs(deviations[3]) >= rule.ordinary_deviation else "safe"},
-            {"title": "10 日偏离", "value": _pct(deviations[10]), "target": f"阈值 +{rule.severe_10d_threshold.up:.0f}% / {rule.severe_10d_threshold.down:.0f}%", "className": "risk" if deviations[10] is not None and rule.severe_10d_threshold.triggered(deviations[10]) else "neutral"},
-            {"title": "30 日偏离", "value": _pct(deviations[30]), "target": f"阈值 +{rule.severe_30d_threshold.up:.0f}% / {rule.severe_30d_threshold.down:.0f}%", "className": "risk" if deviations[30] is not None and rule.severe_30d_threshold.triggered(deviations[30]) else "neutral"},
+            {"title": "3 日偏离", "value": _pct(deviations[3]), "target": f"阈值 ±{rule.ordinary_deviation:.0f}%" if deviations[3] is not None else "数据不足（需 3 个交易日）", "className": "risk" if deviations[3] is not None and abs(deviations[3]) >= rule.ordinary_deviation else "safe" if deviations[3] is not None else "neutral"},
+            {"title": "10 日偏离", "value": _pct(deviations[10]), "target": f"阈值 +{rule.severe_10d_threshold.up:.0f}% / {rule.severe_10d_threshold.down:.0f}%" if deviations[10] is not None else f"数据不足（已有 {common_days} 个交易日，需 10 个）", "className": "risk" if deviations[10] is not None and rule.severe_10d_threshold.triggered(deviations[10]) else "neutral"},
+            {"title": "30 日偏离", "value": _pct(deviations[30]), "target": f"阈值 +{rule.severe_30d_threshold.up:.0f}% / {rule.severe_30d_threshold.down:.0f}%" if deviations[30] is not None else f"数据不足（已有 {common_days} 个交易日，需 30 个）", "className": "risk" if deviations[30] is not None and rule.severe_30d_threshold.triggered(deviations[30]) else "neutral"},
             {"title": "10 日同向", "value": "", "up": str(metrics["up"]), "down": str(metrics["down"]), "target": f"阈值 {rule.severe_same_direction_count} 次", "className": "risk" if same_count >= rule.severe_same_direction_count else "safe"},
         ]
         return {
@@ -590,7 +591,7 @@ class MarketService:
                 "fallback": not realtime,
                 "isComplete": len(stock_vector) >= 30 and len(index_vector) >= 30,
                 "quoteUpdatedAt": display_quote.get("updatedAt", "") if display_quote else "",
-                "message": "" if realtime else "实时行情暂不可用，当前显示最近交易日结果",
+                "message": ("实时行情暂不可用，当前显示最近交易日结果" if not realtime else "") if common_days >= 30 else f"该股票上市时间较近，当前仅有 {common_days} 个交易日数据，10 日和 30 日偏离暂不可计算",
             },
         }
 
@@ -787,6 +788,7 @@ class MarketService:
         quote = quotes.get(stock["ts_code"].upper())
         index_quote = quotes.get(index_code.upper())
         stock_bars, index_bars = self._merge_realtime_bars(stock_bars, index_bars, quote, index_quote)
+        common_days = len(stock_bars)
         deviations: Dict[int, Optional[float]] = {}
         for window in (3, 10, 30):
             deviations[window] = None
@@ -812,9 +814,9 @@ class MarketService:
             "tradeDate": latest,
             "futureTradeDates": self._future_trade_dates(latest),
             "warnings": [
-                {"title": "3 日偏离", "value": _pct(deviations[3]), "target": f"阈值 ±{board_rule.ordinary_deviation:.0f}%", "className": "risk" if deviations[3] is not None and abs(deviations[3]) >= board_rule.ordinary_deviation else "safe"},
-                {"title": "10 日偏离", "value": _pct(deviations[10]), "target": f"阈值 +{board_rule.severe_10d_threshold.up:.0f}% / {board_rule.severe_10d_threshold.down:.0f}%", "className": "risk" if deviations[10] is not None and board_rule.severe_10d_threshold.triggered(deviations[10]) else "neutral"},
-                {"title": "30 日偏离", "value": _pct(deviations[30]), "target": f"阈值 +{board_rule.severe_30d_threshold.up:.0f}% / {board_rule.severe_30d_threshold.down:.0f}%", "className": "risk" if deviations[30] is not None and board_rule.severe_30d_threshold.triggered(deviations[30]) else "neutral"},
+                {"title": "3 日偏离", "value": _pct(deviations[3]), "target": f"阈值 ±{board_rule.ordinary_deviation:.0f}%" if deviations[3] is not None else "数据不足（需 3 个交易日）", "className": "risk" if deviations[3] is not None and abs(deviations[3]) >= board_rule.ordinary_deviation else "safe" if deviations[3] is not None else "neutral"},
+                {"title": "10 日偏离", "value": _pct(deviations[10]), "target": f"阈值 +{board_rule.severe_10d_threshold.up:.0f}% / {board_rule.severe_10d_threshold.down:.0f}%" if deviations[10] is not None else f"数据不足（已有 {common_days} 个交易日，需 10 个）", "className": "risk" if deviations[10] is not None and board_rule.severe_10d_threshold.triggered(deviations[10]) else "neutral"},
+                {"title": "30 日偏离", "value": _pct(deviations[30]), "target": f"阈值 +{board_rule.severe_30d_threshold.up:.0f}% / {board_rule.severe_30d_threshold.down:.0f}%" if deviations[30] is not None else f"数据不足（已有 {common_days} 个交易日，需 30 个）", "className": "risk" if deviations[30] is not None and board_rule.severe_30d_threshold.triggered(deviations[30]) else "neutral"},
                 {"title": "10 日同向", "value": "", "up": str(severe.up_count if severe else 0), "down": str(severe.down_count if severe else 0), "target": f"阈值 {severe.same_direction_threshold if severe else 0} 次", "className": "risk" if severe and severe.same_direction_count else "safe"},
             ],
             "alerts": self._build_alerts(deviations, severe, board),
@@ -831,7 +833,7 @@ class MarketService:
                 "realtime": bool(quote and index_quote),
                 "fallback": not bool(quote and index_quote),
                 "quoteUpdatedAt": quote.get("updatedAt") if quote else "",
-                "message": "" if quote and index_quote else "实时行情暂不可用，当前显示最近交易日结果",
+                "message": ("实时行情暂不可用，当前显示最近交易日结果" if not (quote and index_quote) else "") if common_days >= 30 else f"该股票上市时间较近，当前仅有 {common_days} 个交易日数据，10 日和 30 日偏离暂不可计算",
             },
         }
 

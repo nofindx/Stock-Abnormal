@@ -3,9 +3,9 @@ const { getMonitor } = require('../../utils/api')
 const { openPdf } = require('../../utils/open-pdf')
 
 Page({
-  data: { type: 'all', hideNoise: false, items: [], rawItems: [], visibleCount: 0, updatedAt: '', loading: false, refreshing: false, error: '', skeletonRows: [0, 1, 2, 3], types: [{ key: 'all', label: '全部' }, { key: 'risk', label: '风险提示' }, { key: 'severe', label: '严重异动' }] },
+  data: { type: 'all', hideNoise: false, items: [], rawItems: [], visibleCount: 0, updatedAt: '', loading: false, refreshing: false, buttonRefreshing: false, error: '', skeletonRows: [0, 1, 2, 3], types: [{ key: 'all', label: '全部' }, { key: 'risk', label: '风险提示' }, { key: 'severe', label: '严重异动' }] },
   onLoad() { this.restoreCache(); this.loadData() },
-  onPullDownRefresh() { this.refreshSnapshot().finally(() => wx.stopPullDownRefresh()) },
+  onPullDownRefresh() { this.loadData().finally(() => wx.stopPullDownRefresh()) },
   selectType(event) {
     this.requestSeq = (this.requestSeq || 0) + 1
     if (this.pollTimer) clearTimeout(this.pollTimer)
@@ -18,10 +18,11 @@ Page({
     this.setData({ hideNoise }, () => this.applyFilters(this.data.rawItems || []))
   },
   refreshSnapshot() {
-    if (this.data.loading || this.data.refreshing) return this.loadPromise || Promise.resolve()
+    if (this.data.buttonRefreshing) return this.loadPromise || Promise.resolve()
     this.pollAttempts = 0
     if (this.pollTimer) clearTimeout(this.pollTimer)
-    return this.loadData()
+    this.setData({ buttonRefreshing: true })
+    return this.loadData().finally(() => this.setData({ buttonRefreshing: false }))
   },
   cacheKey(type = this.data.type) { return `monitorSnapshot:v3:current:${type}` },
   restoreCache() {

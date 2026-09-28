@@ -15,7 +15,7 @@
       <text wx:if="{{updatedAt}}">数据更新于 {{updatedAt}}</text>
       <text wx:elif="{{refreshing}}" class="snapshot-pending">正在获取数据</text>
     </view>
-    <button class="snapshot-refresh {{loading || refreshing ? 'snapshot-refresh-disabled' : ''}}" loading="{{loading || refreshing}}" disabled="{{loading || refreshing}}" hover-class="button-feedback" bindtap="refreshSnapshot">刷新</button>
+    <button class="snapshot-refresh {{buttonRefreshing ? 'snapshot-refresh-disabled' : ''}}" loading="{{buttonRefreshing}}" disabled="{{buttonRefreshing}}" hover-class="button-feedback" bindtap="refreshSnapshot">刷新</button>
   </view>
   <view wx:if="{{error}}" class="card error-state">{{error}}</view>
   <view wx:if="{{items.length}}" class="monitor-list"><view wx:for="{{items}}" wx:key="monitorKey" class="monitor-row monitor-tone-{{item.riskTone}} {{item.mutedSecurity ? 'muted-security' : ''}}"><view class="monitor-row-top"><view class="monitor-stock"><view class="stock-line"><text class="stock-name">{{item.name}}</text><text class="stock-meta">{{item.symbol}}</text></view></view><text class="monitor-period">{{item.monitorStart}} 至 {{item.monitorEnd}}</text></view><view class="monitor-row-bottom"><view class="monitor-risk"><text class="badge badge-{{item.riskTone}}">{{item.monitorType}}</text><view wx:if="{{item.sourceUrl && item.riskTone !== 'ordinary'}}" class="source-link" hover-class="tap-feedback" data-url="{{item.sourceUrl}}" bindtap="openSource"><text class="source-link-icon">↗</text><text>公告</text></view></view><text class="days-value days-{{item.riskTone}}"><text class="days-label">剩余</text><text class="days-number">{{item.days}}</text><text class="days-unit">天</text></text></view></view></view>
