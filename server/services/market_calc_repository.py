@@ -119,6 +119,16 @@ class MarketCalcRepository:
                         retry_marker VARCHAR(32) NOT NULL DEFAULT ''
                     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
                 """)
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS prediction_cache (
+                        scope VARCHAR(16) PRIMARY KEY,
+                        trade_date CHAR(8) NOT NULL DEFAULT '',
+                        updated_at DATETIME NULL,
+                        items JSON NOT NULL,
+                        refreshing_until BIGINT NOT NULL DEFAULT 0,
+                        last_error TEXT NOT NULL
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+                """)
                 # 兼容先前已经创建的本地表；新增字段只保存调度状态，不保存行情明细。
                 for statement in (
                     "ALTER TABLE market_calc_job ADD COLUMN last_failure_date CHAR(10) NOT NULL DEFAULT ''",
@@ -352,6 +362,75 @@ class MarketCalcRepository:
                     VALUES ('daily', %s, %s, %s)
                     ON DUPLICATE KEY UPDATE last_attempt_at=VALUES(last_attempt_at), last_error=VALUES(last_error), last_failure_date=VALUES(last_failure_date)
                 """, (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), str(error)[:1000], datetime.now().strftime("%Y-%m-%d")))
+            db.commit()
+
+    def get_prediction(self, scope: str) -> Optional[Dict[str, Any]]:
+        """读取跨实例共享的预测快照。"""
+
+        if not self.available:
+            return None
+        self.ensure_schema()
+        with self.connection() as db:
+            with db.cursor(self._driver().cursors.DictCursor) as cursor:
+                cursor.execute("SELECT * FROM prediction_cache WHERE scope = %s", (scope,))
+                row = cursor.fetchone()
+        if not row:
+            return None
+        result = dict(row)
+        result["items"] = self._json_value(result.get("items"), [])
+        return result
+
+    def claim_prediction(self, scope: str, lease_seconds: int = 300) -> bool:
+        """用 MySQL 行锁领取预测刷新任务，避免多实例重复扫描。"""
+
+        if not self.available:
+            return True
+        self.ensure_schema()
+        import time
+        now = int(time.time())
+        until = now + int(lease_seconds)
+        with self.connection() as db:
+            with db.cursor(self._driver().cursors.DictCursor) as cursor:
+                cursor.execute("SELECT refreshing_until FROM prediction_cache WHERE scope = %s FOR UPDATE", (scope,))
+                row = cursor.fetchone()
+                if row and int(row.get("refreshing_until") or 0) > now:
+                    db.rollback()
+                    return False
+                if row:
+                    cursor.execute("UPDATE prediction_cache SET refreshing_until=%s WHERE scope=%s", (until, scope))
+                else:
+                    cursor.execute(
+                        "INSERT INTO prediction_cache (scope, items, refreshing_until, last_error) VALUES (%s,%s,%s,'')",
+                        (scope, "[]", until),
+                    )
+            db.commit()
+        return True
+
+    def save_prediction(self, scope: str, trade_date: str, items: Iterable[Dict[str, Any]], updated_at: datetime) -> None:
+        if not self.available:
+            return
+        self.ensure_schema()
+        with self.connection() as db:
+            with db.cursor() as cursor:
+                cursor.execute("""
+                    INSERT INTO prediction_cache (scope, trade_date, updated_at, items, refreshing_until, last_error)
+                    VALUES (%s,%s,%s,%s,0,'')
+                    ON DUPLICATE KEY UPDATE trade_date=VALUES(trade_date), updated_at=VALUES(updated_at),
+                    items=VALUES(items), refreshing_until=0, last_error=''
+                """, (scope, trade_date, updated_at.strftime("%Y-%m-%d %H:%M:%S"), json.dumps(list(items), ensure_ascii=False)))
+            db.commit()
+
+    def fail_prediction(self, scope: str, error: str) -> None:
+        if not self.available:
+            return
+        self.ensure_schema()
+        with self.connection() as db:
+            with db.cursor() as cursor:
+                cursor.execute("""
+                    INSERT INTO prediction_cache (scope, items, refreshing_until, last_error)
+                    VALUES (%s,'[]',0,%s)
+                    ON DUPLICATE KEY UPDATE refreshing_until=0, last_error=VALUES(last_error)
+                """, (scope, str(error)[:1000]))
             db.commit()
 
     @staticmethod

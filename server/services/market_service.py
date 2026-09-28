@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta, timezone
+import time
 from concurrent.futures import ThreadPoolExecutor
 from threading import Event, Lock, Thread
 from types import SimpleNamespace
@@ -918,10 +919,22 @@ class MarketService:
         """后台生成快照；异常只记录状态，不影响已经可用的旧快照。"""
 
         try:
-            self._compute_prediction_items(scope)
+            items = self._compute_prediction_items(scope)
+            if self._calc_repository.available:
+                self._calc_repository.save_prediction(
+                    scope,
+                    self._prediction_trade_date.get(scope, ""),
+                    items,
+                    self._prediction_cache[scope][0],
+                )
             self._prediction_last_error.pop(scope, None)
         except Exception as exc:  # noqa: BLE001 - 后台线程不能把异常抛给请求线程
             self._prediction_last_error[scope] = str(exc)
+            if self._calc_repository.available:
+                try:
+                    self._calc_repository.fail_prediction(scope, str(exc))
+                except Exception:
+                    pass
         finally:
             with self._prediction_locks[scope]:
                 self._prediction_refreshing.discard(scope)
@@ -932,6 +945,13 @@ class MarketService:
         with self._prediction_locks[scope]:
             if scope in self._prediction_refreshing:
                 return False
+            if self._calc_repository.available:
+                try:
+                    if not self._calc_repository.claim_prediction(scope):
+                        return False
+                except Exception as exc:
+                    self._prediction_last_error[scope] = str(exc)
+                    return False
             self._prediction_refreshing.add(scope)
             self._prediction_executor.submit(self._refresh_prediction_worker, scope)
             return True
@@ -940,12 +960,31 @@ class MarketService:
         if scope not in ("today", "next_day"):
             raise ValueError("scope 必须是 today 或 next_day")
         now = datetime.now(SHANGHAI_TZ)
+        persistent = None
+        if self._calc_repository.available:
+            try:
+                persistent = self._calc_repository.get_prediction(scope)
+            except Exception as exc:
+                self._prediction_last_error[scope] = str(exc)
+        if persistent:
+            updated = persistent.get("updated_at")
+            updated_dt = updated.replace(tzinfo=SHANGHAI_TZ) if isinstance(updated, datetime) and updated.tzinfo is None else updated
+            if isinstance(updated_dt, datetime):
+                self._prediction_cache[scope] = (updated_dt, persistent.get("items") or [])
+            self._prediction_trade_date[scope] = str(persistent.get("trade_date") or "")
+            if persistent.get("last_error"):
+                self._prediction_last_error[scope] = str(persistent.get("last_error"))
         cached = self._prediction_cache.get(scope)
         stale = not cached or (now - cached[0]).total_seconds() >= 60
         # GET 首次访问和过期访问都只触发后台任务，立即返回已有快照。
         # POST force 同样不阻塞，避免用户点击刷新后等待全市场扫描。
+        refreshing = False
         if force or stale:
-            self._start_prediction_refresh(scope)
+            refreshing = self._start_prediction_refresh(scope)
+            if not refreshing and persistent:
+                refreshing = int(persistent.get("refreshing_until") or 0) > int(time.time())
+        elif persistent:
+            refreshing = int(persistent.get("refreshing_until") or 0) > int(time.time())
         items = cached[1] if cached else []
         has_realtime = any(item.get("quoteSource") for item in items)
         updated_at = cached[0].strftime("%H:%M:%S") if cached else ""
@@ -954,7 +993,7 @@ class MarketService:
             "items": items,
             "tradeDate": self._prediction_trade_date.get(scope, ""),
             "updatedAt": updated_at,
-            "refreshing": scope in self._prediction_refreshing,
+            "refreshing": scope in self._prediction_refreshing or refreshing,
             "error": self._prediction_last_error.get(scope, ""),
             "dataQuality": {"source": "tushare+腾讯行情" if has_realtime else "tushare", "intraday": has_realtime},
         }

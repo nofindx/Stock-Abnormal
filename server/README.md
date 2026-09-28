@@ -32,10 +32,10 @@ TUSHARE_TOKEN=你的token MYSQL_HOST=... MYSQL_USER=... MYSQL_PASSWORD=... pytho
 - `GET /api/stocks/300750.SZ/abnormal`：单股接口的 PRD 兼容路径。
 - `GET /api/monitor?status=current&type=all|risk|severe`：读取后端上海时间每日 00:00 后生成的当前公告监控快照；失败时仅在次日 01:00-09:00 每小时重试。请求只做快照筛选，不触发公告采集、行情请求或全市场扫描。更新时间为 `YYYY-MM-DD HH:mm`，不提供历史监控接口。
 - `GET /api/monitor/announcement?key=...`：读取当前严重异动期内已缓存的 PDF；记录结束后返回 404。
-- `GET /api/predictions?scope=today|next_day`：当日或次日预测。首次访问或快照过期时立即返回最近快照，并通过 `refreshing=true` 表示后台正在更新。
+- `GET /api/predictions?scope=today|next_day`：当日或次日预测。预测快照和刷新租约共享保存在 CloudBase MySQL，首次访问或快照过期时立即返回最近快照，并通过 `refreshing=true` 表示后台正在更新；多实例不会重复扫描。
 - `POST /api/predictions/refresh`：触发指定预测范围的后台刷新，立即返回当前快照；JSON body 为 `{ "scope": "today" }`。客户端应在 `refreshing=true` 时短轮询 GET，避免阻塞等待全市场扫描。
 - `GET /api/market/status`：最近交易日和数据源状态。
 
-单股计算基础数据由服务启动的后台线程在上海时间每日 00:00 后更新；前端详情请求不会触发更新。首次空库会初始化最近 30 个交易日，后续只拉新增交易日和新上市股票的必要价格。实时股票与所属指数行情同时成功时才修正偏离值，失败时返回 MySQL 最近结果并带 `dataQuality.message`。监控池中的 30 日严重异动是 30 个交易日回看判定，公告触发后的实际监管期仍为 10 个交易日。
+单股计算基础数据由服务启动的后台线程在上海时间每日 00:00 后更新；前端详情请求不会触发更新。首次空库会初始化最近 30 个交易日，后续只拉新增交易日和新上市股票的必要价格。实时股票与所属指数行情同时成功时才修正偏离值，失败时返回 MySQL 最近结果并带 `dataQuality.message`。监控池中的 30 日严重异动是 30 个交易日回看判定，公告触发后的实际监管期仍为 10 个交易日。预测快照跨服务实例和重启持久化在 MySQL 中。
 
 公告快照的 `dataQuality` 会返回 18.cn 主源、巨潮资讯备源和覆盖边界；UI 不得把备源或主源包装成交易所官方接口。
