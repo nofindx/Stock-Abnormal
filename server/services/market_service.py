@@ -855,8 +855,16 @@ class MarketService:
                     use_realtime=self._prediction_state()["phase"] == "intraday",
                 )
                 if items is not None:
-                    state = self._prediction_state()
-                    self._prediction_trade_date[scope] = state["tradeDate"] if scope == "next_day" and state["phase"] == "post_close_confirmed" else self.client.latest_trade_date()
+                    # 预测数据集的日期必须来自实际计算数据，而不是当前自然日。
+                    # 盘前 Tushare 可能尚未返回 T 日收盘，不能把 T 写成数据日期。
+                    item_dates = [str(item.get("tradeDate") or "") for item in items if item.get("tradeDate")]
+                    if item_dates:
+                        self._prediction_trade_date[scope] = max(item_dates)
+                    elif self._calc_repository.available:
+                        job = self._calc_repository.job() or {}
+                        self._prediction_trade_date[scope] = str(job.get("last_success_date") or "")
+                    else:
+                        self._prediction_trade_date[scope] = self.client.latest_trade_date()
                     return items
             except Exception as exc:  # noqa: BLE001 - 计算仓库异常时保留 Tushare 回退链路
                 self._market_update_error = f"预测计算仓库读取失败：{exc}"
