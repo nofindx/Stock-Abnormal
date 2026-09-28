@@ -1169,8 +1169,8 @@ class MarketService:
         # 数据集即使候选列表为空也代表已经完成计算，不能用 items 长度判断
         # 次日按钮是否开放；同时必须有实际数据日期，避免把刷新租约空行当成结果。
         next_trade_available = bool(next_cached and next_trade_date) and (
-            state["phase"] == "pre_open" or
-            state["phase"] == "post_close_confirmed" and next_trade_date == state["tradeDate"]
+            (state["phase"] == "pre_open" and next_trade_date == state["previousTradeDate"]) or
+            (state["phase"] == "post_close_confirmed" and next_trade_date == state["tradeDate"])
         )
         if scope == "next_day" and (state["phase"] == "intraday" or state["phase"] == "post_close_pending"):
             items = []

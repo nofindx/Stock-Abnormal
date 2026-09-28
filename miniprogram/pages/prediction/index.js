@@ -60,10 +60,11 @@ Page({
       }).catch(() => this.schedulePoll())
     }, 1200)
   },
-  refresh() {
+  refresh(options = {}) {
+    const showButtonLoading = options.showButtonLoading !== false
     if (this.data.buttonRefreshing) return Promise.resolve()
     this.pollAttempts = 0
-    this.setData({ buttonRefreshing: true, error: '' })
+    this.setData({ buttonRefreshing: showButtonLoading, error: '' })
     return refreshPredictions(this.data.scope).then((result) => {
       const refreshing = Boolean(result.refreshing)
       this.setData({ buttonRefreshing: false, refreshing, items: normalizeItems(result.items), updatedAt: result.updatedAt || '', dataMessage: (result.dataQuality && result.dataQuality.message) || '', error: result.error || '', nextDayAvailable: result.nextDayAvailable !== false, nextDayReason: result.nextDayReason || '' })
@@ -76,7 +77,7 @@ Page({
   },
   onPullDownRefresh() {
     // 下拉刷新与页面刷新按钮使用同一条用户触发链路；切换 Tab 仍只读数据。
-    return this.refresh().finally(() => wx.stopPullDownRefresh())
+    return this.refresh({ showButtonLoading: false }).finally(() => wx.stopPullDownRefresh())
   },
   openStock(event) {
     const stock = this.data.items.find(item => item.ts_code === event.currentTarget.dataset.code)
