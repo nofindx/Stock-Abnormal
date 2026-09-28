@@ -9,7 +9,7 @@ function normalizeItems(items = []) {
 }
 
 Page({
-  data: { scope: 'today', items: [], refreshing: false, buttonRefreshing: false, loading: false, error: '', updatedAt: '', nextDayAvailable: true, nextDayReason: '' },
+  data: { scope: 'today', items: [], refreshing: false, buttonRefreshing: false, loading: false, error: '', updatedAt: '', dataMessage: '', nextDayAvailable: true, nextDayReason: '' },
   onLoad() { this.loadData() },
   openRules() {
     if (this.rulesNavigating) return
@@ -37,7 +37,7 @@ Page({
     this.setData({ loading: true, error: '' })
     return getPredictions(this.data.scope).then((result) => {
       const refreshing = Boolean(result.refreshing)
-      this.setData({ items: normalizeItems(result.items), updatedAt: result.updatedAt || '', loading: false, refreshing, error: result.error || '', nextDayAvailable: result.nextDayAvailable !== false, nextDayReason: result.nextDayReason || '' })
+      this.setData({ items: normalizeItems(result.items), updatedAt: result.updatedAt || '', dataMessage: (result.dataQuality && result.dataQuality.message) || '', loading: false, refreshing, error: result.error || '', nextDayAvailable: result.nextDayAvailable !== false, nextDayReason: result.nextDayReason || '' })
       getApp().globalData.lastPredictionRefresh = result.updatedAt || null
       if (refreshing) this.schedulePoll()
     }).catch(() => {
@@ -54,19 +54,19 @@ Page({
     this.pollTimer = setTimeout(() => {
       getPredictions(this.data.scope).then((result) => {
         const refreshing = Boolean(result.refreshing)
-        this.setData({ items: normalizeItems(result.items), updatedAt: result.updatedAt || '', refreshing, error: result.error || '', nextDayAvailable: result.nextDayAvailable !== false, nextDayReason: result.nextDayReason || '' })
+        this.setData({ items: normalizeItems(result.items), updatedAt: result.updatedAt || '', dataMessage: (result.dataQuality && result.dataQuality.message) || '', refreshing, error: result.error || '', nextDayAvailable: result.nextDayAvailable !== false, nextDayReason: result.nextDayReason || '' })
         if (refreshing) this.schedulePoll()
         else this.pollAttempts = 0
       }).catch(() => this.schedulePoll())
     }, 1200)
   },
   refresh() {
-    if (this.data.buttonRefreshing) return
+    if (this.data.buttonRefreshing) return Promise.resolve()
     this.pollAttempts = 0
     this.setData({ buttonRefreshing: true, error: '' })
     return refreshPredictions(this.data.scope).then((result) => {
       const refreshing = Boolean(result.refreshing)
-      this.setData({ buttonRefreshing: false, refreshing, items: normalizeItems(result.items), updatedAt: result.updatedAt || '', error: result.error || '', nextDayAvailable: result.nextDayAvailable !== false, nextDayReason: result.nextDayReason || '' })
+      this.setData({ buttonRefreshing: false, refreshing, items: normalizeItems(result.items), updatedAt: result.updatedAt || '', dataMessage: (result.dataQuality && result.dataQuality.message) || '', error: result.error || '', nextDayAvailable: result.nextDayAvailable !== false, nextDayReason: result.nextDayReason || '' })
       getApp().globalData.lastPredictionRefresh = result.updatedAt || null
       if (refreshing) this.schedulePoll()
       wx.vibrateShort({ type: 'light' })

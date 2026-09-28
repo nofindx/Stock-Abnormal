@@ -1,6 +1,7 @@
 .prediction-page .page-header { display: none; }
 .prediction-page .segmented { margin-top: 16rpx; }
 .prediction-snapshot-row { position: relative; display: flex; align-items: center; min-height: 48rpx; margin-top: 14rpx; padding-right: 120rpx; box-sizing: border-box; }
+.prediction-phase-note { margin: 4rpx 2rpx 0; color: #9CA3AF; font-size: 20rpx; line-height: 28rpx; }
 .prediction-snapshot-row .snapshot-summary { display: flex; min-width: 0; max-width: 100%; align-items: baseline; gap: 10rpx; color: #6B7280; font-size: 22rpx; line-height: 30rpx; white-space: nowrap; overflow: hidden; }
 .prediction-snapshot-row .snapshot-count { color: #1A1A1A; font-size: 28rpx; font-weight: 700; font-variant-numeric: tabular-nums; }
 .prediction-snapshot-row .snapshot-dot { color: #9CA3AF; }

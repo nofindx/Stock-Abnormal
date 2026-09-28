@@ -1093,8 +1093,11 @@ class MarketService:
         opened = sorted(str(row["cal_date"]) for row in calendar.to_dict("records") if int(row.get("is_open", 0)) == 1)
         today_value = today.strftime("%Y%m%d")
         is_trade_day = today_value in opened
-        previous = max((item for item in opened if item < today_value), default=self.client.latest_trade_date())
-        following = min((item for item in opened if item > today_value), default="")
+        # 非交易日把“当前 T”定义为下一交易日，避免周末/节假日把
+        # 周一错误地展示成“次日”或复用周五之后的旧日期。
+        target_trade_date = today_value if is_trade_day else min((item for item in opened if item > today_value), default="")
+        previous = max((item for item in opened if item < target_trade_date), default=self.client.latest_trade_date())
+        following = min((item for item in opened if item > target_trade_date), default="")
         if not is_trade_day or now.hour < 9:
             phase = "pre_open"
         elif now.hour < 15:
@@ -1104,7 +1107,6 @@ class MarketService:
         # targetTradeDate 是用户当前所处交易日；非交易日使用下一交易日，
         # tradeDate 仍由预测数据集自身的 as-of 日期决定，避免把未入盘价格
         # 冒充正式收盘价。
-        target_trade_date = today_value if is_trade_day else following
         state = {
             "tradeDate": target_trade_date,
             "targetTradeDate": target_trade_date,
