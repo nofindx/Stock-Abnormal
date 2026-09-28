@@ -1192,6 +1192,10 @@ class MarketService:
             target = "today"
         elif state["phase"] == "intraday":
             target = "next_day"
+        elif state["phase"] == "post_close_confirmed":
+            # 收盘数据已经正式入盘时，刷新只读取/计算后台数据集，不再请求
+            # 全市场实时行情；计算完成后 next_day 的 trade_date 才会开放。
+            target = "next_day"
         if target:
             self._start_prediction_refresh(target)
         return self.predictions(requested_scope)
