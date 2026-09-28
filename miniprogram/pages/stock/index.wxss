@@ -182,12 +182,6 @@
 .matrix-value.safety-value { color: #1C1C1E; font-weight: 600; }
 .stock-page .free-note { margin-top: 24rpx; }
 .stock-page .free-note { text-align: right; }
-.page-footer-links { display: flex; align-items: center; justify-content: center; gap: 12rpx; margin: 42rpx 0 18rpx; color: #6B7280; font-size: 21rpx; line-height: 32rpx; }
-.page-footer-link { color: #6B7280; }
-.page-footer-links .footer-separator { color: #C4C7CE; }
-.stock-footer-links { display: flex; align-items: center; justify-content: center; gap: 12rpx; margin: 42rpx 0 18rpx; color: #6B7280; font-size: 21rpx; line-height: 32rpx; }
-.stock-footer-links .page-footer-link { color: #6B7280; }
-.stock-footer-links .footer-separator { color: #C4C7CE; }
 
 @media (max-width: 390px) {
   .status-stock-line { align-items: flex-start; }

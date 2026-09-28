@@ -107,7 +107,6 @@
 .refresh-feedback { background: #F2F2F7 !important; }
 .spinning { animation: spin .8s linear infinite; }
 @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
-.prediction-page .page-footer-links { margin-top: 42rpx; }
 
 @media (max-width: 390px) {
   .prediction-page .prediction-row { padding: 18rpx 16rpx; }

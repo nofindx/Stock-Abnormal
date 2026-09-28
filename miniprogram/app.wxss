@@ -98,14 +98,17 @@ button::after { border: 0; }
 .tap-feedback { background: #F2F2F7 !important; }
 .button-press { opacity: .78; transform: scale(.98); }
 .page-footer-link { color: #6B7280; }
-.page-footer-links, .stock-footer-links {
+.legal-footer-links {
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 12rpx;
-  margin: 42rpx 0 18rpx;
+  margin: 42rpx 0 24rpx;
   color: #6B7280;
   font-size: 21rpx;
   line-height: 32rpx;
 }
-.page-footer-links .footer-separator, .stock-footer-links .footer-separator { color: #C4C7CE; }
+.legal-footer-links .page-footer-link,
+.legal-footer-links .footer-separator { display: inline-block; }
+.legal-footer-links .page-footer-link { color: #6B7280; }
+.legal-footer-links .footer-separator { color: #C4C7CE; }

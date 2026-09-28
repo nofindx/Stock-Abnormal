@@ -58,5 +58,5 @@
       <view class="simulation-note">填写每日股票与指数涨幅后自动重算；留空按 0% 处理</view>
     </view>
   </block>
-  <view class="stock-footer-links"><text class="page-footer-link" hover-class="tap-feedback" bindtap="openPrivacy">隐私政策</text><text class="footer-separator">·</text><text class="page-footer-link" hover-class="tap-feedback" bindtap="openAgreement">用户协议</text><text class="footer-separator">·</text><text class="page-footer-link" hover-class="tap-feedback" bindtap="openRules">规则说明</text></view>
+  <view class="legal-footer-links"><text class="page-footer-link" hover-class="tap-feedback" hover-stay-time="80" bindtap="openPrivacy">隐私政策</text><text class="footer-separator">·</text><text class="page-footer-link" hover-class="tap-feedback" hover-stay-time="80" bindtap="openAgreement">用户协议</text><text class="footer-separator">·</text><text class="page-footer-link" hover-class="tap-feedback" hover-stay-time="80" bindtap="openRules">规则说明</text></view>
 </view>
