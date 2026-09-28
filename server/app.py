@@ -61,11 +61,18 @@ class ApiHandler(BaseHTTPRequestHandler):
                 except Exception:
                     market_job = None
                     market_calc_available = False
+                calc_config = SERVICE._calc_repository.config
                 self._respond({"code": 0, "data": {
                     "service": "ok",
                     "tushareConfigured": SERVICE.client.available,
                     "marketCalc": {
                         "available": market_calc_available,
+                        "configured": {
+                            "host": bool(calc_config.get("host")),
+                            "user": bool(calc_config.get("user")),
+                            "database": bool(calc_config.get("database")),
+                            "driver": SERVICE._calc_repository._driver() is not None,
+                        },
                         "lastSuccessDate": (market_job or {}).get("last_success_date", ""),
                         "lastError": (market_job or {}).get("last_error", ""),
                     },
