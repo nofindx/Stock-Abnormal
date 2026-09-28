@@ -55,12 +55,14 @@ class ApiHandler(BaseHTTPRequestHandler):
         query = parse_qs(parsed.query)
         try:
             if parsed.path == "/health":
+                market_calc_error = ""
                 try:
                     market_job = SERVICE._calc_repository.job() if SERVICE._calc_repository.available else None
                     market_calc_available = bool(SERVICE._calc_repository.available)
-                except Exception:
+                except Exception as exc:
                     market_job = None
                     market_calc_available = False
+                    market_calc_error = str(exc)[:160]
                 calc_config = SERVICE._calc_repository.config
                 self._respond({"code": 0, "data": {
                     "service": "ok",
@@ -74,7 +76,7 @@ class ApiHandler(BaseHTTPRequestHandler):
                             "driver": SERVICE._calc_repository._driver() is not None,
                         },
                         "lastSuccessDate": (market_job or {}).get("last_success_date", ""),
-                        "lastError": (market_job or {}).get("last_error", ""),
+                        "lastError": market_calc_error or (market_job or {}).get("last_error", ""),
                     },
                     "monitorSnapshot": bool(OFFICIAL_MONITOR.repository.active_snapshot()),
                     "monitorRefreshing": OFFICIAL_MONITOR.refreshing,
