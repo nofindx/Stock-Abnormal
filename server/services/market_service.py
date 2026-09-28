@@ -848,7 +848,12 @@ class MarketService:
 
         if self._calc_repository.available:
             try:
-                items = self._compute_prediction_from_repository(scope, use_realtime=True)
+                # 只有交易日盘中才请求免费实时源；盘前、收盘待确认和收盘已确认
+                # 均使用后台已准备的同口径收盘数据。
+                items = self._compute_prediction_from_repository(
+                    scope,
+                    use_realtime=self._prediction_state()["phase"] == "intraday",
+                )
                 if items is not None:
                     state = self._prediction_state()
                     self._prediction_trade_date[scope] = state["tradeDate"] if scope == "next_day" and state["phase"] == "post_close_confirmed" else self.client.latest_trade_date()
@@ -1013,13 +1018,15 @@ class MarketService:
                 "rule": f"连续{window}个交易日内日收盘价格涨跌幅偏离值累计达到+{target_up:.0f}% / {target_down:.0f}%",
                 "tradeDate": latest,
             })
-        quotes = self._realtime.fetch_many(item["ts_code"] for item in result)
-        for item in result:
-            quote = quotes.get(item["ts_code"])
-            if quote:
-                item["change"] = _pct(quote["pctChg"])
-                item["quoteUpdatedAt"] = quote.get("updatedAt", "")
-                item["quoteSource"] = quote.get("source", "腾讯行情")
+        if self._prediction_state()["phase"] == "intraday":
+            quotes = self._realtime.fetch_many(item["ts_code"] for item in result)
+            for item in result:
+                quote = quotes.get(item["ts_code"])
+                if quote:
+                    item["currentPrice"] = f"{float(quote.get('current')):.2f}"
+                    item["change"] = _pct(quote["pctChg"])
+                    item["quoteUpdatedAt"] = quote.get("updatedAt", "")
+                    item["quoteSource"] = quote.get("source", "腾讯行情")
         result.sort(key=lambda item: abs(float(item["deviation"].split()[-1].replace("日", "").replace("%", ""))) if item.get("deviation") else 999, reverse=True)
         output = result[:100]
         # 更新时间以扫描完成为准，避免把后台计算耗时误算进快照年龄。
