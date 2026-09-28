@@ -680,9 +680,13 @@ class MarketService:
                     needed_dates = [item for item in open_dates if item > previous_date]
                     if not needed_dates:
                         # 即使没有新增交易日，也要把当日 stock_basic 替换写入，识别新上市和状态变化。
-                        self._calc_repository.upsert_market(stocks, [], [], latest)
+                        # 但不能因此把尚未入盘的日历日期记成成功日期。
+                        data_trade_date = previous_date or latest
+                        self._calc_repository.upsert_market(stocks, [], [], data_trade_date)
+                        if data_trade_date != latest:
+                            self._calc_repository.record_failure("Tushare 当日收盘数据尚未入盘")
                         self._stocks_cache = (datetime.now(SHANGHAI_TZ), stocks)
-                        return {"updated": False, "tradeDate": latest, "stockCount": len(stocks)}
+                        return {"updated": False, "tradeDate": data_trade_date, "stockCount": len(stocks)}
                 daily_frames = {trade_date: self.client.daily(trade_date=trade_date) for trade_date in needed_dates}
                 if bootstrap:
                     for item in stocks:
@@ -754,10 +758,16 @@ class MarketService:
                     metrics = self._vector_metrics(self._vector_entries(item.get("stock_return_vector")), self._vector_entries(index_item.get("index_return_vector")), BOARD_RULES[board])
                     item.update({"deviation3": metrics["deviations"][3], "deviation10": metrics["deviations"][10], "deviation30": metrics["deviations"][30], "sameDirectionUp": metrics["up"], "sameDirectionDown": metrics["down"]})
                     calculations.append(item)
-                self._calc_repository.upsert_market(stocks, calculations, indexes, latest)
+                # 任务日期取实际写入的股票/指数收盘数据日期。交易日历中的
+                # 当天可能尚未入盘，不能把它写成已确认日期。
+                actual_dates = [str(item.get("as_of_trade_date") or "") for item in calculations + indexes]
+                data_trade_date = max((value for value in actual_dates if value), default=previous_date or latest)
+                self._calc_repository.upsert_market(stocks, calculations, indexes, data_trade_date)
+                if data_trade_date != latest:
+                    self._calc_repository.record_failure("Tushare 当日收盘数据尚未入盘")
                 self._stocks_cache = (datetime.now(SHANGHAI_TZ), stocks)
-                self._market_update_error = ""
-                return {"updated": True, "tradeDate": latest, "stockCount": len(stocks), "calculationCount": len(calculations)}
+                self._market_update_error = "" if data_trade_date == latest else "Tushare 当日收盘数据尚未入盘"
+                return {"updated": True, "tradeDate": data_trade_date, "stockCount": len(stocks), "calculationCount": len(calculations)}
             except Exception as exc:  # noqa: BLE001
                 self._market_update_error = str(exc)
                 self._calc_repository.record_failure(str(exc))
@@ -1111,7 +1121,9 @@ class MarketService:
         elif now.hour < 15:
             phase = "intraday"
         else:
-            phase = "post_close_confirmed" if self.client.latest_trade_date() == today_value else "post_close_pending"
+            # 交易日历只说明今天应当交易；是否已经入盘必须看计算数据集
+            # 的真实 as_of_trade_date，不能用 calendar 的日期代替。
+            phase = "post_close_confirmed" if self._confirmed_market_trade_date() == today_value else "post_close_pending"
         # targetTradeDate 是用户当前所处交易日；非交易日使用下一交易日，
         # tradeDate 仍由预测数据集自身的 as-of 日期决定，避免把未入盘价格
         # 冒充正式收盘价。
@@ -1125,6 +1137,26 @@ class MarketService:
         }
         self._prediction_state_cache = (now, state)
         return state
+
+    def _confirmed_market_trade_date(self) -> str:
+        """返回已经落入基础数据集的最近交易日，不把日历日期当收盘日期。"""
+
+        if self._calc_repository.available:
+            try:
+                dates = []
+                for item in (self._calc_repository.all_calculations() or {}).values():
+                    value = str(item.get("as_of_trade_date") or "")
+                    if value:
+                        dates.append(value)
+                for item in (self._calc_repository.all_indexes() or {}).values():
+                    value = str(item.get("as_of_trade_date") or "")
+                    if value:
+                        dates.append(value)
+                if dates:
+                    return max(dates)
+            except Exception as exc:  # noqa: BLE001 - 失败时保留 Tushare 兼容路径
+                self._market_update_error = f"行情确认日期读取失败：{exc}"
+        return self.client.latest_trade_date()
 
     @staticmethod
     def _format_prediction_datetime(value: Any) -> str:

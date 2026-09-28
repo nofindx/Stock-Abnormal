@@ -75,7 +75,7 @@ class ApiHandler(BaseHTTPRequestHandler):
                             "database": bool(calc_config.get("database")),
                             "driver": SERVICE._calc_repository._driver() is not None,
                         },
-                        "lastSuccessDate": (market_job or {}).get("last_success_date", ""),
+                        "lastSuccessDate": SERVICE._confirmed_market_trade_date() if market_calc_available else (market_job or {}).get("last_success_date", ""),
                         "lastError": market_calc_error or (market_job or {}).get("last_error", ""),
                     },
                     "monitorSnapshot": bool(OFFICIAL_MONITOR.repository.active_snapshot()),
