@@ -6,9 +6,9 @@
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta, timezone
-from functools import lru_cache
 from concurrent.futures import ThreadPoolExecutor
-from threading import Lock
+from threading import Event, Lock, Thread
+from types import SimpleNamespace
 from typing import Any, Dict, Iterable, List, Optional
 try:
     from zoneinfo import ZoneInfo
@@ -17,12 +17,54 @@ except ImportError:  # Python 3.8 本地开发环境兼容回退。
 
 from server.core.abnormal_rules import BOARD_RULES, Board, PriceBar, calculate_deviation, detect_ordinary_abnormal, detect_severe_abnormal
 from .realtime_quote import RealtimeQuoteClient
+from .market_calc_repository import MarketCalcRepository
 from .tushare_client import TushareClient, TushareUnavailable
 
 
 INDEX_BY_MARKET = {"SSE": "000001.SH", "SZSE": "399001.SZ", "BSE": "899050.BJ"}
+INDEX_BY_BOARD = {"创业板": "399006.SZ", "科创板": "000688.SH", "北交所": "899050.BJ"}
 BOARD_BY_MARKET = {"主板": Board.MAIN, "创业板": Board.CHINEXT, "科创板": Board.STAR, "北交所": Board.BSE}
 SHANGHAI_TZ = ZoneInfo("Asia/Shanghai") if ZoneInfo else timezone(timedelta(hours=8))
+
+# GBK 区位表不依赖第三方拼音包，适合云托管的轻量搜索场景。
+_PINYIN_RANGES = (
+    (0xB0A1, "A"), (0xB0C5, "B"), (0xB2C1, "C"), (0xB4EE, "D"),
+    (0xB6EA, "E"), (0xB7A2, "F"), (0xB8C1, "G"), (0xB9FE, "H"),
+    (0xBBF7, "J"), (0xBFA6, "K"), (0xC0AC, "L"), (0xC2E8, "M"),
+    (0xC4C3, "N"), (0xC5B6, "O"), (0xC5BE, "P"), (0xC6DA, "Q"),
+    (0xC8BB, "R"), (0xC8F5, "S"), (0xCBF9, "T"), (0xCDD9, "W"),
+    (0xCEF3, "X"), (0xD1B9, "Y"), (0xD4D1, "Z"),
+)
+
+
+def _name_initials(value: str) -> str:
+    """返回中文名称首字母，例如“博杰股份” -> “BJGF”。"""
+
+    result: List[str] = []
+    for char in str(value or ""):
+        if "A" <= char.upper() <= "Z":
+            result.append(char.upper())
+            continue
+        if "0" <= char <= "9":
+            result.append(char)
+            continue
+        try:
+            encoded = char.encode("gbk")
+            if len(encoded) != 2:
+                continue
+            code = encoded[0] * 256 + encoded[1]
+            initial = ""
+            for threshold, letter in _PINYIN_RANGES:
+                if code >= threshold:
+                    initial = letter
+                else:
+                    break
+            result.append(initial or "#")
+        except UnicodeEncodeError:
+            continue
+    return "".join(result)
+
+
 def _date(value: Any) -> date:
     return datetime.strptime(str(value), "%Y%m%d").date()
 
@@ -47,12 +89,23 @@ def _board_label(market: Any, symbol: str) -> str:
     return "主板"
 
 
+def _index_code_for_stock(stock: Dict[str, Any]) -> str:
+    """按股票板块选择对应指数；主板再区分沪深市场。"""
+
+    board = str(stock.get("board") or "主板")
+    if board in INDEX_BY_BOARD:
+        return INDEX_BY_BOARD[board]
+    return INDEX_BY_MARKET.get(str(stock.get("market") or ""), "000001.SH")
+
+
 class MarketService:
     """把 Tushare 数据转为产品 API。"""
 
     def __init__(self, client: Optional[TushareClient] = None) -> None:
         self.client = client or TushareClient()
+        self._calc_repository = MarketCalcRepository()
         self._stocks_cache: Optional[tuple[datetime, List[Dict[str, Any]]]] = None
+        self._market_context_cache: Optional[tuple[datetime, Dict[str, Any]]] = None
         self._daily_cache: Dict[tuple[str, str, str], Any] = {}
         self._prediction_cache: Dict[str, tuple[datetime, List[Dict[str, Any]]]] = {}
         self._prediction_locks = {"today": Lock(), "next_day": Lock()}
@@ -61,36 +114,70 @@ class MarketService:
         self._prediction_trade_date: Dict[str, str] = {}
         self._prediction_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="prediction")
         self._realtime = RealtimeQuoteClient()
+        self._market_scheduler_stop = Event()
+        self._market_scheduler: Optional[Thread] = None
+        self._market_update_lock = Lock()
+        self._market_update_error = ""
         # 监控池由 OfficialMonitorService 公告快照链路独立负责。
 
-    def close(self) -> None:
-        """停止预测线程池，监控快照由 OfficialMonitorService 独立负责。"""
+    def start_scheduler(self) -> None:
+        """启动单股计算基础数据的每日更新任务。"""
 
+        if self._market_scheduler and self._market_scheduler.is_alive():
+            return
+        self._market_scheduler_stop.clear()
+        self._market_scheduler = Thread(target=self._market_scheduler_loop, name="market-calc", daemon=True)
+        self._market_scheduler.start()
+
+    def close(self) -> None:
+        """停止每日更新和预测线程池。"""
+
+        self._market_scheduler_stop.set()
         self._prediction_executor.shutdown(wait=False)
 
-    def _stock_rows(self) -> List[Dict[str, Any]]:
-        now = datetime.utcnow()
-        if self._stocks_cache and (now - self._stocks_cache[0]).total_seconds() < 21600:
+    def _stock_rows(self, force: bool = False) -> List[Dict[str, Any]]:
+        now = datetime.now(SHANGHAI_TZ)
+        if not force and self._stocks_cache and (now - self._stocks_cache[0]).total_seconds() < 21600:
             return self._stocks_cache[1]
-        frame = self.client.stock_basic()
+        if not force and self._calc_repository.available:
+            try:
+                stored = self._calc_repository.list_stocks()
+                if stored:
+                    rows = [self._normalise_stock_row(item) for item in stored]
+                    self._stocks_cache = (now, rows)
+                    return rows
+            except Exception as exc:  # noqa: BLE001 - 数据库不可用时回退 Tushare
+                self._market_update_error = f"MySQL 读取失败：{exc}"
+        try:
+            frame = self.client.stock_basic(force=force)
+        except TypeError:
+            # 兼容测试或旧数据源适配器尚未支持 force 参数的情况。
+            frame = self.client.stock_basic()
         rows: List[Dict[str, Any]] = []
         for item in frame.to_dict("records"):
-            name = str(item.get("name") or "")
-            symbol = str(item.get("symbol") or "")
-            rows.append({
-                "ts_code": str(item.get("ts_code") or ""),
-                "symbol": symbol,
-                "name": name,
-                "market": str(item.get("exchange") or item.get("market") or ""),
-                "board": _board_label(item.get("market"), symbol),
-                "isST": name.upper().startswith("ST") or name.startswith("*ST"),
-                "list_date": item.get("list_date"),
-            })
+            rows.append(self._normalise_stock_row(item))
         self._stocks_cache = (now, rows)
         return rows
 
+    @staticmethod
+    def _normalise_stock_row(item: Dict[str, Any]) -> Dict[str, Any]:
+        name = str(item.get("name") or "")
+        symbol = str(item.get("symbol") or "")
+        computed_initials = _name_initials(name)
+        return {
+            "ts_code": str(item.get("ts_code") or ""),
+            "symbol": symbol,
+            "name": name,
+            "market": str(item.get("exchange") or item.get("market") or ""),
+            "board": str(item.get("board") or _board_label(item.get("market") or item.get("exchange"), symbol)),
+            "isST": bool(item.get("isST", name.upper().startswith("ST") or name.startswith("*ST"))),
+            "nameInitials": computed_initials or str(item.get("nameInitials") or item.get("name_initials") or ""),
+            "list_date": item.get("list_date"),
+            "list_status": item.get("list_status", "L"),
+        }
+
     def search(self, query: str, limit: int = 5) -> Dict[str, Any]:
-        """按完整代码、代码前缀、完整名称、名称包含排序，只返回首屏。"""
+        """按代码、完整名称、名称首字母和名称包含排序，只返回首屏。"""
 
         value = (query or "").strip().lower()
         if not value:
@@ -100,6 +187,7 @@ class MarketService:
             symbol = item["symbol"].lower()
             ts_code = item["ts_code"].lower()
             name = item["name"].lower()
+            initials = item["nameInitials"].lower()
             rank = None
             if value in (symbol, ts_code):
                 rank = 0
@@ -107,12 +195,54 @@ class MarketService:
                 rank = 1
             elif name == value:
                 rank = 2
-            elif value in name:
+            elif initials == value:
                 rank = 3
+            elif initials.startswith(value):
+                rank = 4
+            elif value in name:
+                rank = 5
             if rank is not None:
                 ranked.append((rank, index, item))
         ranked.sort(key=lambda entry: (entry[0], entry[1]))
         return {"items": [entry[2] for entry in ranked[:limit]], "hasMore": len(ranked) > limit}
+
+    def _market_context(self) -> Dict[str, Any]:
+        """缓存最近 30 个交易日和板块指数，详情请求复用该上下文。"""
+
+        now = datetime.now(SHANGHAI_TZ)
+        if self._market_context_cache and (now - self._market_context_cache[0]).total_seconds() < 300:
+            return self._market_context_cache[1]
+        latest = self.client.latest_trade_date()
+        latest_day = datetime.strptime(latest, "%Y%m%d")
+        calendar_start = (latest_day - timedelta(days=60)).strftime("%Y%m%d")
+        calendar = self.client.trade_cal(calendar_start, latest)
+        open_dates = sorted(
+            str(row["cal_date"]) for row in calendar.to_dict("records")
+            if int(row.get("is_open", 0)) == 1
+        )[-31:]
+        if len(open_dates) < 2:
+            raise TushareUnavailable("交易日历不足 30 个交易日")
+        start_date = open_dates[0]
+        index_frames = {
+            code: self._index_daily(code, start_date, latest)
+            for code in sorted(set(INDEX_BY_MARKET.values()) | set(INDEX_BY_BOARD.values()))
+        }
+        context = {
+            "latest": latest,
+            "tradeDates": open_dates,
+            "start": start_date,
+            "indexFrames": index_frames,
+            "indexReturns": {
+                code: {
+                    days: calculate_deviation(self._bars(frame, code), self._bars(frame, code), days).stock_return
+                    if len(self._bars(frame, code)) >= days + 1 else None
+                    for days in (3, 10, 30)
+                }
+                for code, frame in index_frames.items()
+            },
+        }
+        self._market_context_cache = (now, context)
+        return context
 
     def _daily(self, ts_code: str, start_date: str, end_date: str):
         key = (ts_code, start_date, end_date)
@@ -121,14 +251,9 @@ class MarketService:
         return self._daily_cache[key]
 
     def _daily_with_turnover(self, ts_code: str, start_date: str, end_date: str):
-        """把日线和日线基础指标按交易日合并，供换手率规则使用。"""
+        """兼容旧调用名；单股计算不再读取 daily_basic 或换手率。"""
 
-        frame = self._daily(ts_code, start_date, end_date).copy()
-        basic = self.client.daily_basic(ts_code=ts_code, start_date=start_date, end_date=end_date)
-        if frame.empty or basic is None or basic.empty or "turnover_rate" not in basic.columns:
-            return frame
-        turnover = basic[["trade_date", "turnover_rate"]].drop_duplicates("trade_date")
-        return frame.merge(turnover, on="trade_date", how="left")
+        return self._daily(ts_code, start_date, end_date).copy()
 
     def _index_daily(self, ts_code: str, start_date: str, end_date: str):
         """读取并缓存指数行情，避免把指数误当成股票日线。"""
@@ -179,31 +304,501 @@ class MarketService:
     def _display_trade_date(value: str) -> str:
         return datetime.strptime(value, "%Y%m%d").strftime("%m-%d")
 
+    @staticmethod
+    def _quote_date(quote: Optional[Dict[str, Any]]) -> Optional[date]:
+        value = str((quote or {}).get("updatedAt") or "")
+        if len(value) >= 10:
+            try:
+                return datetime.strptime(value[:10], "%Y-%m-%d").date()
+            except ValueError:
+                pass
+        return None
+
+    @classmethod
+    def _merge_realtime_bars(cls, stock_bars: List[PriceBar], index_bars: List[PriceBar], stock_quote: Optional[Dict[str, Any]], index_quote: Optional[Dict[str, Any]]):
+        """将同一行情时点的股票和板块指数报价并入收盘序列。"""
+
+        if not stock_quote or not index_quote:
+            return stock_bars, index_bars
+        try:
+            stock_close = float(stock_quote.get("current"))
+            index_close = float(index_quote.get("current"))
+        except (TypeError, ValueError):
+            return stock_bars, index_bars
+        if stock_close <= 0 or index_close <= 0:
+            return stock_bars, index_bars
+        quote_date = cls._quote_date(stock_quote) or cls._quote_date(index_quote)
+        if not quote_date:
+            return stock_bars, index_bars
+        stock_result = list(stock_bars)
+        index_result = list(index_bars)
+        if stock_result and stock_result[-1].trade_date == quote_date and index_result and index_result[-1].trade_date == quote_date:
+            stock_result[-1] = PriceBar(quote_date, stock_close, stock_result[-1].turnover_rate)
+            index_result[-1] = PriceBar(quote_date, index_close, index_result[-1].turnover_rate)
+        elif not stock_result or quote_date > stock_result[-1].trade_date:
+            stock_result.append(PriceBar(quote_date, stock_close))
+            index_result.append(PriceBar(quote_date, index_close))
+        return stock_result, index_result
+
+    @staticmethod
+    def _build_alerts(deviations: Dict[int, Optional[float]], severe: Any, board: Board) -> List[Dict[str, Any]]:
+        rule = BOARD_RULES[board]
+        thresholds = {
+            3: (rule.ordinary_deviation, -rule.ordinary_deviation),
+            10: (rule.severe_10d_threshold.up, rule.severe_10d_threshold.down),
+            30: (rule.severe_30d_threshold.up, rule.severe_30d_threshold.down),
+        }
+        alerts: List[Dict[str, Any]] = []
+        for days in (3, 10, 30):
+            value = deviations.get(days)
+            up, down = thresholds[days]
+            target = up if (value is None or value >= 0) else down
+            distance = abs(target - value) if value is not None else None
+            triggered = value is not None and ((value >= up) or (value <= down))
+            progress = min(100, abs(value) / max(abs(target), 0.01) * 100) if value is not None else 0
+            alerts.append({
+                "title": f"{days} 日偏离",
+                "forecast": "已触发" if triggered else (f"还差 {distance:.2f}%" if distance is not None else "数据不足"),
+                "detail": f"当前 {_pct(value)}，阈值 {up:+.0f}% / {down:+.0f}%" if value is not None else "暂无足够交易日数据",
+                "progressStyle": f"width:{progress:.1f}%",
+                "className": "risk" if triggered else "safe" if value is not None else "neutral",
+            })
+        count = severe.same_direction_count if severe else 0
+        limit = severe.same_direction_threshold if severe else rule.severe_same_direction_count
+        progress = min(100, count / max(limit, 1) * 100)
+        alerts.append({
+            "title": "10 日同向",
+            "forecast": "已触发" if count >= limit else f"还差 {max(0, limit - count)} 次",
+            "detail": f"上涨 {severe.up_count if severe else 0} 次 / 下跌 {severe.down_count if severe else 0} 次，阈值 {limit} 次",
+            "progressStyle": f"width:{progress:.1f}%",
+            "className": "risk" if count >= limit else "safe",
+        })
+        return alerts
+
+    @staticmethod
+    def _simulation_returns(stock_bars: List[PriceBar], index_bars: List[PriceBar]) -> Dict[str, List[float]]:
+        """提供最近 30 个交易日收益率，让前端模拟时只增量追加假设值。"""
+
+        stock_returns: List[float] = []
+        index_returns: List[float] = []
+        for previous, current in zip(stock_bars, stock_bars[1:]):
+            stock_returns.append((current.close / previous.close - 1) * 100)
+        for previous, current in zip(index_bars, index_bars[1:]):
+            index_returns.append((current.close / previous.close - 1) * 100)
+        return {"stock": stock_returns[-30:], "index": index_returns[-30:]}
+
+    @staticmethod
+    def _vector_entries(value: Any) -> List[Dict[str, Any]]:
+        """统一解析数据库中的滚动收益率；新格式带日期，旧格式仍可读。"""
+
+        if isinstance(value, str):
+            try:
+                import json
+                value = json.loads(value)
+            except (TypeError, ValueError):
+                value = []
+        entries: List[Dict[str, Any]] = []
+        for index, item in enumerate(value or []):
+            if isinstance(item, dict):
+                raw_date = item.get("date") or item.get("tradeDate") or ""
+                raw_return = item.get("return", item.get("value"))
+            else:
+                raw_date = ""
+                raw_return = item
+            try:
+                number = float(raw_return)
+            except (TypeError, ValueError):
+                continue
+            entries.append({"date": str(raw_date), "return": number, "order": index})
+        return entries[-30:]
+
+    @staticmethod
+    def _vector_numbers(entries: List[Dict[str, Any]]) -> List[float]:
+        return [float(item["return"]) for item in entries]
+
+    @staticmethod
+    def _compound(values: Iterable[float]) -> float:
+        result = 1.0
+        for value in values:
+            result *= 1.0 + float(value) / 100.0
+        return (result - 1.0) * 100.0
+
+    @classmethod
+    def _vector_deviation(cls, stock: List[Dict[str, Any]], index: List[Dict[str, Any]], window: int) -> Optional[float]:
+        if not stock or not index:
+            return None
+        stock_dates = {item["date"] for item in stock if item.get("date")}
+        index_dates = {item["date"] for item in index if item.get("date")}
+        if stock_dates and index_dates:
+            dates = sorted(stock_dates & index_dates)[-window:]
+            stock_map = {item["date"]: item["return"] for item in stock}
+            index_map = {item["date"]: item["return"] for item in index}
+            if len(dates) < window:
+                return None
+            return cls._compound(stock_map[item] for item in dates) - cls._compound(index_map[item] for item in dates)
+        if len(stock) < window or len(index) < window:
+            return None
+        return cls._compound(cls._vector_numbers(stock[-window:])) - cls._compound(cls._vector_numbers(index[-window:]))
+
+    @classmethod
+    def _vector_metrics(cls, stock: List[Dict[str, Any]], index: List[Dict[str, Any]], rule: Any) -> Dict[str, Any]:
+        """从日期化收益率向量计算偏离和 10 日同向次数。"""
+
+        deviations = {window: cls._vector_deviation(stock, index, window) for window in (3, 10, 30)}
+        stock_map = {item["date"]: item["return"] for item in stock if item.get("date")}
+        index_map = {item["date"]: item["return"] for item in index if item.get("date")}
+        common_dates = sorted(set(stock_map) & set(index_map))[-10:]
+        if not common_dates:
+            common_dates = list(range(min(len(stock), len(index))))[-10:]
+            stock_values = cls._vector_numbers(stock[-len(common_dates):])
+            index_values = cls._vector_numbers(index[-len(common_dates):])
+        else:
+            stock_values = [stock_map[item] for item in common_dates]
+            index_values = [index_map[item] for item in common_dates]
+        up_count = down_count = 0
+        for end in range(2, len(stock_values)):
+            deviation = cls._compound(stock_values[end - 2 : end + 1]) - cls._compound(index_values[end - 2 : end + 1])
+            if deviation >= rule.ordinary_deviation:
+                up_count += 1
+            elif deviation <= -rule.ordinary_deviation:
+                down_count += 1
+        same_direction_count = max(up_count, down_count)
+        return {
+            "deviations": deviations,
+            "up": up_count,
+            "down": down_count,
+            "same": same_direction_count,
+        }
+
+    @staticmethod
+    def _quote_date_string(quote: Optional[Dict[str, Any]]) -> str:
+        value = str((quote or {}).get("updatedAt") or "")
+        return value[:10] if len(value) >= 10 else ""
+
+    @classmethod
+    def _apply_quote_to_vector(cls, entries: List[Dict[str, Any]], latest_close: Any, quote: Optional[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """把当前报价转为一个当日收益率，替换或追加最后一个向量元素。"""
+
+        if not quote:
+            return list(entries)
+        try:
+            current = float(quote.get("current"))
+            previous_close = float(latest_close)
+        except (TypeError, ValueError):
+            return list(entries)
+        if current <= 0 or previous_close <= 0:
+            return list(entries)
+        quote_date = cls._quote_date_string(quote)
+        if not quote_date:
+            return list(entries)
+        result = list(entries)
+        if result and result[-1].get("date") == quote_date:
+            if len(result) >= 2:
+                last_return = float(result[-1]["return"])
+                previous_close = previous_close / (1.0 + last_return / 100.0)
+            result[-1] = {"date": quote_date, "return": (current / previous_close - 1.0) * 100.0}
+        elif not result or quote_date > str(result[-1].get("date") or ""):
+            result.append({"date": quote_date, "return": (current / previous_close - 1.0) * 100.0})
+        return result[-30:]
+
+    def _detail_from_repository(self, stock: Dict[str, Any], calc: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        index_code = _index_code_for_stock(stock)
+        try:
+            index = self._calc_repository.get_index(index_code)
+        except Exception as exc:  # noqa: BLE001 - 数据库不可用时由调用方回退
+            self._market_update_error = f"MySQL 读取失败：{exc}"
+            return None
+        if not index:
+            return None
+        stock_vector = self._vector_entries(calc.get("stock_return_vector"))
+        index_vector = self._vector_entries(index.get("index_return_vector"))
+        board = BOARD_BY_MARKET.get(stock["board"], Board.MAIN)
+        rule = BOARD_RULES[board]
+        quotes = self._realtime.fetch_many([stock["ts_code"], index_code])
+        quote = quotes.get(stock["ts_code"].upper())
+        index_quote = quotes.get(index_code.upper())
+        realtime = bool(quote and index_quote)
+        display_quote = quote if realtime else None
+        if realtime:
+            stock_vector = self._apply_quote_to_vector(stock_vector, calc.get("latest_close"), quote)
+            index_vector = self._apply_quote_to_vector(index_vector, index.get("latest_close"), index_quote)
+        metrics = self._vector_metrics(stock_vector, index_vector, rule)
+        deviations = metrics["deviations"]
+        same_count = metrics["same"]
+        severe = SimpleNamespace(
+            same_direction_count=same_count,
+            same_direction_threshold=rule.severe_same_direction_count,
+            up_count=metrics["up"],
+            down_count=metrics["down"],
+            triggered=(
+                deviations.get(10) is not None and rule.severe_10d_threshold.triggered(deviations[10])
+            ) or (
+                deviations.get(30) is not None and rule.severe_30d_threshold.triggered(deviations[30])
+            ) or same_count >= rule.severe_same_direction_count,
+        )
+        status = "安全"
+        status_class = "safe"
+        if deviations.get(30) is not None and rule.severe_30d_threshold.triggered(deviations[30]):
+            status, status_class = "严重异动", "severe"
+        elif deviations.get(10) is not None and rule.severe_10d_threshold.triggered(deviations[10]):
+            status, status_class = "严重异动", "severe"
+        elif same_count >= rule.severe_same_direction_count:
+            status, status_class = "严重异动", "severe"
+        elif deviations.get(3) is not None and abs(deviations[3]) >= rule.ordinary_deviation:
+            status, status_class = "风险提示", "risk"
+        current_price = display_quote.get("current") if display_quote else calc.get("latest_close")
+        if display_quote and display_quote.get("pctChg") is not None:
+            current_change = display_quote.get("pctChg")
+        elif stock_vector:
+            current_change = stock_vector[-1].get("return")
+        else:
+            current_change = None
+        latest_date = self._quote_date_string(display_quote) or str(calc.get("as_of_trade_date") or "")
+        try:
+            future_dates = self._future_trade_dates(latest_date.replace("-", ""), 10)
+        except Exception:
+            future_dates = []
+        warnings = [
+            {"title": "3 日偏离", "value": _pct(deviations[3]), "target": f"阈值 ±{rule.ordinary_deviation:.0f}%", "className": "risk" if deviations[3] is not None and abs(deviations[3]) >= rule.ordinary_deviation else "safe"},
+            {"title": "10 日偏离", "value": _pct(deviations[10]), "target": f"阈值 +{rule.severe_10d_threshold.up:.0f}% / {rule.severe_10d_threshold.down:.0f}%", "className": "risk" if deviations[10] is not None and rule.severe_10d_threshold.triggered(deviations[10]) else "neutral"},
+            {"title": "30 日偏离", "value": _pct(deviations[30]), "target": f"阈值 +{rule.severe_30d_threshold.up:.0f}% / {rule.severe_30d_threshold.down:.0f}%", "className": "risk" if deviations[30] is not None and rule.severe_30d_threshold.triggered(deviations[30]) else "neutral"},
+            {"title": "10 日同向", "value": "", "up": str(metrics["up"]), "down": str(metrics["down"]), "target": f"阈值 {rule.severe_same_direction_count} 次", "className": "risk" if same_count >= rule.severe_same_direction_count else "safe"},
+        ]
+        return {
+            **stock,
+            "status": status,
+            "statusClass": status_class,
+            "statusIcon": "!" if status_class != "safe" else "✓",
+            "currentPrice": f"{float(current_price):.2f}" if current_price is not None else "--",
+            "change": _pct(current_change),
+            "tradeDate": latest_date,
+            "futureTradeDates": future_dates,
+            "warnings": warnings,
+            "alerts": self._build_alerts(deviations, severe, board),
+            "simulationBase": {"stock": self._vector_numbers(stock_vector), "index": self._vector_numbers(index_vector)},
+            "simulationThresholds": {
+                "10": {"up": rule.severe_10d_threshold.up, "down": rule.severe_10d_threshold.down},
+                "30": {"up": rule.severe_30d_threshold.up, "down": rule.severe_30d_threshold.down},
+            },
+            "dataQuality": {
+                "source": "CloudBase MySQL + 实时行情" if realtime else "CloudBase MySQL",
+                "tradeDate": latest_date,
+                "asOfTradeDate": str(calc.get("as_of_trade_date") or ""),
+                "intraday": realtime,
+                "realtime": realtime,
+                "fallback": not realtime,
+                "isComplete": len(stock_vector) >= 30 and len(index_vector) >= 30,
+                "quoteUpdatedAt": display_quote.get("updatedAt", "") if display_quote else "",
+                "message": "" if realtime else "实时行情暂不可用，当前显示最近交易日结果",
+            },
+        }
+
+    def _market_scheduler_loop(self) -> None:
+        """每日 00:00 后更新；前一日失败只在次日 01:00-09:00 每小时重试。"""
+
+        self._market_scheduler_stop.wait(0.5)
+        while not self._market_scheduler_stop.is_set():
+            try:
+                if self._calc_repository.available:
+                    now = datetime.now(SHANGHAI_TZ)
+                    job = self._calc_repository.job() or {}
+                    if not job.get("last_success_date") and not job.get("last_attempt_at"):
+                        self.update_market_data()
+                    elif now.hour == 0:
+                        latest = self.client.latest_trade_date()
+                        # 当日 00:00 失败后不在同一分钟反复尝试，失败任务统一进入次日 01:00-09:00 重试窗口。
+                        if job.get("last_success_date") != latest and job.get("last_failure_date") != now.strftime("%Y-%m-%d"):
+                            self.update_market_data()
+                    elif 1 <= now.hour <= 9 and job.get("last_failure_date"):
+                        failure_date = str(job.get("last_failure_date"))
+                        yesterday = (now.date() - timedelta(days=1)).strftime("%Y-%m-%d")
+                        marker = f"{now.strftime('%Y-%m-%d')}-{now.hour:02d}"
+                        # 01:00 首次重试仍失败时，失败日期会变成今天；允许当天后续小时继续重试。
+                        if failure_date in (yesterday, now.strftime("%Y-%m-%d")) and job.get("retry_marker") != marker:
+                            try:
+                                self.update_market_data()
+                            finally:
+                                self._calc_repository.mark_retry(marker)
+            except Exception as exc:  # noqa: BLE001
+                self._market_update_error = str(exc)
+            self._market_scheduler_stop.wait(60)
+
+    @staticmethod
+    def _return_entry(date_value: str, previous: float, current: float) -> Dict[str, Any]:
+        return {"date": str(date_value), "return": (float(current) / float(previous) - 1.0) * 100.0}
+
+    def _append_daily_rows(self, calculations: Dict[str, Dict[str, Any]], daily_frames: Dict[str, Any], latest_dates: List[str]) -> None:
+        for trade_date in latest_dates:
+            frame = daily_frames.get(trade_date)
+            if frame is None or frame.empty:
+                continue
+            for row in frame.to_dict("records"):
+                ts_code = str(row.get("ts_code") or "")
+                close = row.get("close")
+                if not ts_code or close is None or float(close) <= 0:
+                    continue
+                item = calculations.get(ts_code)
+                if not item:
+                    continue
+                vector = self._vector_entries(item.get("stock_return_vector"))
+                previous_close = item.get("latest_close")
+                if previous_close and float(previous_close) > 0:
+                    vector = [entry for entry in vector if entry.get("date") != str(trade_date)]
+                    vector.append(self._return_entry(trade_date, float(previous_close), float(close)))
+                item["stock_return_vector"] = vector[-30:]
+                item["latest_close"] = float(close)
+                item["as_of_trade_date"] = str(trade_date)
+
+    def update_market_data(self) -> Dict[str, Any]:
+        """生成或增量更新最小计算数据，不保存原始日线。"""
+
+        if not self._calc_repository.available:
+            return {"updated": False, "reason": "MySQL 计算数据仓库未配置"}
+        with self._market_update_lock:
+            try:
+                self._calc_repository.ensure_schema()
+                latest = self.client.latest_trade_date()
+                try:
+                    stock_frame = self.client.stock_basic(force=True)
+                except TypeError:
+                    stock_frame = self.client.stock_basic()
+                stocks = [self._normalise_stock_row(item) for item in stock_frame.to_dict("records")]
+                existing = self._calc_repository.all_calculations() or {}
+                indexes_existing = self._calc_repository.all_indexes() or {}
+                previous_date = max((str(item.get("as_of_trade_date") or "") for item in existing.values()), default="")
+                calendar = self.client.trade_cal(
+                    (datetime.strptime(latest, "%Y%m%d") - timedelta(days=70)).strftime("%Y%m%d"), latest,
+                )
+                open_dates = sorted(str(row["cal_date"]) for row in calendar.to_dict("records") if int(row.get("is_open", 0)) == 1)
+                bootstrap = not existing
+                if bootstrap:
+                    needed_dates = open_dates[-31:]
+                else:
+                    needed_dates = [item for item in open_dates if item > previous_date]
+                    if not needed_dates:
+                        # 即使没有新增交易日，也要把当日 stock_basic 替换写入，识别新上市和状态变化。
+                        self._calc_repository.upsert_market(stocks, [], [], latest)
+                        self._stocks_cache = (datetime.now(SHANGHAI_TZ), stocks)
+                        return {"updated": False, "tradeDate": latest, "stockCount": len(stocks)}
+                daily_frames = {trade_date: self.client.daily(trade_date=trade_date) for trade_date in needed_dates}
+                if bootstrap:
+                    for item in stocks:
+                        rows = []
+                        for trade_date in needed_dates:
+                            frame = daily_frames.get(trade_date)
+                            if frame is None or frame.empty:
+                                continue
+                            rows.extend(row for row in frame.to_dict("records") if str(row.get("ts_code")) == item["ts_code"] and row.get("close") is not None)
+                        rows.sort(key=lambda row: str(row.get("trade_date")))
+                        vector = []
+                        for previous, current in zip(rows, rows[1:]):
+                            vector.append(self._return_entry(current["trade_date"], float(previous["close"]), float(current["close"])))
+                        if rows:
+                            existing[item["ts_code"]] = {"ts_code": item["ts_code"], "as_of_trade_date": str(rows[-1]["trade_date"]), "latest_close": float(rows[-1]["close"]), "stock_return_vector": vector[-30:]}
+                else:
+                    self._append_daily_rows(existing, daily_frames, needed_dates)
+                    # 新上市股票不在旧计算池中时，只为这些新增代码补取近 30 个交易日价格。
+                    history_start = needed_dates[0] if len(needed_dates) >= 30 else open_dates[-31]
+                    for stock in stocks:
+                        if stock["ts_code"] in existing:
+                            continue
+                        frame = self.client.daily(ts_code=stock["ts_code"], start_date=history_start, end_date=latest)
+                        rows = [] if frame is None or frame.empty else sorted(frame.to_dict("records"), key=lambda row: str(row.get("trade_date")))
+                        vector = []
+                        for previous, current in zip(rows, rows[1:]):
+                            if previous.get("close") and current.get("close"):
+                                vector.append(self._return_entry(current["trade_date"], float(previous["close"]), float(current["close"])))
+                        if rows and vector:
+                            existing[stock["ts_code"]] = {
+                                "ts_code": stock["ts_code"], "as_of_trade_date": str(rows[-1]["trade_date"]),
+                                "latest_close": float(rows[-1]["close"]), "stock_return_vector": vector[-30:],
+                            }
+                index_codes = sorted(set(INDEX_BY_MARKET.values()) | set(INDEX_BY_BOARD.values()))
+                indexes: List[Dict[str, Any]] = []
+                for index_code in index_codes:
+                    frame = self._index_daily(index_code, needed_dates[0], needed_dates[-1]) if needed_dates else None
+                    rows = [] if frame is None or frame.empty else sorted(frame.to_dict("records"), key=lambda row: str(row.get("trade_date")))
+                    item = indexes_existing.get(index_code, {"index_code": index_code, "index_name": index_code, "index_return_vector": []})
+                    vector = self._vector_entries(item.get("index_return_vector"))
+                    previous_close = item.get("latest_close")
+                    if bootstrap:
+                        vector = []
+                        previous_close = None
+                    for row in rows:
+                        close = row.get("close")
+                        if close is None or float(close) <= 0:
+                            continue
+                        if previous_close and float(previous_close) > 0:
+                            vector = [entry for entry in vector if entry.get("date") != str(row["trade_date"])]
+                            vector.append(self._return_entry(row["trade_date"], float(previous_close), float(close)))
+                        previous_close = float(close)
+                        item["as_of_trade_date"] = str(row["trade_date"])
+                    if previous_close:
+                        item["latest_close"] = previous_close
+                    item["index_return_vector"] = vector[-30:]
+                    item["indexName"] = item.get("index_name") or index_code
+                    indexes.append(item)
+                calculations = []
+                index_map = {item["index_code"]: item for item in indexes}
+                for stock in stocks:
+                    item = existing.get(stock["ts_code"])
+                    if not item or not item.get("latest_close"):
+                        continue
+                    index_item = index_map.get(_index_code_for_stock(stock))
+                    if not index_item:
+                        continue
+                    board = BOARD_BY_MARKET.get(stock["board"], Board.MAIN)
+                    metrics = self._vector_metrics(self._vector_entries(item.get("stock_return_vector")), self._vector_entries(index_item.get("index_return_vector")), BOARD_RULES[board])
+                    item.update({"deviation3": metrics["deviations"][3], "deviation10": metrics["deviations"][10], "deviation30": metrics["deviations"][30], "sameDirectionUp": metrics["up"], "sameDirectionDown": metrics["down"]})
+                    calculations.append(item)
+                self._calc_repository.upsert_market(stocks, calculations, indexes, latest)
+                self._stocks_cache = (datetime.now(SHANGHAI_TZ), stocks)
+                self._market_update_error = ""
+                return {"updated": True, "tradeDate": latest, "stockCount": len(stocks), "calculationCount": len(calculations)}
+            except Exception as exc:  # noqa: BLE001
+                self._market_update_error = str(exc)
+                self._calc_repository.record_failure(str(exc))
+                raise
+
     def detail(self, ts_code: str) -> Dict[str, Any]:
         """返回单股当前状态、四项预警和模拟计算基础数据。"""
 
         stock = self._stock(ts_code)
-        latest = self.client.latest_trade_date()
-        start = (datetime.strptime(latest, "%Y%m%d") - timedelta(days=70)).strftime("%Y%m%d")
-        stock_frame = self._daily_with_turnover(stock["ts_code"], start, latest)
-        index_code = INDEX_BY_MARKET.get(stock["market"], "000001.SH")
-        index_frame = self._index_daily(index_code, start, latest)
+        if self._calc_repository.available:
+            try:
+                stored = self._calc_repository.get_calc(stock["ts_code"])
+                if stored and stored.get("stock_return_vector"):
+                    result = self._detail_from_repository(stock, stored)
+                    if result:
+                        return result
+            except Exception as exc:  # noqa: BLE001 - 数据库不可用时回退已有 Tushare 链路
+                self._market_update_error = f"MySQL 读取失败：{exc}"
+        context = self._market_context()
+        latest = context["latest"]
+        start = context["start"]
+        stock_frame = self._daily(stock["ts_code"], start, latest)
+        index_code = _index_code_for_stock(stock)
+        index_frame = context["indexFrames"].get(index_code)
         stock_bars, index_bars = self._aligned_bars(stock_frame, index_frame, stock["ts_code"], index_code)
         board = BOARD_BY_MARKET.get(stock["board"], Board.MAIN)
+        board_rule = BOARD_RULES[board]
+        quotes = self._realtime.fetch_many([stock["ts_code"], index_code])
+        quote = quotes.get(stock["ts_code"].upper())
+        index_quote = quotes.get(index_code.upper())
+        stock_bars, index_bars = self._merge_realtime_bars(stock_bars, index_bars, quote, index_quote)
         deviations: Dict[int, Optional[float]] = {}
         for window in (3, 10, 30):
             deviations[window] = None
             if len(stock_bars) >= window + 1:
                 deviations[window] = calculate_deviation(stock_bars, index_bars, window).deviation
-        severe = detect_severe_abnormal(stock_bars, index_bars, board) if len(stock_bars) >= 2 else None
+        severe = detect_severe_abnormal(stock_bars, index_bars, board) if len(stock_bars) == len(index_bars) and len(stock_bars) >= 2 else None
         status = "安全"
         status_class = "safe"
         if severe and severe.triggered:
             status, status_class = "严重异动", "severe"
-        elif any(value is not None and abs(value) >= (30 if window == 3 else 100 if window == 10 else 200) for window, value in deviations.items()):
+        elif deviations[3] is not None and abs(deviations[3]) >= board_rule.ordinary_deviation:
             status, status_class = "风险提示", "risk"
         latest_row = sorted(stock_frame.to_dict("records"), key=lambda item: str(item["trade_date"]))[-1] if not stock_frame.empty else {}
-        quote = self._realtime.fetch_one(stock["ts_code"])
         current_price = quote["current"] if quote else latest_row.get("close")
         current_change = quote["pctChg"] if quote else latest_row.get("pct_chg")
         return {
@@ -216,13 +811,27 @@ class MarketService:
             "tradeDate": latest,
             "futureTradeDates": self._future_trade_dates(latest),
             "warnings": [
-                {"title": "3 日偏离", "value": _pct(deviations[3]), "target": "阈值 ±30%", "className": "risk" if deviations[3] is not None and abs(deviations[3]) >= 30 else "safe"},
-                {"title": "10 日偏离", "value": _pct(deviations[10]), "target": "阈值 +100% / -50%", "className": "risk" if deviations[10] is not None and abs(deviations[10]) >= 100 else "neutral"},
-                {"title": "30 日偏离", "value": _pct(deviations[30]), "target": "阈值 +200% / -70%", "className": "risk" if deviations[30] is not None and abs(deviations[30]) >= 200 else "neutral"},
-                {"title": "10 日同向", "value": "", "up": str(severe.same_direction_count if severe else 0), "down": "0", "target": "按板块规则统计", "className": "risk" if severe and severe.same_direction_count else "safe"},
+                {"title": "3 日偏离", "value": _pct(deviations[3]), "target": f"阈值 ±{board_rule.ordinary_deviation:.0f}%", "className": "risk" if deviations[3] is not None and abs(deviations[3]) >= board_rule.ordinary_deviation else "safe"},
+                {"title": "10 日偏离", "value": _pct(deviations[10]), "target": f"阈值 +{board_rule.severe_10d_threshold.up:.0f}% / {board_rule.severe_10d_threshold.down:.0f}%", "className": "risk" if deviations[10] is not None and board_rule.severe_10d_threshold.triggered(deviations[10]) else "neutral"},
+                {"title": "30 日偏离", "value": _pct(deviations[30]), "target": f"阈值 +{board_rule.severe_30d_threshold.up:.0f}% / {board_rule.severe_30d_threshold.down:.0f}%", "className": "risk" if deviations[30] is not None and board_rule.severe_30d_threshold.triggered(deviations[30]) else "neutral"},
+                {"title": "10 日同向", "value": "", "up": str(severe.up_count if severe else 0), "down": str(severe.down_count if severe else 0), "target": f"阈值 {severe.same_direction_threshold if severe else 0} 次", "className": "risk" if severe and severe.same_direction_count else "safe"},
             ],
-            "alerts": [],
-            "dataQuality": {"source": "tushare+腾讯行情" if quote else "tushare", "tradeDate": latest, "isComplete": len(stock_bars) >= 31, "intraday": bool(quote), "quoteUpdatedAt": quote.get("updatedAt") if quote else ""},
+            "alerts": self._build_alerts(deviations, severe, board),
+            "simulationBase": self._simulation_returns(stock_bars, index_bars),
+            "simulationThresholds": {
+                "10": {"up": board_rule.severe_10d_threshold.up, "down": board_rule.severe_10d_threshold.down},
+                "30": {"up": board_rule.severe_30d_threshold.up, "down": board_rule.severe_30d_threshold.down},
+            },
+            "dataQuality": {
+                "source": "tushare+腾讯行情" if quote and index_quote else "tushare",
+                "tradeDate": latest,
+                "isComplete": len(stock_bars) >= 31,
+                "intraday": bool(quote and index_quote),
+                "realtime": bool(quote and index_quote),
+                "fallback": not bool(quote and index_quote),
+                "quoteUpdatedAt": quote.get("updatedAt") if quote else "",
+                "message": "" if quote and index_quote else "实时行情暂不可用，当前显示最近交易日结果",
+            },
         }
 
     def _compute_prediction_items(self, scope: str) -> List[Dict[str, Any]]:
@@ -248,7 +857,7 @@ class MarketService:
             if not stock or not rows:
                 continue
             board = BOARD_BY_MARKET.get(stock["board"], Board.MAIN)
-            index_code = INDEX_BY_MARKET.get(stock["market"], "000001.SH")
+            index_code = _index_code_for_stock(stock)
             index_frame = self._index_daily(index_code, start, latest)
             stock_bars = self._bars(type("Frame", (), {"empty": not rows, "to_dict": lambda self, _=None: rows})(), ts_code)
             index_bars = self._bars(index_frame, index_code)

@@ -98,9 +98,17 @@ class TushareClient:
             self._cache[key] = (now, value)
             return value.copy() if hasattr(value, "copy") else value
 
-    def stock_basic(self):
+    def stock_basic(self, force: bool = False):
         """读取全部上市 A 股基础资料。"""
 
+        if force:
+            # 每日后台任务需要识别新上市股票，不能被进程内 6 小时缓存挡住。
+            return self.call(
+                "stock_basic",
+                exchange="",
+                list_status="L",
+                fields="ts_code,symbol,name,market,exchange,list_date",
+            )
         return self._cached(
             "stock_basic:L",
             21600,

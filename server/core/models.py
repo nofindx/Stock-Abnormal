@@ -19,7 +19,7 @@ class MonitorType(str, Enum):
 
     ORDINARY = "ordinary"  # 普通交易所风险提示。
     SEVERE_10D = "severe_10d"  # 10 个交易日严重异常。
-    SEVERE_30D = "severe_30d"  # 30 个交易日严重异常。
+    SEVERE_30D = "severe_30d"  # 30 个交易日回看窗口触发的严重异常；监管期为 10 个交易日。
 
 
 @dataclass(frozen=True)
@@ -111,7 +111,7 @@ class PredictionRecord:
     current_change: float  # 当前交易日股票涨跌幅。
     predicted_change: float  # 规则线对应的剩余涨跌幅。
     deviation: float  # 当前累计偏离值。
-    monitor_days: int  # 当前使用的监控窗口。
+    monitor_days: int  # 公告触发后的实际监管期交易日数量；30 日严重异动也为 10。
     trigger_price: float  # 理论触发价格。
     rule_text: str  # 给小程序展示的中文触发规则。
     risk_level: RiskLevel  # 预警风险等级。

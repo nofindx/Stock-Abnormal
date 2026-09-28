@@ -27,12 +27,16 @@ except ImportError:
 
 
 SHANGHAI_TZ = ZoneInfo("Asia/Shanghai") if ZoneInfo else timezone(timedelta(hours=8))
-# 监控窗口按交易日推进，不把 3 日普通异动写入监管池。
-MONITOR_WINDOW_TRADING_DAYS = {
+# 监管池的实际监管期按触发后的重点监控安排计算，三类记录均为 10 个交易日。
+# 注意：30 日严重异动中的“30 个交易日”是规则判定的回看窗口，
+# 不是公告触发后的监管期长度。规则计算窗口由 server/core/abnormal_rules.py 负责。
+MONITOR_PERIOD_TRADING_DAYS = {
     "ordinary": 10,       # 18.cn 交易所风险提示的默认监控窗口（起点计第 1 日）
-    "severe-10d": 10,     # 严重一档：共 10 个交易日，起点计第 1 日
-    "severe-30d": 30,     # 严重二档：共 30 个交易日，起点计第 1 日
+    "severe-10d": 10,     # 10 日严重异动：触发后 10 个交易日
+    "severe-30d": 10,     # 30 日偏离达到阈值后，仍按触发后 10 个交易日监管
 }
+# 兼容外部测试/旧调用方；业务代码统一使用 MONITOR_PERIOD_TRADING_DAYS。
+MONITOR_WINDOW_TRADING_DAYS = MONITOR_PERIOD_TRADING_DAYS
 
 
 class MonitorRepository:
@@ -269,16 +273,24 @@ class OfficialMonitorService:
     def _monitor_period(self, source_date: str, source_type: str, risk_tone: str = "ordinary") -> tuple[str, str]:
         """按附件口径计算监管期：起点取生效交易日，起点计第 1 日共 N 个交易日。"""
 
-        window = MONITOR_WINDOW_TRADING_DAYS.get(risk_tone, MONITOR_WINDOW_TRADING_DAYS["ordinary"])
-        dates = self._trade_dates(source_date, window)
+        dates = self._monitor_period_dates(source_date, source_type, risk_tone)
         if not dates:
             raise ValueError(f"无法计算监管期：{source_date}")
+        return dates[0], dates[-1]
+
+    def _monitor_period_dates(self, source_date: str, source_type: str, risk_tone: str = "ordinary") -> List[str]:
+        """返回已冻结的监管交易日序列，供快照保存和倒计时使用。"""
+
+        window = MONITOR_PERIOD_TRADING_DAYS.get(risk_tone, MONITOR_PERIOD_TRADING_DAYS["ordinary"])
+        dates = self._trade_dates(source_date, window)
+        if not dates:
+            return []
         # 18.cn 风险提示通常在收盘后发布，监管期从其后的首个交易日开始；
         # 巨潮严重异动公告按公告日期所在交易日开始。
         comparator = (lambda value: value > source_date) if source_type == "broker-risk-alert" else (lambda value: value >= source_date)
         start_index = next((index for index, value in enumerate(dates) if comparator(value)), 0)
         end_index = min(start_index + window - 1, len(dates) - 1)
-        return dates[start_index], dates[end_index]
+        return dates[start_index:end_index + 1]
 
     @staticmethod
     def _risk_rank(item: Dict[str, Any]) -> int:
@@ -392,7 +404,7 @@ class OfficialMonitorService:
                     "monitorKey": hashlib.sha256(str(item["sourceId"]).encode("utf-8")).hexdigest()[:24],
                     "sourceUrls": [item["sourceUrl"]] if item.get("sourceUrl") else [],
                     "sourceCount": 1 if item.get("sourceUrl") else 0,
-                    "monitorPeriod": f"起始日起共 {MONITOR_WINDOW_TRADING_DAYS.get(item.get('riskTone'), 10)} 个交易日（起点计第1日）",
+                    "monitorPeriod": f"起始日起共 {MONITOR_PERIOD_TRADING_DAYS.get(item.get('riskTone'), 10)} 个交易日（起点计第1日）",
                 })
         for item in selected_items:
             if item.get("riskTone") == "ordinary":
@@ -415,7 +427,7 @@ class OfficialMonitorService:
         run_id = now.strftime("%Y%m%d%H%M%S%f")
         self.repository.set_state("last_attempt_date", now.strftime("%Y-%m-%d"))
         try:
-            # 覆盖最长 30 个交易日监管窗口及其后 30 个自然日的当前记录校验窗口。
+            # 覆盖最长 30 个交易日判定回看窗口及其后 30 个自然日的公告校验窗口。
             start_date = (now - timedelta(days=90)).strftime("%Y-%m-%d")
             broker_result = self.announcements.query_broker_risk_alerts(start_date, now.strftime("%Y-%m-%d"))
             broker_available = bool(broker_result.get("available"))
@@ -440,7 +452,10 @@ class OfficialMonitorService:
                     continue
                 if not announcement.get("date"):
                     continue
-                monitor_start, monitor_end = self._monitor_period(announcement["date"], "issuer-disclosure", risk_tone)
+                monitor_dates = self._monitor_period_dates(announcement["date"], "issuer-disclosure", risk_tone)
+                if not monitor_dates:
+                    continue
+                monitor_start, monitor_end = monitor_dates[0], monitor_dates[-1]
                 source_key = announcement["url"] or f"{announcement['stockCode']}:{announcement['date']}:{title}"
                 source_id = hashlib.sha256(source_key.encode("utf-8")).hexdigest()[:24]
                 parsed_events.append({
@@ -449,8 +464,8 @@ class OfficialMonitorService:
                     "title": title, "announcementDate": announcement["date"],
                     "monitorStart": monitor_start[5:], "monitorStartDate": monitor_start,
                     "monitorEnd": monitor_end[5:] if monitor_end else "待核实",
-                    "monitorEndDate": monitor_end, "days": None, "daysTotal": MONITOR_WINDOW_TRADING_DAYS.get(risk_tone, 10) + 1,
-                    "monitorDates": [],
+                    "monitorEndDate": monitor_end, "days": None, "daysTotal": MONITOR_PERIOD_TRADING_DAYS.get(risk_tone, 10),
+                    "monitorDates": monitor_dates,
                     "monitorType": monitor_type, "riskTone": risk_tone,
                     "isST": "ST" in announcement["stockName"].upper(),
                     "source": announcement["source"], "sourceUrl": announcement["url"] if risk_tone != "ordinary" else "",
@@ -458,14 +473,17 @@ class OfficialMonitorService:
                     "sourcePriority": 2, "sourceLabel": "巨潮资讯备源",
                     "confirmationStatus": "issuer-disclosure-confirmed",
                     "contentHash": hashlib.sha256(f"{title}\n{body}".encode("utf-8")).hexdigest(),
-                    "monitorPeriod": f"起始日起共 {MONITOR_WINDOW_TRADING_DAYS.get(risk_tone, 10)} 个交易日（起点计第1日）",
+                    "monitorPeriod": f"起始日起共 {MONITOR_PERIOD_TRADING_DAYS.get(risk_tone, 10)} 个交易日（起点计第1日）",
                 })
             for alert in broker_result.get("items", []) if broker_available else []:
                 # 18.cn 是主源；只有正文满足风险提示或 10/30 日阈值语义才进入监控池。
                 if not self._is_accepted_broker_alert(alert["title"], alert.get("body", "")):
                     continue
                 monitor_type, risk_tone = self._broker_monitor_type(alert["title"], alert.get("body", ""))
-                monitor_start, monitor_end = self._monitor_period(alert["date"], alert["sourceType"], risk_tone)
+                monitor_dates = self._monitor_period_dates(alert["date"], alert["sourceType"], risk_tone)
+                if not monitor_dates:
+                    continue
+                monitor_start, monitor_end = monitor_dates[0], monitor_dates[-1]
                 # 页面脚本中的无关数字不单独触发，分类已在正文语义规则中完成。
                 source_id = hashlib.sha256(alert["url"].encode("utf-8")).hexdigest()[:24]
                 parsed_events.append({
@@ -474,7 +492,7 @@ class OfficialMonitorService:
                     "title": alert["title"], "announcementDate": alert["date"],
                     "monitorStart": monitor_start[5:], "monitorStartDate": monitor_start,
                     "monitorEnd": monitor_end[5:], "monitorEndDate": monitor_end,
-                    "days": None, "daysTotal": MONITOR_WINDOW_TRADING_DAYS.get(risk_tone, 10) + 1, "monitorDates": [],
+                    "days": None, "daysTotal": MONITOR_PERIOD_TRADING_DAYS.get(risk_tone, 10), "monitorDates": monitor_dates,
                     "monitorType": monitor_type, "riskTone": risk_tone,
                     "isST": "ST" in alert["stockName"].upper(),
                     "source": alert["source"], "sourceUrl": alert["url"] if risk_tone != "ordinary" else "",
@@ -482,7 +500,7 @@ class OfficialMonitorService:
                     "sourcePriority": alert["sourcePriority"], "sourceLabel": alert["sourceLabel"],
                     "confirmationStatus": "broker-notice-quotes-exchange-status",
                     "contentHash": hashlib.sha256(alert["body"].encode("utf-8")).hexdigest(),
-                    "monitorPeriod": f"起始日起共 {MONITOR_WINDOW_TRADING_DAYS.get(risk_tone, 10)} 个交易日（起点计第1日）",
+                    "monitorPeriod": f"起始日起共 {MONITOR_PERIOD_TRADING_DAYS.get(risk_tone, 10)} 个交易日（起点计第1日）",
                 })
             # 18.cn 页面只展示滚动的最近条目；仅在 18.cn 成功时保留旧窗口，避免主源滚动造成记录消失。
             previous_snapshot = self.repository.active_snapshot() or {}
@@ -517,7 +535,7 @@ class OfficialMonitorService:
                     },
                     "activeSource": active_source,
                     "isOfficialMonitorPeriod": False,
-                    "periodCalculation": "监控期按交易日计算并将起点计为第1日；3日普通异动不进入监控池，10日严重异动共10个交易日，30日严重异动共30个交易日",
+                    "periodCalculation": "监管期按交易日计算并将起点计为第1日；3日普通异动不进入监控池，10日和30日严重异动触发后均监管10个交易日；30日仅是判定回看窗口",
                     "coverage": "18.cn 正常时为主源；18.cn 不可用时由巨潮资讯接替；同源记录按股票和风险类型取最新",
                 },
             }
@@ -558,12 +576,15 @@ class OfficialMonitorService:
                 expected = {"ordinary": "ordinary", "severe_10d": "severe-10d", "severe_30d": "severe-30d"}[monitor_type]
                 if item.get("riskTone") != expected:
                     continue
-            remaining = self._remaining_natural_days(end_date, today)
+            remaining = self._remaining_trading_days(item.get("monitorDates"), today)
+            if remaining is None and end_date:
+                # 兼容升级前快照；新快照始终保存交易日序列。
+                remaining = self._remaining_natural_days(end_date, today)
             row = {**item, "days": remaining}
             if item.get("riskTone") in ("severe-10d", "severe-30d"):
                 row["pdfCached"] = bool(self.announcement_pdf_path(str(item.get("monitorKey") or "")))
             items.append(row)
-        # 明确监管日期按自然日计算；未公开结束日的记录排在已确认日期之后。
+        # 监管期按快照保存的交易日序列倒计时；未公开结束日的记录排在已确认日期之后。
         items.sort(key=lambda item: (item.get("days") is None, item.get("days") if item.get("days") is not None else 9999, item.get("announcementDate", "")))
         return {
             **snapshot,
@@ -586,3 +607,11 @@ class OfficialMonitorService:
         if not end_date:
             return None
         return max(0, (datetime.strptime(end_date, "%Y-%m-%d") - datetime.strptime(today, "%Y-%m-%d")).days)
+
+    @staticmethod
+    def _remaining_trading_days(monitor_dates: Any, today: str) -> Optional[int]:
+        """结束日当天仍返回 1，次日由当前列表过滤；只按已冻结交易日计算。"""
+
+        if not isinstance(monitor_dates, list) or not monitor_dates:
+            return None
+        return sum(1 for value in monitor_dates if str(value) >= today)

@@ -49,6 +49,19 @@ class MonitorWindowTests(unittest.TestCase):
         self.assertEqual(self.service._monitor_period("2026-09-23", "issuer-disclosure", "severe-10d"), ("2026-09-23", "2026-10-14"))
         self.assertEqual(self.service._monitor_period("2026-09-23", "broker-risk-alert"), ("2026-09-24", "2026-10-15"))
 
+    def test_thirty_day_detection_window_does_not_create_thirty_day_monitor_period(self):
+        dates = [
+            (date(2026, 8, 21) + timedelta(days=index)).strftime("%Y-%m-%d")
+            for index in range(45)
+            if (date(2026, 8, 21) + timedelta(days=index)).weekday() < 5
+        ]
+        self.service._trade_dates = lambda source_date, days: dates
+        # 哈药股份类 30 日偏离触发公告，监管期仍是触发日起 10 个交易日。
+        start, end = self.service._monitor_period("2026-08-21", "issuer-disclosure", "severe-30d")
+        self.assertEqual(start, "2026-08-21")
+        self.assertEqual(end, "2026-09-03")
+        self.assertEqual(len(self.service._monitor_period_dates("2026-08-21", "issuer-disclosure", "severe-30d")), 10)
+
     def test_end_date_is_current_zero_days_and_next_day_is_removed(self):
         self.assertFalse(self.service._is_expired("2026-09-28", "2026-09-28"))
         self.assertEqual(self.service._remaining_natural_days("2026-10-14", "2026-09-27"), 17)
@@ -87,6 +100,12 @@ class MonitorWindowTests(unittest.TestCase):
         self.assertEqual(periods["五洲医疗"], ("2026-09-23", "2026-10-14"))
         self.assertEqual(periods["闽东电力"], ("2026-09-23", "2026-10-14"))
         self.assertEqual(periods["天普股份"], ("2026-09-24", "2026-10-15"))
+
+    def test_remaining_days_use_frozen_trade_dates(self):
+        dates = ["2026-09-28", "2026-09-29", "2026-09-30", "2026-10-08"]
+        self.assertEqual(self.service._remaining_trading_days(dates, "2026-09-28"), 4)
+        self.assertEqual(self.service._remaining_trading_days(dates, "2026-09-29"), 3)
+        self.assertEqual(self.service._remaining_trading_days(dates, "2026-10-01"), 1)
 
     def test_broker_page_noise_does_not_upgrade_risk_prompt(self):
         noisy_page = "交易所将对以上证券的异常交易行为进行从严认定；页面脚本中的100%不是异动规则。"

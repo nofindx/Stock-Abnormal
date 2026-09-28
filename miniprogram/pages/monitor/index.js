@@ -1,8 +1,9 @@
-// 监控池页面：监控期、风险类型和剩余自然日全部使用后端结果。
+// 监控池页面：监控期、风险类型和剩余天数全部使用后端结果。
 const { getMonitor } = require('../../utils/api')
+const { openPdf } = require('../../utils/open-pdf')
 
 Page({
-  data: { type: 'all', hideST: false, items: [], rawItems: [], visibleCount: 0, updatedAt: '', loading: false, refreshing: false, error: '', skeletonRows: [0, 1, 2, 3], types: [{ key: 'all', label: '全部' }, { key: 'risk', label: '风险提示' }, { key: 'severe', label: '严重异动' }] },
+  data: { type: 'all', hideNoise: false, items: [], rawItems: [], visibleCount: 0, updatedAt: '', loading: false, refreshing: false, error: '', skeletonRows: [0, 1, 2, 3], types: [{ key: 'all', label: '全部' }, { key: 'risk', label: '风险提示' }, { key: 'severe', label: '严重异动' }] },
   onLoad() { this.restoreCache(); this.loadData() },
   onPullDownRefresh() { this.refreshSnapshot().finally(() => wx.stopPullDownRefresh()) },
   selectType(event) {
@@ -11,10 +12,10 @@ Page({
     this.pollAttempts = 0
     this.setData({ type: event.currentTarget.dataset.type }, () => { if (!this.restoreCache()) this.setData({ items: [], rawItems: [], updatedAt: '' }); this.loadData() })
   },
-  toggleST(event) {
+  toggleNoise(event) {
     const hasSwitchValue = event && event.detail && typeof event.detail.value !== 'undefined'
-    const hideST = hasSwitchValue ? Boolean(event.detail.value) : !this.data.hideST
-    this.setData({ hideST }, () => this.applyFilters(this.data.rawItems || []))
+    const hideNoise = hasSwitchValue ? Boolean(event.detail.value) : !this.data.hideNoise
+    this.setData({ hideNoise }, () => this.applyFilters(this.data.rawItems || []))
   },
   refreshSnapshot() {
     if (this.data.loading || this.data.refreshing) return this.loadPromise || Promise.resolve()
@@ -97,25 +98,25 @@ Page({
       mutedSecurity: !isCoreBoardSymbol(item.symbol),
       riskTone: item.riskTone || (item.monitorType === '30日严重异动' ? 'severe-30d' : item.monitorType === '10日严重异动' ? 'severe-10d' : 'ordinary')
     }))
-    if (this.data.hideST) filtered = filtered.filter(item => !item.isST && !String(item.name || '').toUpperCase().includes('ST'))
+    // 去杂同时隐藏 ST 和非关键标的；关闭时保留后端快照中的全部记录。
+    if (this.data.hideNoise) {
+      filtered = filtered.filter(item => (
+        !item.isST &&
+        !String(item.name || '').toUpperCase().includes('ST') &&
+        !item.mutedSecurity
+      ))
+    }
     filtered.sort((left, right) => Number(left.days == null ? 9999 : left.days) - Number(right.days == null ? 9999 : right.days))
     this.setData({ items: filtered, visibleCount: filtered.length })
   },
   openSource(event) {
     const url = event.currentTarget.dataset.url
     if (!url) return
-    // 只交给系统浏览器或复制链接，不在小程序内下载、缓存公告文件。
-    if (typeof wx.openUrl === 'function') {
-      wx.openUrl({
-        url,
-        fail: () => this.copySourceLink(url)
-      })
-      return
-    }
-    this.copySourceLink(url)
-  },
-  copySourceLink(url) {
-    wx.setClipboardData({ data: url, success: () => wx.showToast({ title: '原文链接已复制', icon: 'none' }) })
+    if (this.openingSource) return
+    this.openingSource = true
+    openPdf(url, {
+      onError: () => wx.showToast({ title: '公告暂时无法打开，请稍后重试', icon: 'none' })
+    }).catch(() => {}).finally(() => { this.openingSource = false })
   },
   onUnload() {
     if (this.pollTimer) clearTimeout(this.pollTimer)

@@ -65,7 +65,7 @@ class BoardRule:
     - ordinary_days：普通异动使用的连续交易日数量。
     - ordinary_deviation：普通异动累计收盘价偏离阈值，使用百分比数值，例如 20 表示 20%。
     - severe_10d_deviation：10 个交易日严重异常波动阈值。
-    - severe_30d_deviation：30 个交易日严重异常波动阈值。
+    - severe_30d_deviation：30 个交易日回看窗口的严重异常波动阈值；它不是公告后的监管期长度。
     - severe_same_direction_count：10 个交易日内同向普通异动次数阈值。
     - limit_price_ratio：用于需要涨跌停价格估算时的默认涨跌停幅度。
     - severe_10d_threshold / severe_30d_threshold：上涨和下跌分开的严重异常阈值。
@@ -141,10 +141,12 @@ class SevereAbnormalResult:
     """一只股票当前是否触发严重异常波动，以及触发原因。"""
 
     severe_10d: Optional[DeviationResult]  # 最近 10 个交易日是否达到当前板块的方向阈值。
-    severe_30d: Optional[DeviationResult]  # 最近 30 个交易日是否达到当前板块的方向阈值。
+    severe_30d: Optional[DeviationResult]  # 最近 30 个交易日回看窗口是否达到当前板块的方向阈值。
     same_direction_count: int  # 最近 10 个交易日内同向普通异动次数。
     same_direction_threshold: int  # 当前板块对应的同向次数阈值。
     same_direction: Direction  # 统计得到的主要方向。
+    up_count: int = 0  # 最近 10 个交易日内上涨方向普通异动次数。
+    down_count: int = 0  # 最近 10 个交易日内下跌方向普通异动次数。
 
     @property
     def triggered(self) -> bool:
@@ -339,17 +341,17 @@ def _turnover_abnormal(
     )
 
 
-def _count_same_direction(records: Iterable[OrdinaryAbnormal]) -> Tuple[int, Direction]:
+def _count_same_direction(records: Iterable[OrdinaryAbnormal]) -> Tuple[int, Direction, int, int]:
     """统计窗口内出现次数最多的同向普通异动。"""
 
     directional_records = [item for item in records if item.counts_for_same_direction]
     up_count = sum(1 for item in directional_records if item.direction is Direction.UP)
     down_count = sum(1 for item in directional_records if item.direction is Direction.DOWN)
     if up_count == 0 and down_count == 0:
-        return 0, Direction.NONE
+        return 0, Direction.NONE, 0, 0
     if up_count >= down_count:
-        return up_count, Direction.UP
-    return down_count, Direction.DOWN
+        return up_count, Direction.UP, up_count, down_count
+    return down_count, Direction.DOWN, up_count, down_count
 
 
 def detect_severe_abnormal(
@@ -381,13 +383,15 @@ def detect_severe_abnormal(
         for item in ordinary_records
         if recent_start <= item.end_date <= recent_end
     ]
-    same_count, same_direction = _count_same_direction(recent_records)
+    same_count, same_direction, up_count, down_count = _count_same_direction(recent_records)
     return SevereAbnormalResult(
         severe_10d=severe_10d,
         severe_30d=severe_30d,
         same_direction_count=same_count,
         same_direction_threshold=rule.severe_same_direction_count,
         same_direction=same_direction,
+        up_count=up_count,
+        down_count=down_count,
     )
 
 

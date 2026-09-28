@@ -3,7 +3,9 @@
     "pages/stock/index",
     "pages/monitor/index",
     "pages/prediction/index",
-    "pages/rules/index"
+    "pages/rules/index",
+    "pages/privacy/index",
+    "pages/agreement/index"
   ],
   "window": {
     "navigationBarTitleText": "异动查查",

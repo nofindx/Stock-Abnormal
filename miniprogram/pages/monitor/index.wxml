@@ -4,8 +4,8 @@
       <view wx:for="{{types}}" wx:key="key" class="filter-segment filter-segment-{{item.key}} {{type === item.key ? 'active' : ''}}" hover-class="chip-feedback" data-type="{{item.key}}" bindtap="selectType">{{item.label}}</view>
     </view>
     <view class="st-control">
-      <text class="st-label">ST</text>
-      <view class="st-native-switch-wrap"><switch class="st-native-switch" checked="{{hideST}}" color="#0E8796" bindchange="toggleST" /></view>
+      <text class="st-label">去杂</text>
+      <view class="st-native-switch-wrap"><switch class="st-native-switch" checked="{{hideNoise}}" color="#0E8796" bindchange="toggleNoise" /></view>
     </view>
   </view>
   <view class="snapshot-row">

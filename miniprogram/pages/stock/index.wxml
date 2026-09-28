@@ -1,10 +1,8 @@
 <view class="page stock-page">
-  <view class="page-header"><text class="page-title">单股异动计算</text><view class="page-tools"><view class="rules-link" hover-class="tap-feedback" bindtap="openRules">规则说明</view></view></view>
-
   <view class="search-wrap">
     <view class="search-box {{searchFocused ? 'focused' : ''}}">
       <view class="search-icon"></view>
-      <input class="search-input" value="{{query}}" placeholder="输入股票名称或代码" confirm-type="search" bindfocus="onSearchFocus" bindblur="onSearchBlur" bindinput="onQueryInput" />
+      <input class="search-input" value="{{query}}" placeholder="输入股票名称、代码或首字母" confirm-type="search" bindfocus="onSearchFocus" bindblur="onSearchBlur" bindinput="onQueryInput" />
       <text wx:if="{{query}}" class="clear-icon" bindtap="clearQuery">×</text>
     </view>
     <view wx:if="{{searchError}}" class="inline-error">{{searchError}}</view>
@@ -18,10 +16,14 @@
 
   <block wx:if="{{!detail}}">
     <view class="guide-card card">
-      <view class="guide-kicker">未选择股票</view>
-      <view class="guide-title"><text class="guide-icon">i</text><text>这只票现在是什么状态？</text></view>
-      <view class="guide-copy">选中股票后，我会按交易所规则算出：</view>
-      <view class="guide-copy">① 当前所属异动状态；② 四项预警距离阈值还有多远；③ 假设未来 10 天涨跌时，偏离值会走到哪里。</view>
+      <view class="guide-target" aria-label="异动计算引导图"><view class="guide-ring guide-ring-outer"><view class="guide-ring guide-ring-middle"><view class="guide-ring guide-ring-inner"><view class="guide-pointer"></view></view></view></view></view>
+      <view class="guide-line guide-line-primary">搜索你想查询的股票</view>
+      <view class="guide-lines">
+        <view class="guide-line guide-line-secondary">选择股票后，按交易所最新规则计算：</view>
+        <view class="guide-line guide-line-item"><text class="guide-bullet">·</text>当前异动状态</view>
+        <view class="guide-line guide-line-item"><text class="guide-bullet">·</text>四项预警阈值</view>
+        <view class="guide-line guide-line-item"><text class="guide-bullet">·</text>未来十日偏离</view>
+      </view>
     </view>
   </block>
 
@@ -36,6 +38,7 @@
         <view class="status-stock-line"><view class="stock-identity"><text class="status-name">{{detail.name}}</text><text class="status-symbol">{{detail.symbol}}</text></view><view class="quote-line"><text class="status-price">{{detail.currentPrice}}</text><text class="change {{detail.change[0] === '-' ? 'down' : 'up'}}">{{detail.change}}</text></view></view>
       </view>
     </view>
+    <view wx:if="{{detail.dataQuality.message}}" class="data-quality-notice">{{detail.dataQuality.message}}</view>
 
     <view class="metric-grid">
       <view wx:for="{{detail.warnings}}" wx:key="title" class="card metric-card">
@@ -43,18 +46,6 @@
         <view class="metric-number"><block wx:if="{{item.title === '10 日同向'}}"><text class="arrow-up">↑{{item.up}}</text><text class="arrow-down">↓{{item.down}}</text></block><block wx:else><text class="metric-value {{item.className}}">{{item.value}}</text><text wx:if="{{item.window}}" class="metric-window">({{item.window}})</text></block></view>
         <text class="metric-target">{{item.target}}</text>
       </view>
-    </view>
-
-    <view class="section announcement-panel">
-      <view class="panel-title">交易所异动公告</view>
-      <view wx:if="{{announcementsLoading}}" class="announcement-empty">正在查询公告…</view>
-      <view wx:elif="{{!announcementsAvailable}}" class="announcement-empty">公告源暂时不可用，请稍后重试</view>
-      <view wx:elif="{{!announcements.length}}" class="announcement-empty">暂无匹配的交易所异动公告</view>
-      <block wx:else>
-        <view wx:for="{{announcements}}" wx:key="url" class="announcement-row" hover-class="tap-feedback" bindtap="openAnnouncement" data-url="{{item.url}}">
-          <view class="announcement-main"><text class="announcement-title">{{item.title}}</text><text class="announcement-meta">{{item.date}} · {{item.type}}</text></view><text class="announcement-arrow">›</text>
-        </view>
-      </block>
     </view>
 
     <view class="section alert-panel">
@@ -67,7 +58,7 @@
     </view>
 
     <view class="section simulation-section">
-      <view class="simulation-head"><view class="simulation-title">模拟计算</view><view class="days-picker"><text>计算天数</text><view class="day-options"><view wx:for="{{dayOptions}}" wx:key="*this" class="day-option {{dayOptionIndex === index ? 'active' : ''}}" hover-class="tap-feedback" data-index="{{index}}" bindtap="changeDays">{{item}}天</view></view></view></view>
+      <view class="simulation-head"><view class="simulation-title">模拟计算</view><view class="days-picker"><view class="day-option {{simulationExpanded ? 'active' : ''}}" hover-class="tap-feedback" bindtap="expandSimulation">10日计算</view></view></view>
       <view wx:for="{{matrixGroups}}" wx:for-item="matrix" wx:key="groupKey" class="matrix-card {{matrix.countClass}}">
         <view class="matrix-head"><text class="matrix-label">指标</text><view wx:for="{{matrix.columns}}" wx:for-item="column" wx:key="*this" class="matrix-column"><text class="day-badge">{{column.day}}</text><text class="table-date">{{column.date}}</text></view></view>
         <view wx:for="{{matrix.rows}}" wx:for-item="matrixRow" wx:key="key" class="matrix-row"><text class="matrix-label">{{matrixRow.label}}</text><view wx:for="{{matrixRow.values}}" wx:for-item="cell" wx:key="*this" class="matrix-cell"><block wx:if="{{cell.placeholder}}"><text class="matrix-placeholder">—</text></block><block wx:elif="{{cell.editable}}"><view class="matrix-input-wrap"><input class="matrix-input" type="digit" placeholder="0" value="{{cell.value}}" data-row="{{cell.rowIndex}}" data-field="{{cell.field}}" bindinput="editRow" /><text class="matrix-suffix">%</text></view></block><block wx:else><text class="matrix-value {{matrixRow.key === 'space' ? 'safety-value' : cell.className}}">{{cell.value}}</text></block></view></view>
@@ -75,5 +66,5 @@
       <view class="simulation-note">填写每日股票与指数涨幅后自动重算；留空按 0% 处理</view>
     </view>
   </block>
-  <view class="disclaimer-card"><text class="disclaimer-title">免责声明：</text><text class="disclaimer-body">本工具基于交易所最新规则，使用公开网络数据源进行辅助计算，结果仅供参考，不构成投资建议或买卖依据。请以交易所公告和上市公司公告为准。</text></view>
+  <view class="stock-footer-links"><text hover-class="tap-feedback" bindtap="openPrivacy">隐私政策</text><text class="footer-separator">·</text><text hover-class="tap-feedback" bindtap="openAgreement">用户协议</text><text class="footer-separator">·</text><text hover-class="tap-feedback" bindtap="openRules">规则说明</text></view>
 </view>

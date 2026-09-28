@@ -9,10 +9,6 @@ function getStockDetail(tsCode) {
   return request({ url: '/api/stocks/detail', data: { ts_code: tsCode }, timeout: 30000 }).then((response) => response.data || null)
 }
 
-function getStockAnnouncements(tsCode) {
-  return request({ url: '/api/stocks/announcements', data: { ts_code: tsCode }, timeout: 30000 }).then((response) => response.data || { items: [], available: false })
-}
-
 function getMonitor(options = {}) {
   return request({ url: '/api/monitor', data: options, timeout: 8000 }).then((response) => response.data || { items: [], updatedAt: '' })
 }
@@ -25,4 +21,4 @@ function refreshPredictions(scope) {
   return request({ url: '/api/predictions/refresh', method: 'POST', data: { scope }, timeout: 10000, retry: 0 }).then((response) => response.data || { items: [], updatedAt: '' })
 }
 
-module.exports = { searchStocks, getStockDetail, getStockAnnouncements, getMonitor, getPredictions, refreshPredictions }
+module.exports = { searchStocks, getStockDetail, getMonitor, getPredictions, refreshPredictions }

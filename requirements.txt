@@ -5,6 +5,9 @@ tushare>=1.4.0
 Flask>=3.0,<4
 gunicorn>=22,<24
 
+# CloudBase MySQL 最小持久化层
+PyMySQL>=1.1,<2
+
 # 公告正文解析（失败时仍保留标题级保守判断）
 pypdf>=5,<7
 

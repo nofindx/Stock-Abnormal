@@ -1,5 +1,5 @@
-// 单股查询页：只负责搜索、展示和模拟输入，计算结果来自后端真实接口。
-const { searchStocks, getStockDetail, getStockAnnouncements } = require('../../utils/api')
+// 单股查询页：基础行情与当前状态来自后端，未来假设输入在本地即时重算。
+const { searchStocks, getStockDetail } = require('../../utils/api')
 
 function createInputRows(days, dates = []) {
   // 未来交易日假设行：股票涨幅和指数涨幅由用户输入，其余列由计算结果填充。
@@ -53,12 +53,47 @@ function numberValue(value) {
   return Number.isFinite(parsed) ? parsed : 0
 }
 
+function cumulativeReturn(values) {
+  return values.reduce((total, value) => (1 + total / 100) * (1 + numberValue(value) / 100) * 100 - 100, 0)
+}
+
+function calculateSimulationRows(rows, detail) {
+  const base = (detail && detail.simulationBase) || { stock: [], index: [] }
+  const thresholds = (detail && detail.simulationThresholds) || { '10': { up: 100 } }
+  const stockBase = Array.isArray(base.stock) ? base.stock : []
+  const indexBase = Array.isArray(base.index) ? base.index : []
+  return rows.map((row, rowIndex) => {
+    const stockSeries = stockBase.concat(rows.slice(0, rowIndex + 1).map(item => numberValue(item.stock)))
+    const indexSeries = indexBase.concat(rows.slice(0, rowIndex + 1).map(item => numberValue(item.index)))
+    const metric = (window) => {
+      const stockWindow = stockSeries.slice(-window)
+      const indexWindow = indexSeries.slice(-window)
+      if (stockWindow.length < window || indexWindow.length < window) return null
+      return cumulativeReturn(stockWindow) - cumulativeReturn(indexWindow)
+    }
+    const deviation3 = metric(3)
+    const deviation10 = metric(10)
+    const deviation30 = metric(30)
+    const display = value => value == null ? '--' : `${value >= 0 ? '+' : ''}${value.toFixed(2)}%`
+    const safety = deviation10 == null ? '--' : (deviation10 >= Number(thresholds['10'].up) ? '已触发' : `${Math.max(0, Number(thresholds['10'].up) - deviation10).toFixed(2)}%`)
+    const currentDeviation = deviation10 == null ? (deviation3 == null ? 0 : deviation3) : deviation10
+    return {
+      ...row,
+      deviation3: display(deviation3),
+      deviation10: display(deviation10),
+      deviation30: display(deviation30),
+      space: safety,
+      deviationClass: currentDeviation > 0 ? 'risk' : currentDeviation < 0 ? 'safe' : ''
+    }
+  })
+}
+
 Page({
   data: {
     query: '', suggestions: [], suggestionHint: false, selected: null, detail: null,
     detailLoading: false, detailError: '', searchError: '', searchFocused: false,
-    futureTradeDates: [], announcements: [], announcementsLoading: false, announcementsAvailable: true,
-    dayOptions: ['2', '5', '10'], dayOptionIndex: 0,
+    futureTradeDates: [],
+    dayOptions: ['10'], simulationExpanded: false, visibleDays: 2,
     inputRows: createInputRows(2), matrixGroups: buildMatrixGroups(createInputRows(2))
   },
   onLoad(options) { if (options.ts_code) this.loadStockByCode(options.ts_code) },
@@ -110,59 +145,40 @@ Page({
       : eventOrStock
     if (!stock || !stock.ts_code) return
     getApp().globalData.lastStock = stock
-    const inputRows = createInputRows(this.data.dayOptions[this.data.dayOptionIndex], this.data.futureTradeDates)
+    const inputRows = createInputRows(2, this.data.futureTradeDates)
     this.detailRequestId = (this.detailRequestId || 0) + 1
     const requestId = this.detailRequestId
-    this.setData({ selected: stock, detail: null, detailLoading: true, detailError: '', query: stock.name === '正在加载' ? stock.ts_code : `${stock.name} ${stock.symbol}`, suggestions: [], inputRows, matrixGroups: buildMatrixGroups(inputRows) })
+    this.setData({ selected: stock, detail: null, detailLoading: true, detailError: '', query: stock.name === '正在加载' ? stock.ts_code : `${stock.name} ${stock.symbol}`, suggestions: [], suggestionHint: false, inputRows, matrixGroups: buildMatrixGroups(inputRows), simulationExpanded: false, visibleDays: 2 })
     getStockDetail(stock.ts_code).then((detail) => {
       if (requestId !== this.detailRequestId) return
       const futureTradeDates = detail.futureTradeDates || []
-      const rows = createInputRows(this.data.dayOptions[this.data.dayOptionIndex], futureTradeDates)
-      this.setData({ selected: { ...stock, ...detail }, detail, detailLoading: false, detailError: '', futureTradeDates, inputRows: rows, matrixGroups: buildMatrixGroups(rows), query: `${detail.name} ${detail.symbol}`, announcements: [], announcementsLoading: true, announcementsAvailable: true })
-      return getStockAnnouncements(stock.ts_code).then((result) => {
-        if (requestId !== this.detailRequestId) return
-        this.setData({ announcements: result.items || [], announcementsLoading: false, announcementsAvailable: result.available !== false })
-      })
+      const rows = calculateSimulationRows(createInputRows(2, futureTradeDates), detail)
+      this.setData({ selected: { ...stock, ...detail }, detail, detailLoading: false, detailError: '', futureTradeDates, inputRows: rows, matrixGroups: buildMatrixGroups(rows), query: `${detail.name} ${detail.symbol}` })
     }).catch(() => {
       if (requestId !== this.detailRequestId) return
-      this.setData({ detailLoading: false, announcementsLoading: false, detailError: '行情暂时不可用，请稍后重试' })
+      this.setData({ detailLoading: false, detailError: '行情暂时不可用，请稍后重试' })
     })
   },
-  changeDays(event) {
-    const dayOptionIndex = Number(event.currentTarget ? event.currentTarget.dataset.index : event.detail.value)
-    const inputRows = createInputRows(this.data.dayOptions[dayOptionIndex], this.data.futureTradeDates)
-    this.setData({ dayOptionIndex, inputRows, matrixGroups: buildMatrixGroups(inputRows) })
+  expandSimulation() {
+    if (this.data.simulationExpanded) return
+    const nextRows = createInputRows(10, this.data.futureTradeDates)
+    const inputRows = calculateSimulationRows(nextRows.map((item, index) => ({ ...item, stock: this.data.inputRows[index] ? this.data.inputRows[index].stock : '', index: this.data.inputRows[index] ? this.data.inputRows[index].index : '' })), this.data.detail)
+    this.setData({ simulationExpanded: true, visibleDays: 10, inputRows, matrixGroups: buildMatrixGroups(inputRows) })
   },
   editRow(event) {
     const { row, field } = event.currentTarget.dataset
     const value = event.detail.value
-    const rows = this.data.inputRows.map((item, index) => {
-      if (index !== Number(row)) return item
-      const stock = field === 'stock' ? value : item.stock
-      const indexValue = field === 'index' ? value : item.index
-      const deviation = numberValue(stock) - numberValue(indexValue)
-      const display = stock || indexValue ? `${deviation >= 0 ? '+' : ''}${deviation.toFixed(2)}%` : '--'
-      return { ...item, [field]: value, deviation3: display, deviation10: display, deviation30: display, space: stock || indexValue ? `${Math.max(0, 100 - Math.abs(deviation)).toFixed(2)}%` : '--', deviationClass: deviation > 0 ? 'risk' : deviation < 0 ? 'safe' : '' }
-    })
-    this.setData({ inputRows: rows, matrixGroups: buildMatrixGroups(rows) })
+    const rows = this.data.inputRows.map((item, index) => index === Number(row) ? { ...item, [field]: value } : item)
+    const calculatedRows = calculateSimulationRows(rows, this.data.detail)
+    this.setData({ inputRows: calculatedRows, matrixGroups: buildMatrixGroups(calculatedRows) })
   },
   clearInputs() {
-    const inputRows = createInputRows(this.data.dayOptions[this.data.dayOptionIndex], this.data.futureTradeDates)
+    const inputRows = calculateSimulationRows(createInputRows(this.data.visibleDays, this.data.futureTradeDates), this.data.detail)
     this.setData({ inputRows, matrixGroups: buildMatrixGroups(inputRows) })
-  },
-  openAnnouncement(event) {
-    const url = event.currentTarget.dataset.url
-    if (!url) return
-    if (typeof wx.openUrl === 'function') {
-      wx.openUrl({ url, fail: () => this.copyAnnouncementLink(url) })
-      return
-    }
-    this.copyAnnouncementLink(url)
-  },
-  copyAnnouncementLink(url) {
-    wx.setClipboardData({ data: url, success: () => wx.showToast({ title: '原文链接已复制', icon: 'none' }) })
   },
   onUnload() {
     if (this.searchTimer) clearTimeout(this.searchTimer)
-  }
+  },
+  openPrivacy() { wx.navigateTo({ url: '/pages/privacy/index', animationType: 'none' }) },
+  openAgreement() { wx.navigateTo({ url: '/pages/agreement/index', animationType: 'none' }) }
 })

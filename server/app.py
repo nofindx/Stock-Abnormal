@@ -55,9 +55,20 @@ class ApiHandler(BaseHTTPRequestHandler):
         query = parse_qs(parsed.query)
         try:
             if parsed.path == "/health":
+                try:
+                    market_job = SERVICE._calc_repository.job() if SERVICE._calc_repository.available else None
+                    market_calc_available = bool(SERVICE._calc_repository.available)
+                except Exception:
+                    market_job = None
+                    market_calc_available = False
                 self._respond({"code": 0, "data": {
                     "service": "ok",
                     "tushareConfigured": SERVICE.client.available,
+                    "marketCalc": {
+                        "available": market_calc_available,
+                        "lastSuccessDate": (market_job or {}).get("last_success_date", ""),
+                        "lastError": (market_job or {}).get("last_error", ""),
+                    },
                     "monitorSnapshot": bool(OFFICIAL_MONITOR.repository.active_snapshot()),
                     "monitorRefreshing": OFFICIAL_MONITOR.refreshing,
                 }, "message": "ok"})
@@ -152,6 +163,7 @@ def main() -> None:
     host = os.getenv("HOST", "127.0.0.1")
     port = int(os.getenv("PORT", "8787"))
     server = ThreadingHTTPServer((host, port), ApiHandler)
+    SERVICE.start_scheduler()
     OFFICIAL_MONITOR.start_scheduler()
     print(f"Stock-Abnormal API listening on http://{host}:{port}")
     try:

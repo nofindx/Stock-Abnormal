@@ -1,0 +1,25 @@
+<view class="legal-page">
+  <view class="legal-title">隐私政策</view>
+  <view class="legal-updated">更新日期：2026-09-28</view>
+  <view class="legal-section">
+    <view class="legal-heading">一、我们如何处理信息</view>
+    <view class="legal-copy">　　本工具是一款个人开发者维护的股票异动计算工具，不要求登录，不收集姓名、手机号、身份证号、位置、通讯录、相册、麦克风或其他与功能无关的个人信息。</view>
+  </view>
+  <view class="legal-section">
+    <view class="legal-heading">二、功能所需数据</view>
+    <view class="legal-copy">　　你主动输入或选择的股票代码仅用于搜索和计算当前页面结果。模拟计算数据只保留在当前页面，不上传到后台。</view>
+    <view class="legal-copy">　　单股计算、监控池和异动预测使用公开行情及公告数据。服务端保存实现计算所需的股票基础资料和滚动计算数据，不保存你的身份信息。</view>
+  </view>
+  <view class="legal-section">
+    <view class="legal-heading">三、数据安全与第三方服务</view>
+    <view class="legal-copy">　　Tushare、腾讯行情及其他公开网络数据源只在服务端调用，访问凭证不会打包到小程序。公告链接会跳转到来源页面或系统文档查看器。</view>
+  </view>
+  <view class="legal-section">
+    <view class="legal-heading">四、你的权利</view>
+    <view class="legal-copy">　　本工具不建立个人账户和用户画像。你可以随时停止使用、清除小程序缓存或关闭小程序。</view>
+  </view>
+  <view class="legal-section">
+    <view class="legal-heading">五、政策变更</view>
+    <view class="legal-copy">　　如功能或数据处理方式发生重大变化，我们会在页面更新本政策。继续使用本工具即表示你已阅读更新后的内容。</view>
+  </view>
+</view>

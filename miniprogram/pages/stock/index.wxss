@@ -1,4 +1,4 @@
-.stock-page .page-header { padding-bottom: 10rpx; }
+.stock-page { padding-top: 32rpx; }
 .search-wrap { position: relative; z-index: 2; margin-top: 12rpx; }
 .search-box {
   display: flex;
@@ -71,11 +71,19 @@
 .change { font-size: 27rpx; font-weight: 600; font-variant-numeric: tabular-nums; }
 .up { color: #D94A45; }
 .down { color: #16835D; }
-.guide-card { margin-top: 24rpx; padding: 26rpx 24rpx 28rpx; }
-.guide-kicker { margin-bottom: 12rpx; color: #8E8E93; font-size: 20rpx; line-height: 28rpx; }
-.guide-title { display: flex; align-items: center; gap: 14rpx; color: #1C1C1E; font-size: 29rpx; font-weight: 600; line-height: 40rpx; }
-.guide-icon { display: inline-flex; width: 38rpx; height: 38rpx; align-items: center; justify-content: center; border: 3rpx solid #11879A; border-radius: 50%; color: #11879A; font-family: Georgia, serif; font-size: 25rpx; font-weight: 700; line-height: 32rpx; }
-.guide-copy { margin-top: 20rpx; color: #475569; font-size: 25rpx; line-height: 40rpx; text-indent: 2em; }
+.guide-card { margin-top: 24rpx; padding: 32rpx 28rpx 34rpx; }
+.guide-target { width: 176rpx; height: 176rpx; margin: 2rpx auto 30rpx; position: relative; }
+.guide-ring { display: flex; align-items: center; justify-content: center; border: 10rpx solid #202936; border-radius: 50%; }
+.guide-ring-outer { width: 176rpx; height: 176rpx; }
+.guide-ring-middle { width: 120rpx; height: 120rpx; border-width: 9rpx; }
+.guide-ring-inner { width: 64rpx; height: 64rpx; border-width: 8rpx; position: relative; }
+.guide-pointer { position: absolute; width: 96rpx; height: 12rpx; left: 37rpx; top: 25rpx; border-radius: 12rpx; background: #C65B3B; transform: rotate(-22deg); transform-origin: left center; }
+.guide-line { display: block; line-height: 38rpx; }
+.guide-line-primary { color: #1C1C1E; font-size: 29rpx; font-weight: 650; text-align: center; }
+.guide-lines { display: inline-block; margin-top: 16rpx; text-align: left; }
+.guide-line-secondary { color: #636366; font-size: 23rpx; }
+.guide-line-item { color: #636366; font-size: 24rpx; text-align: left; text-indent: 0; }
+.guide-bullet { display: inline-block; width: 34rpx; color: #1C1C1E; font-weight: 700; text-align: center; }
 
 .status-banner {
   display: flex;
@@ -85,11 +93,12 @@
   border-radius: 20rpx;
   background: #FFFFFF;
 }
+.data-quality-notice { margin-top: 10rpx; padding: 12rpx 16rpx; border-radius: 10rpx; background: #FFF8E7; color: #8A6D0B; font-size: 20rpx; line-height: 28rpx; }
 .status-safe, .status-risk, .status-severe, .status-neutral { border-color: #E5E5EA; color: #1C1C1E; }
 .status-icon { display: none; }
 .status-main { min-width: 0; width: 100%; }
 .status-heading { display: flex; min-height: 34rpx; align-items: center; gap: 10rpx; }
-.status-state { color: #636366; font-size: 22rpx; font-weight: 600; }
+.status-state { color: #636366; font-size: 29rpx; font-weight: 700; line-height: 38rpx; }
 .status-safe .status-state { color: #248A5A; }
 .status-risk .status-state { color: #A85B13; }
 .status-severe .status-state { color: #C83A36; }
@@ -118,14 +127,6 @@
   border-radius: 20rpx;
   background: #FFFFFF;
 }
-.announcement-panel { margin-top: 12rpx; padding: 20rpx; border-radius: 20rpx; background: #FFFFFF; }
-.announcement-empty { padding: 18rpx 0 2rpx; color: #8E8E93; font-size: 20rpx; line-height: 30rpx; }
-.announcement-row { display: flex; align-items: center; justify-content: space-between; gap: 12rpx; padding: 16rpx 0; border-bottom: 1rpx solid #F2F2F7; }
-.announcement-row:last-child { border-bottom: 0; }
-.announcement-main { min-width: 0; flex: 1; }
-.announcement-title { display: block; overflow: hidden; color: #1C1C1E; font-size: 22rpx; line-height: 32rpx; text-overflow: ellipsis; white-space: nowrap; }
-.announcement-meta { display: block; margin-top: 5rpx; color: #8E8E93; font-size: 18rpx; line-height: 26rpx; }
-.announcement-arrow { color: #8E8E93; font-size: 34rpx; line-height: 34rpx; }
 .panel-title { color: #1C1C1E; font-size: 26rpx; font-weight: 600; }
 .panel-icon { display: none; }
 .alert-row {
@@ -181,6 +182,9 @@
 .matrix-value.safety-value { color: #1C1C1E; font-weight: 600; }
 .stock-page .free-note { margin-top: 24rpx; }
 .stock-page .free-note { text-align: right; }
+.stock-footer-links { display: flex; align-items: center; justify-content: center; gap: 12rpx; margin: 42rpx 0 18rpx; color: #6B7280; font-size: 21rpx; line-height: 32rpx; }
+.stock-footer-links text { color: #6B7280; }
+.stock-footer-links .footer-separator { color: #C4C7CE; }
 
 @media (max-width: 390px) {
   .status-stock-line { align-items: flex-start; }
