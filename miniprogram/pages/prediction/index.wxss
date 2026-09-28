@@ -51,7 +51,7 @@
 .quote-label { color: #8E8E93; font-size: 18rpx; }
 .scope-mark { flex: 0 0 auto; padding: 4rpx 9rpx; border-radius: 7rpx; background: #F2F2F7; color: #636366; font-size: 19rpx; }
 .prediction-page .stock-name { color: #1A1A1A; font-size: 28rpx; font-weight: 600; white-space: nowrap; }
-.prediction-page .stock-meta { margin-left: 10rpx; color: #6B7280; font-size: 22rpx; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.prediction-page .stock-meta { margin-left: 14rpx; color: #6B7280; font-size: 22rpx; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .prediction-quote { display: flex; flex: 0 0 auto; align-items: baseline; gap: 10rpx; white-space: nowrap; }
 .quote-copy { display: flex; flex-direction: column; align-items: flex-end; gap: 2rpx; }
 .prediction-change { font-size: 29rpx; letter-spacing: .1rpx; }
@@ -59,7 +59,7 @@
 .badge-today { background: #F2F2F7; color: #636366; }
 .prediction-middle {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(190rpx, 1.25fr);
+  grid-template-columns: minmax(0, .9fr) minmax(230rpx, 1.1fr);
   gap: 14rpx;
   margin-top: 16rpx;
   padding-top: 14rpx;
@@ -76,7 +76,7 @@
   border-top: 1rpx solid #F2F2F7;
 }
 .trigger-value { min-width: 0; color: #1C1C1E; font-size: 24rpx; font-weight: 600; line-height: 33rpx; overflow-wrap: break-word; }
-.trigger-field .trigger-value { color: #C0271E; font-size: 26rpx; font-weight: 700; white-space: nowrap; }
+.trigger-field .trigger-value { color: #C0271E; font-size: 23rpx; font-weight: 700; white-space: nowrap; letter-spacing: 0; }
 .prediction-bottom { display: none; }
 .prediction-bottom > view { min-width: 0; }
 .rule-field { padding-left: 14rpx; border-left: 1rpx solid #E5E5EA; }
@@ -86,7 +86,7 @@
 .rule-value { display: block; color: #636366; font-size: 20rpx; line-height: 29rpx; }
 .prediction-rule { margin-top: 14rpx; padding-top: 13rpx; border-top: 1rpx solid #E5E5EA; }
 .prediction-rule .prediction-label { margin-bottom: 5rpx; }
-.prediction-rule .rule-value { color: #636366; font-size: 20rpx; line-height: 29rpx; }
+.prediction-rule .rule-value { color: #636366; font-size: 22rpx; line-height: 31rpx; }
 .refresh-bar { display: none; }
 .refresh-button {
   min-height: 48rpx;
@@ -114,7 +114,7 @@
   .prediction-price, .prediction-change { font-size: 25rpx; }
   .prediction-page .badge { padding: 0 8rpx; font-size: 18rpx; }
   .rule-value { font-size: 19rpx; }
-  .prediction-middle { grid-template-columns: minmax(0, 1fr) minmax(156rpx, 1.2fr); gap: 10rpx; }
-  .trigger-field .trigger-value { font-size: 22rpx; }
+  .prediction-middle { grid-template-columns: minmax(0, .82fr) minmax(204rpx, 1.18fr); gap: 9rpx; }
+  .trigger-field .trigger-value { font-size: 20rpx; }
   .refresh-button { padding: 0 14rpx; font-size: 21rpx; }
 }

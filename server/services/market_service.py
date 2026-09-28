@@ -1101,8 +1101,13 @@ class MarketService:
             phase = "intraday"
         else:
             phase = "post_close_confirmed" if self.client.latest_trade_date() == today_value else "post_close_pending"
+        # targetTradeDate 是用户当前所处交易日；非交易日使用下一交易日，
+        # tradeDate 仍由预测数据集自身的 as-of 日期决定，避免把未入盘价格
+        # 冒充正式收盘价。
+        target_trade_date = today_value if is_trade_day else following
         state = {
-            "tradeDate": today_value if is_trade_day else "",
+            "tradeDate": target_trade_date,
+            "targetTradeDate": target_trade_date,
             "previousTradeDate": previous,
             "nextTradeDate": following,
             "phase": phase,
@@ -1159,7 +1164,9 @@ class MarketService:
         items = cached[1] if cached else []
         trade_date = self._prediction_trade_date.get(source_scope, "")
         next_trade_date = self._prediction_trade_date.get("next_day", "")
-        next_trade_available = bool(next_cached and next_cached[1]) and (
+        # 数据集即使候选列表为空也代表已经完成计算，不能用 items 长度判断
+        # 次日按钮是否开放；同时必须有实际数据日期，避免把刷新租约空行当成结果。
+        next_trade_available = bool(next_cached and next_trade_date) and (
             state["phase"] == "pre_open" or
             state["phase"] == "post_close_confirmed" and next_trade_date == state["tradeDate"]
         )
@@ -1168,11 +1175,15 @@ class MarketService:
         # GET 只读已有数据；后台租约状态仅用于展示，不会在这里启动刷新。
         refreshing = bool(persistent and int(persistent.get("refreshing_until") or 0) > int(time.time()))
         updated_at = self._format_prediction_datetime(cached[0]) if cached else ""
-        has_realtime = any(item.get("quoteSource") for item in items)
+        # 旧的预测数据可能保留 quoteSource；只有当前确实处于盘中，且本次
+        # 结果同时拿到实时行情时，才向前端宣称使用实时源。
+        has_realtime = state["phase"] == "intraday" and any(item.get("quoteSource") for item in items)
+        quality = "provisional" if state["phase"] in ("intraday", "post_close_pending") else "confirmed"
         return {
             "scope": scope,
             "items": items,
             "tradeDate": trade_date,
+            "targetTradeDate": state["targetTradeDate"],
             "previousTradeDate": state["previousTradeDate"],
             "nextTradeDate": state["nextTradeDate"],
             "phase": state["phase"],
@@ -1182,7 +1193,12 @@ class MarketService:
             "updatedAt": updated_at,
             "refreshing": refreshing,
             "error": self._prediction_last_error.get(source_scope, ""),
-            "dataQuality": {"source": "Tushare+腾讯/新浪/东方财富" if has_realtime else "Tushare", "intraday": has_realtime},
+            "dataQuality": {
+                "source": "Tushare+腾讯/新浪/东方财富" if has_realtime else "Tushare",
+                "intraday": has_realtime,
+                "quality": quality,
+                "message": "实时行情可能存在延迟" if has_realtime else ("收盘价待确认" if state["phase"] == "post_close_pending" else "基于最近已确认收盘数据"),
+            },
         }
 
     def refresh_predictions(self, requested_scope: str = "today") -> Dict[str, Any]:
@@ -1199,7 +1215,7 @@ class MarketService:
             target = "today"
         elif state["phase"] == "intraday":
             target = "next_day"
-        elif state["phase"] == "post_close_confirmed":
+        elif state["phase"] in ("post_close_pending", "post_close_confirmed"):
             # 收盘数据已经正式入盘时，刷新只读取/计算后台数据集，不再请求
             # 全市场实时行情；计算完成后 next_day 的 trade_date 才会开放。
             target = "next_day"

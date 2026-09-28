@@ -10,7 +10,7 @@ import os
 import json
 import time
 from threading import Lock
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional
 from urllib.parse import parse_qs, urlparse
@@ -177,7 +177,13 @@ class TushareClient:
     def latest_trade_date(self) -> str:
         """返回最近一个交易日，优先查历年最近 20 天。"""
 
-        today = date.today()
+        # 云托管容器默认时区可能是 UTC；交易日阶段统一使用上海时间，
+        # 避免北京时间 00:00-08:00 被误判成前一自然日。
+        try:
+            from zoneinfo import ZoneInfo
+            today = datetime.now(ZoneInfo("Asia/Shanghai")).date()
+        except (ImportError, KeyError):
+            today = datetime.now(timezone(timedelta(hours=8))).date()
         frame = self.trade_cal(
             (today - timedelta(days=20)).strftime("%Y%m%d"),
             today.strftime("%Y%m%d"),

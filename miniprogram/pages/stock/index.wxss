@@ -81,10 +81,10 @@
 .guide-pointer { position: absolute; width: 96rpx; height: 12rpx; left: 37rpx; top: 25rpx; border-radius: 12rpx; background: #C65B3B; transform: rotate(-22deg); transform-origin: left center; }
 .guide-line { display: block; line-height: 38rpx; }
 .guide-line-primary { color: #1C1C1E; font-size: 29rpx; font-weight: 650; text-align: center; }
-.guide-lines { display: flex; width: 100%; flex-direction: column; align-items: flex-end; margin-top: 16rpx; }
-.guide-line-secondary { width: 100%; color: #1C1C1E; font-size: 23rpx; text-align: right; }
-.guide-line-item { width: 100%; color: #1C1C1E; font-size: 24rpx; text-align: right; text-indent: 0; }
-.guide-bullet { display: inline-block; width: 34rpx; color: #1C1C1E; font-weight: 700; text-align: center; }
+.guide-lines { display: flex; width: 100%; flex-direction: column; align-items: center; margin-top: 16rpx; }
+.guide-line-secondary { width: 100%; color: #1C1C1E; font-size: 23rpx; text-align: center; }
+.guide-line-item { width: 100%; color: #1C1C1E; font-size: 24rpx; text-align: center; text-indent: 0; }
+.guide-bullet { display: inline-block; width: 28rpx; color: #1C1C1E; font-weight: 700; text-align: center; }
 
 .status-banner {
   display: flex;
@@ -116,8 +116,8 @@
 .metric-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12rpx; margin-top: 12rpx; }
 .metric-card { min-height: 244rpx; padding: 18rpx 14rpx 16rpx; border-radius: 18rpx; text-align: center; }
 .metric-title { display: block; color: #636366; font-size: 21rpx; }
-.metric-ring { display: flex; width: 128rpx; height: 128rpx; align-items: center; justify-content: center; margin: 14rpx auto 10rpx; border-radius: 50%; }
-.metric-ring-inner { display: flex; width: 98rpx; height: 98rpx; align-items: center; justify-content: center; border-radius: 50%; background: #FFFFFF; }
+.metric-ring { display: flex; width: 136rpx; height: 136rpx; align-items: center; justify-content: center; margin: 14rpx auto 10rpx; border-radius: 50%; }
+.metric-ring-inner { display: flex; width: 100rpx; height: 100rpx; align-items: center; justify-content: center; border-radius: 50%; background: #FFFFFF; }
 .metric-ring-value { color: #1A1A1A; font-size: 22rpx; font-weight: 700; font-variant-numeric: tabular-nums; }
 .metric-current { display: block; color: #1A1A1A; font-size: 22rpx; font-weight: 650; line-height: 30rpx; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .metric-remaining { display: block; margin-top: 3rpx; color: #6B7280; font-size: 19rpx; line-height: 28rpx; white-space: nowrap; }
@@ -156,7 +156,7 @@
 .simulation-icon { display: none; }
 .days-picker { display: flex; flex: 0 0 auto; align-items: center; gap: 8rpx; color: #636366; font-size: 21rpx; }
 .day-options { display: flex; gap: 5rpx; }
-.day-option { min-width: 110rpx; padding: 8rpx 13rpx; border: 1rpx solid #C8D8EE; border-radius: 9rpx; background: #F1F6FC; color: #245B91; font-size: 20rpx; font-weight: 600; line-height: 30rpx; text-align: center; transition: background-color .12s, transform .12s; }
+.day-option { min-width: 110rpx; padding: 8rpx 13rpx; border: 1rpx solid #8CB4DC; border-radius: 9rpx; background: #EAF3FC; color: #185A96; font-size: 20rpx; font-weight: 700; line-height: 30rpx; text-align: center; box-shadow: 0 2rpx 5rpx rgba(24, 90, 150, .10); transition: background-color .12s, transform .12s; }
 .day-option.active { border-color: #7EA6CF; background: #E4EFFA; color: #194F83; }
 .button-press { background: #D6E5F4 !important; transform: scale(.97); }
 .simulation-note { margin: 14rpx 2rpx 0; color: #8E8E93; font-size: 20rpx; line-height: 30rpx; text-align: left; }

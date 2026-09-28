@@ -64,7 +64,7 @@ Page({
     if (this.data.buttonRefreshing) return
     this.pollAttempts = 0
     this.setData({ buttonRefreshing: true, error: '' })
-    refreshPredictions(this.data.scope).then((result) => {
+    return refreshPredictions(this.data.scope).then((result) => {
       const refreshing = Boolean(result.refreshing)
       this.setData({ buttonRefreshing: false, refreshing, items: normalizeItems(result.items), updatedAt: result.updatedAt || '', error: result.error || '', nextDayAvailable: result.nextDayAvailable !== false, nextDayReason: result.nextDayReason || '' })
       getApp().globalData.lastPredictionRefresh = result.updatedAt || null
@@ -74,7 +74,10 @@ Page({
       this.setData({ buttonRefreshing: false, refreshing: false, error: '刷新失败，请稍后重试' })
     })
   },
-  onPullDownRefresh() { this.loadData().finally(() => wx.stopPullDownRefresh()) },
+  onPullDownRefresh() {
+    // 下拉刷新与页面刷新按钮使用同一条用户触发链路；切换 Tab 仍只读数据。
+    return this.refresh().finally(() => wx.stopPullDownRefresh())
+  },
   openStock(event) {
     const stock = this.data.items.find(item => item.ts_code === event.currentTarget.dataset.code)
     if (!stock) return
