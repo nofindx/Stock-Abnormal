@@ -156,7 +156,7 @@ class ApiHandler(BaseHTTPRequestHandler):
             return
         try:
             scope = query.get("scope", ["today"])[0]
-            data = SERVICE.predictions(scope, force=True)
+            data = SERVICE.refresh_predictions(scope)
             self._respond({"code": 0, "data": data, "message": "ok"})
         except (ValueError, TushareUnavailable) as exc:
             self._respond({"code": 503, "data": None, "message": str(exc)}, status=503)

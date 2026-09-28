@@ -53,6 +53,12 @@ function numberValue(value) {
   return Number.isFinite(parsed) ? parsed : 0
 }
 
+function changeClass(value) {
+  const text = String(value == null ? '' : value).trim()
+  if (!text || text === '--') return 'neutral'
+  return text[0] === '-' ? 'down' : 'up'
+}
+
 function cumulativeReturn(values) {
   return values.reduce((total, value) => (1 + total / 100) * (1 + numberValue(value) / 100) * 100 - 100, 0)
 }
@@ -85,6 +91,45 @@ function calculateSimulationRows(rows, detail) {
       space: safety,
       deviationClass: currentDeviation > 0 ? 'risk' : currentDeviation < 0 ? 'safe' : ''
     }
+  })
+}
+
+function presentAlerts(alerts = []) {
+  return alerts.map((item) => {
+    const detail = String(item.detail || '')
+    const currentText = detail.split(/，阈值|,\s*阈值/)[0].replace(/^当前\s*/, '') || '数据不足'
+    return {
+      ...item,
+      currentText,
+      remainingText: item.forecast || '数据不足'
+    }
+  })
+}
+
+function presentWarnings(warnings = []) {
+  const colors = { safe: '#128A5F', warning: '#8A6D0B', triggered: '#C0271E', unknown: '#6B7280' }
+  return warnings.map((item) => {
+    if (item.title === '10 日同向') {
+      const up = Number(item.up || 0)
+      const down = Number(item.down || 0)
+      const match = String(item.target || '').match(/(\d+(?:\.\d+)?)\s*次/)
+      const limit = match ? Number(match[1]) : 0
+      const count = Math.max(up, down)
+      const progress = limit > 0 ? Math.min(100, count / limit * 100) : 0
+      const tone = limit <= 0 ? 'unknown' : progress >= 100 ? 'triggered' : progress >= 66.6667 ? 'warning' : 'safe'
+      return { ...item, currentText: `上涨 ${up} 次 / 下跌 ${down} 次`, remainingText: tone === 'triggered' ? '已触及' : `还差 ${Math.max(0, limit - count)} 次`, progress: Number(progress.toFixed(2)), tone, toneColor: colors[tone] }
+    }
+    const rawValue = String(item.value || '').replace('%', '')
+    const value = Number.parseFloat(rawValue)
+    if (!Number.isFinite(value)) return { ...item, currentText: '数据不足', remainingText: '暂不可判定', progress: 0, tone: 'unknown', toneColor: colors.unknown }
+    const thresholds = String(item.target || '').match(/[+-]?\d+(?:\.\d+)?/g) || []
+    const up = Number(thresholds[0] || 0)
+    const down = Number(thresholds[1] || (up ? -up : 0))
+    const target = value >= 0 ? Math.abs(up) : Math.abs(down)
+    const progress = target > 0 ? Math.min(100, Math.abs(value) / target * 100) : 0
+    const tone = progress >= 100 ? 'triggered' : progress >= 66.6667 ? 'warning' : 'safe'
+    const remaining = Math.max(0, target - Math.abs(value))
+    return { ...item, currentText: `${value >= 0 ? '+' : ''}${value.toFixed(2)}%`, remainingText: tone === 'triggered' ? '已触及' : `还差 ${remaining.toFixed(2)}%`, progress: Number(progress.toFixed(2)), tone, toneColor: colors[tone] }
   })
 }
 
@@ -153,7 +198,15 @@ Page({
       if (requestId !== this.detailRequestId) return
       const futureTradeDates = detail.futureTradeDates || []
       const rows = calculateSimulationRows(createInputRows(2, futureTradeDates), detail)
-      this.setData({ selected: { ...stock, ...detail }, detail, detailLoading: false, detailError: '', futureTradeDates, inputRows: rows, matrixGroups: buildMatrixGroups(rows), query: `${detail.name} ${detail.symbol}` })
+      const displayDetail = {
+        ...detail,
+        change: detail.change == null || detail.change === '' ? '--' : String(detail.change),
+        changeClass: changeClass(detail.change),
+        dataQuality: detail.dataQuality || {},
+        warnings: presentWarnings(detail.warnings),
+        alerts: presentAlerts(detail.alerts)
+      }
+      this.setData({ selected: { ...stock, ...detail }, detail: displayDetail, detailLoading: false, detailError: '', futureTradeDates, inputRows: rows, matrixGroups: buildMatrixGroups(rows), query: `${detail.name} ${detail.symbol}` })
     }).catch(() => {
       if (requestId !== this.detailRequestId) return
       this.setData({ detailLoading: false, detailError: '行情暂时不可用，请稍后重试' })

@@ -5,7 +5,7 @@
   flex: 0 0 88rpx;
   width: 88rpx;
   min-width: 88rpx;
-  height: 48rpx;
+  height: 58rpx;
   padding: 0;
   box-sizing: border-box;
   border: 1rpx solid #DDE3EA;
@@ -14,7 +14,7 @@
   color: #6B7280;
   font-size: 22rpx;
   font-weight: 600;
-  line-height: 46rpx;
+  line-height: 56rpx;
   text-align: center;
   white-space: nowrap;
 }
@@ -70,13 +70,13 @@
 .row-grid { display: none; }
 .grid-label { display: block; color: #8E8E93; font-size: 19rpx; line-height: 26rpx; }
 .grid-value { display: block; margin-top: 4rpx; color: #1C1C1E; font-size: 22rpx; font-weight: 500; line-height: 30rpx; font-variant-numeric: tabular-nums; }
-.days-value { display: inline-flex; width: 184rpx; align-items: center; justify-content: flex-end; color: #1A1A1A; font-size: 20rpx; font-weight: 500; line-height: 38rpx; text-align: right; white-space: nowrap; }
+.days-value { display: inline-flex; width: 184rpx; align-items: center; justify-content: flex-end; color: #1A1A1A; font-size: 22rpx; font-weight: 600; line-height: 42rpx; text-align: right; white-space: nowrap; }
 .days-label { flex: 0 0 auto; }
-.days-number { width: 48rpx; margin: 0 3rpx; text-align: center; }
+.days-number { width: 56rpx; margin: 0 3rpx; color: inherit; font-size: 34rpx; font-weight: 750; line-height: 42rpx; text-align: center; font-variant-numeric: tabular-nums; }
 .days-value.days-ordinary { color: #8A6D0B; }
 .days-value.days-severe-10d { color: #E0501F; }
 .days-value.days-severe-30d { color: #C0271E; }
-.days-unit { color: #8E8E93; font-size: 19rpx; font-weight: 400; }
+.days-unit { color: #8E8E93; font-size: 20rpx; font-weight: 400; }
 .monitor-page .empty { margin-top: 16rpx; background: #FFFFFF; }
 .monitor-page .loading-state, .monitor-page .error-state { margin-top: 16rpx; padding: 34rpx 24rpx; color: #6B7280; text-align: center; }
 .monitor-page .error-state { border-color: #E4B4AD; background: #FDF3F2; color: #C0271E; }

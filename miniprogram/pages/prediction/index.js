@@ -1,8 +1,15 @@
 // 异动预测页面：只请求后端批量快照，不在前端逐票扫描或模拟刷新。
 const { getPredictions, refreshPredictions } = require('../../utils/api')
 
+function normalizeItems(items = []) {
+  return items.map((item) => {
+    const change = item.change == null || item.change === '' ? '--' : String(item.change)
+    return { ...item, change, changeClass: change === '--' ? 'neutral' : (change[0] === '-' ? 'down' : 'up') }
+  })
+}
+
 Page({
-  data: { scope: 'today', items: [], refreshing: false, loading: false, error: '', updatedAt: '' },
+  data: { scope: 'today', items: [], refreshing: false, buttonRefreshing: false, loading: false, error: '', updatedAt: '', nextDayAvailable: true, nextDayReason: '' },
   onLoad() { this.loadData() },
   openRules() {
     if (this.rulesNavigating) return
@@ -16,17 +23,21 @@ Page({
   },
   switchScope(event) {
     const scope = event.currentTarget.dataset.scope
+    if (scope === 'next_day' && !this.data.nextDayAvailable) {
+      wx.showToast({ title: this.data.nextDayReason || '收盘数据准备后开放', icon: 'none' })
+      return
+    }
     if (scope === this.data.scope) return
     if (this.pollTimer) clearTimeout(this.pollTimer)
     this.pollAttempts = 0
     this.setData({ scope, items: [], error: '' }, () => this.loadData())
   },
   loadData() {
-    if (this.data.loading || this.data.refreshing) return Promise.resolve()
+    if (this.data.loading) return Promise.resolve()
     this.setData({ loading: true, error: '' })
     return getPredictions(this.data.scope).then((result) => {
       const refreshing = Boolean(result.refreshing)
-      this.setData({ items: result.items || [], updatedAt: result.updatedAt || '', loading: false, refreshing, error: result.error || '' })
+      this.setData({ items: normalizeItems(result.items), updatedAt: result.updatedAt || '', loading: false, refreshing, error: result.error || '', nextDayAvailable: result.nextDayAvailable !== false, nextDayReason: result.nextDayReason || '' })
       getApp().globalData.lastPredictionRefresh = result.updatedAt || null
       if (refreshing) this.schedulePoll()
     }).catch(() => {
@@ -43,26 +54,27 @@ Page({
     this.pollTimer = setTimeout(() => {
       getPredictions(this.data.scope).then((result) => {
         const refreshing = Boolean(result.refreshing)
-        this.setData({ items: result.items || [], updatedAt: result.updatedAt || '', refreshing, error: result.error || '' })
+        this.setData({ items: normalizeItems(result.items), updatedAt: result.updatedAt || '', refreshing, error: result.error || '', nextDayAvailable: result.nextDayAvailable !== false, nextDayReason: result.nextDayReason || '' })
         if (refreshing) this.schedulePoll()
         else this.pollAttempts = 0
       }).catch(() => this.schedulePoll())
     }, 1200)
   },
   refresh() {
-    if (this.data.refreshing) return
+    if (this.data.buttonRefreshing) return
     this.pollAttempts = 0
-    this.setData({ refreshing: true, error: '' })
+    this.setData({ buttonRefreshing: true, error: '' })
     refreshPredictions(this.data.scope).then((result) => {
       const refreshing = Boolean(result.refreshing)
-      this.setData({ refreshing, items: result.items || [], updatedAt: result.updatedAt || '', error: result.error || '' })
+      this.setData({ buttonRefreshing: false, refreshing, items: normalizeItems(result.items), updatedAt: result.updatedAt || '', error: result.error || '', nextDayAvailable: result.nextDayAvailable !== false, nextDayReason: result.nextDayReason || '' })
       getApp().globalData.lastPredictionRefresh = result.updatedAt || null
       if (refreshing) this.schedulePoll()
       wx.vibrateShort({ type: 'light' })
     }).catch(() => {
-      this.setData({ refreshing: false, error: '刷新失败，请稍后重试' })
+      this.setData({ buttonRefreshing: false, refreshing: false, error: '刷新失败，请稍后重试' })
     })
   },
+  onPullDownRefresh() { this.loadData().finally(() => wx.stopPullDownRefresh()) },
   openStock(event) {
     const stock = this.data.items.find(item => item.ts_code === event.currentTarget.dataset.code)
     if (!stock) return
@@ -71,5 +83,7 @@ Page({
   },
   onUnload() {
     if (this.pollTimer) clearTimeout(this.pollTimer)
-  }
+  },
+  openPrivacy() { wx.navigateTo({ url: '/pages/privacy/index', animationType: 'none' }) },
+  openAgreement() { wx.navigateTo({ url: '/pages/agreement/index', animationType: 'none' }) }
 })

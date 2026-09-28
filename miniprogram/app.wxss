@@ -96,3 +96,16 @@ button::after { border: 0; }
 .disclaimer-title { display: block; color: #3A3A3C; font-weight: 600; }
 .disclaimer-body { display: block; margin-top: 4rpx; color: #6E6E73; }
 .tap-feedback { background: #F2F2F7 !important; }
+.button-press { opacity: .78; transform: scale(.98); }
+.page-footer-link { color: #6B7280; }
+.page-footer-links, .stock-footer-links {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12rpx;
+  margin: 42rpx 0 18rpx;
+  color: #6B7280;
+  font-size: 21rpx;
+  line-height: 32rpx;
+}
+.page-footer-links .footer-separator, .stock-footer-links .footer-separator { color: #C4C7CE; }

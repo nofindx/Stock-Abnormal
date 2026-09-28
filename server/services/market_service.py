@@ -113,6 +113,7 @@ class MarketService:
         self._prediction_refreshing = set()
         self._prediction_last_error: Dict[str, str] = {}
         self._prediction_trade_date: Dict[str, str] = {}
+        self._prediction_state_cache: Optional[tuple[datetime, Dict[str, Any]]] = None
         self._prediction_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="prediction")
         self._realtime = RealtimeQuoteClient()
         self._market_scheduler_stop = Event()
@@ -838,7 +839,115 @@ class MarketService:
         }
 
     def _compute_prediction_items(self, scope: str) -> List[Dict[str, Any]]:
-        """扫描全市场。日行情接口按交易日批量拉取，缓存后避免重复请求。"""
+        """计算预测候选。
+
+        生产环境优先使用每日任务写入的最小计算数据集；只有计算数据集尚未
+        初始化时才回退到 Tushare 全市场日线扫描。实时行情只对已经通过历史
+        数据筛选的候选股票和对应指数批量请求，避免刷新时扫描全市场报价。
+        """
+
+        if self._calc_repository.available:
+            try:
+                items = self._compute_prediction_from_repository(scope, use_realtime=True)
+                if items is not None:
+                    state = self._prediction_state()
+                    self._prediction_trade_date[scope] = state["tradeDate"] if scope == "next_day" and state["phase"] == "post_close_confirmed" else self.client.latest_trade_date()
+                    return items
+            except Exception as exc:  # noqa: BLE001 - 计算仓库异常时保留 Tushare 回退链路
+                self._market_update_error = f"预测计算仓库读取失败：{exc}"
+
+        return self._compute_prediction_from_daily(scope)
+
+    def _compute_prediction_from_repository(self, scope: str, use_realtime: bool = False) -> Optional[List[Dict[str, Any]]]:
+        """从股票/指数收益率数据集计算候选，绝不读取原始日线。"""
+
+        calculations = self._calc_repository.all_calculations()
+        indexes = self._calc_repository.all_indexes()
+        if calculations is None or indexes is None or not calculations or not indexes:
+            return None
+        stocks = {item["ts_code"]: item for item in self._stock_rows()}
+        candidates: List[Dict[str, Any]] = []
+        for ts_code, calc in calculations.items():
+            stock = stocks.get(ts_code)
+            if not stock:
+                continue
+            index_code = _index_code_for_stock(stock)
+            index = indexes.get(index_code)
+            if not index:
+                continue
+            board = BOARD_BY_MARKET.get(stock["board"], Board.MAIN)
+            rule = BOARD_RULES[board]
+            stock_vector = self._vector_entries(calc.get("stock_return_vector"))
+            index_vector = self._vector_entries(index.get("index_return_vector"))
+            metrics = self._vector_metrics(stock_vector, index_vector, rule)
+            window = 30 if scope == "next_day" else 10
+            deviation = metrics["deviations"].get(window)
+            if deviation is None:
+                continue
+            threshold = rule.severe_30d_threshold if window == 30 else rule.severe_10d_threshold
+            target = threshold.up if deviation >= 0 else threshold.down
+            distance = abs(target - deviation)
+            # 只把接近监管线的标的交给实时行情修正。
+            if distance > 20 and not threshold.triggered(deviation):
+                continue
+            candidate = {
+                **stock,
+                "scope": "当日" if scope == "today" else "次日",
+                "currentPrice": f"{float(calc.get('latest_close')):.2f}" if calc.get("latest_close") is not None else "--",
+                "change": _pct(stock_vector[-1].get("return") if stock_vector else None),
+                "trigger": (f"上涨 ≥ {max(0.01, distance):.2f}%" if target > 0 else f"下跌 ≤ -{max(0.01, distance):.2f}%") if distance > 0 else "已达到阈值",
+                "deviation": f"{window}日 {_pct(deviation)}",
+                "rule": f"连续{window}个交易日内日收盘价格涨跌幅偏离值累计达到+{threshold.up:.0f}% / {threshold.down:.0f}%",
+                "tradeDate": str(calc.get("as_of_trade_date") or ""),
+            }
+            candidate["_stockVector"] = stock_vector
+            candidate["_indexVector"] = index_vector
+            candidate["_indexCode"] = index_code
+            candidate["_indexLatestClose"] = index.get("latest_close")
+            candidate["_deviation"] = deviation
+            candidate["_window"] = window
+            candidate["_threshold"] = threshold
+            candidates.append(candidate)
+
+        if use_realtime and candidates:
+            codes = []
+            for item in candidates:
+                codes.extend((item["ts_code"], item["_indexCode"]))
+            quotes = self._realtime.fetch_many(codes)
+            updated: List[Dict[str, Any]] = []
+            for item in candidates:
+                quote = quotes.get(item["ts_code"].upper())
+                index_quote = quotes.get(item["_indexCode"].upper())
+                stock_vector = self._apply_quote_to_vector(item["_stockVector"], item.get("currentPrice"), quote)
+                index_vector = self._apply_quote_to_vector(item["_indexVector"], item.get("_indexLatestClose"), index_quote)
+                # 指数没有把 latest_close 放入预测对象时，只有在同时具备两边报价
+                # 才修正；缺一边就沿用同一收盘口径，不能混合时点数据。
+                if quote and index_quote:
+                    rule = item["_threshold"]
+                    stock_map = {x.get("date"): x.get("return") for x in stock_vector if x.get("date")}
+                    index_map = {x.get("date"): x.get("return") for x in index_vector if x.get("date")}
+                    dates = sorted(set(stock_map) & set(index_map))[-item["_window"]:]
+                    if len(dates) == item["_window"]:
+                        deviation = self._compound(stock_map[d] for d in dates) - self._compound(index_map[d] for d in dates)
+                        target = rule.up if deviation >= 0 else rule.down
+                        distance = abs(target - deviation)
+                        item["_deviation"] = deviation
+                        item["deviation"] = f"{item['_window']}日 {_pct(deviation)}"
+                        item["trigger"] = (f"上涨 ≥ {max(0.01, distance):.2f}%" if target > 0 else f"下跌 ≤ -{max(0.01, distance):.2f}%") if distance > 0 else "已达到阈值"
+                    item["currentPrice"] = f"{float(quote.get('current')):.2f}"
+                    item["change"] = _pct(quote.get("pctChg"))
+                    item["quoteUpdatedAt"] = quote.get("updatedAt", "")
+                    item["quoteSource"] = quote.get("source", "腾讯行情")
+                updated.append(item)
+            candidates = updated
+        for item in candidates:
+            for key in ("_stockVector", "_indexVector", "_indexCode", "_indexLatestClose", "_deviation", "_window", "_threshold"):
+                item.pop(key, None)
+        candidates.sort(key=lambda item: abs(float(item.get("deviation", "0").split()[-1].replace("%", ""))) if item.get("deviation") else 999, reverse=True)
+        return candidates[:100]
+
+    def _compute_prediction_from_daily(self, scope: str) -> List[Dict[str, Any]]:
+        """初始化数据集前的兼容回退；仅作为冷启动临时路径。"""
 
         latest = self.client.latest_trade_date()
         latest_day = datetime.strptime(latest, "%Y%m%d")
@@ -897,6 +1006,7 @@ class MarketService:
             result.append({
                 **stock,
                 "scope": "当日" if scope == "today" else "次日",
+                "currentPrice": f"{float(last.get('close')):.2f}" if last.get("close") is not None else "--",
                 "change": _pct(last.get("pct_chg")),
                 "trigger": (f"上涨 ≥ {max(0.01, distance):.2f}%" if target > 0 else f"下跌 ≤ -{max(0.01, distance):.2f}%") if distance > 0 else "已达到阈值",
                 "deviation": f"{window}日 {_pct(deviation)}",
@@ -958,44 +1068,130 @@ class MarketService:
             self._prediction_executor.submit(self._refresh_prediction_worker, scope)
             return True
 
+    def _prediction_state(self) -> Dict[str, Any]:
+        """按上海交易日和时钟决定预测页的显示状态。
+
+        00:00-09:00 属于盘前；09:00-15:00 属于盘中；15:00 后等待
+        Tushare 或临时收盘数据。状态只控制展示，不会在 GET 请求中采集数据。
+        """
+
+        now = datetime.now(SHANGHAI_TZ)
+        if self._prediction_state_cache and (now - self._prediction_state_cache[0]).total_seconds() < 30:
+            return self._prediction_state_cache[1]
+        today = now.date()
+        calendar = self.client.trade_cal(
+            (today - timedelta(days=10)).strftime("%Y%m%d"),
+            (today + timedelta(days=15)).strftime("%Y%m%d"),
+        )
+        opened = sorted(str(row["cal_date"]) for row in calendar.to_dict("records") if int(row.get("is_open", 0)) == 1)
+        today_value = today.strftime("%Y%m%d")
+        is_trade_day = today_value in opened
+        previous = max((item for item in opened if item < today_value), default=self.client.latest_trade_date())
+        following = min((item for item in opened if item > today_value), default="")
+        if not is_trade_day or now.hour < 9:
+            phase = "pre_open"
+        elif now.hour < 15:
+            phase = "intraday"
+        else:
+            phase = "post_close_confirmed" if self.client.latest_trade_date() == today_value else "post_close_pending"
+        state = {
+            "tradeDate": today_value if is_trade_day else "",
+            "previousTradeDate": previous,
+            "nextTradeDate": following,
+            "phase": phase,
+            "todaySourceScope": "today" if phase == "pre_open" else "next_day",
+        }
+        self._prediction_state_cache = (now, state)
+        return state
+
+    @staticmethod
+    def _format_prediction_datetime(value: Any) -> str:
+        if isinstance(value, datetime):
+            if value.tzinfo is None:
+                value = value.replace(tzinfo=SHANGHAI_TZ)
+            return value.astimezone(SHANGHAI_TZ).strftime("%Y-%m-%d %H:%M")
+        text = str(value or "")
+        return text[:16].replace("T", " ") if text else ""
+
     def predictions(self, scope: str, force: bool = False) -> Dict[str, Any]:
         if scope not in ("today", "next_day"):
             raise ValueError("scope 必须是 today 或 next_day")
         now = datetime.now(SHANGHAI_TZ)
+        state = self._prediction_state()
+        source_scope = state["todaySourceScope"] if scope == "today" else "next_day"
         persistent = None
         if self._calc_repository.available:
             try:
-                persistent = self._calc_repository.get_prediction(scope)
+                persistent = self._calc_repository.get_prediction(source_scope)
             except Exception as exc:
-                self._prediction_last_error[scope] = str(exc)
+                self._prediction_last_error[source_scope] = str(exc)
         if persistent:
             updated = persistent.get("updated_at")
             updated_dt = updated.replace(tzinfo=SHANGHAI_TZ) if isinstance(updated, datetime) and updated.tzinfo is None else updated
             if isinstance(updated_dt, datetime):
-                self._prediction_cache[scope] = (updated_dt, persistent.get("items") or [])
-            self._prediction_trade_date[scope] = str(persistent.get("trade_date") or "")
+                self._prediction_cache[source_scope] = (updated_dt, persistent.get("items") or [])
+            self._prediction_trade_date[source_scope] = str(persistent.get("trade_date") or "")
             if persistent.get("last_error"):
-                self._prediction_last_error[scope] = str(persistent.get("last_error"))
-        cached = self._prediction_cache.get(scope)
-        stale = not cached or (now - cached[0]).total_seconds() >= 60
-        # GET 首次访问和过期访问都只触发后台任务，立即返回已有快照。
-        # POST force 同样不阻塞，避免用户点击刷新后等待全市场扫描。
-        refreshing = False
-        if force or stale:
-            refreshing = self._start_prediction_refresh(scope)
-            if not refreshing and persistent:
-                refreshing = int(persistent.get("refreshing_until") or 0) > int(time.time())
-        elif persistent:
-            refreshing = int(persistent.get("refreshing_until") or 0) > int(time.time())
+                self._prediction_last_error[source_scope] = str(persistent.get("last_error"))
+        next_persistent = persistent if source_scope == "next_day" else None
+        next_cached = self._prediction_cache.get("next_day")
+        if next_persistent is None and self._calc_repository.available:
+            try:
+                next_persistent = self._calc_repository.get_prediction("next_day")
+                if next_persistent:
+                    next_updated = next_persistent.get("updated_at")
+                    next_dt = next_updated.replace(tzinfo=SHANGHAI_TZ) if isinstance(next_updated, datetime) and next_updated.tzinfo is None else next_updated
+                    if isinstance(next_dt, datetime):
+                        next_cached = (next_dt, next_persistent.get("items") or [])
+                    self._prediction_trade_date["next_day"] = str(next_persistent.get("trade_date") or "")
+                    self._prediction_cache["next_day"] = next_cached or (now, next_persistent.get("items") or [])
+                    next_cached = self._prediction_cache["next_day"]
+            except Exception as exc:
+                self._prediction_last_error["next_day"] = str(exc)
+        cached = self._prediction_cache.get(source_scope)
         items = cached[1] if cached else []
+        trade_date = self._prediction_trade_date.get(source_scope, "")
+        next_trade_date = self._prediction_trade_date.get("next_day", "")
+        next_trade_available = bool(next_cached and next_cached[1]) and (
+            state["phase"] == "pre_open" or
+            state["phase"] == "post_close_confirmed" and next_trade_date == state["tradeDate"]
+        )
+        if scope == "next_day" and (state["phase"] == "intraday" or state["phase"] == "post_close_pending"):
+            items = []
+        # GET 只读已有数据；后台租约状态仅用于展示，不会在这里启动刷新。
+        refreshing = bool(persistent and int(persistent.get("refreshing_until") or 0) > int(time.time()))
+        updated_at = self._format_prediction_datetime(cached[0]) if cached else ""
         has_realtime = any(item.get("quoteSource") for item in items)
-        updated_at = cached[0].strftime("%H:%M:%S") if cached else ""
         return {
             "scope": scope,
             "items": items,
-            "tradeDate": self._prediction_trade_date.get(scope, ""),
+            "tradeDate": trade_date,
+            "previousTradeDate": state["previousTradeDate"],
+            "nextTradeDate": state["nextTradeDate"],
+            "phase": state["phase"],
+            "todaySourceScope": state["todaySourceScope"],
+            "nextDayAvailable": next_trade_available,
+            "nextDayReason": "等待收盘数据" if not next_trade_available else "",
             "updatedAt": updated_at,
-            "refreshing": scope in self._prediction_refreshing or refreshing,
-            "error": self._prediction_last_error.get(scope, ""),
-            "dataQuality": {"source": "tushare+腾讯行情" if has_realtime else "tushare", "intraday": has_realtime},
+            "refreshing": refreshing,
+            "error": self._prediction_last_error.get(source_scope, ""),
+            "dataQuality": {"source": "Tushare+腾讯/新浪/东方财富" if has_realtime else "Tushare", "intraday": has_realtime},
         }
+
+    def refresh_predictions(self, requested_scope: str = "today") -> Dict[str, Any]:
+        """处理预测页刷新按钮，不让 GET 或 Tab 切换触发采集。
+
+        盘前刷新当前日数据；盘中刷新页面当前展示的上一交易日次日结果，
+        只对历史筛选出的候选股票请求实时行情。收盘后按钮只读取后台已准备
+        的数据集，避免一次点击再次扫描全市场。
+        """
+
+        state = self._prediction_state()
+        target = None
+        if state["phase"] == "pre_open":
+            target = "today"
+        elif state["phase"] == "intraday":
+            target = "next_day"
+        if target:
+            self._start_prediction_refresh(target)
+        return self.predictions(requested_scope)
