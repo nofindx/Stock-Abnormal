@@ -8,6 +8,7 @@
 .prediction-snapshot-row .snapshot-refresh { position: absolute; top: 50%; right: 0; display: flex; width: 120rpx; min-width: 120rpx; max-width: 120rpx; height: 48rpx; align-items: center; justify-content: center; margin: 0; padding: 0 !important; border: 1rpx solid #DDE3EA; border-radius: 11rpx; background: #FFFFFF; color: #405A78; font-size: 20rpx; font-weight: 600; line-height: 1; transform: translateY(-50%); }
 .prediction-snapshot-row .snapshot-refresh::after { display: none; }
 .prediction-snapshot-row .snapshot-refresh-disabled { opacity: .56; }
+.prediction-snapshot-row .snapshot-quality { display: block; margin-top: 3rpx; color: #8A6D0B; font-size: 20rpx; line-height: 1.4; }
 .refresh-panel { display: none; }
 .refresh-copy { min-width: 0; }
 .refresh-label { display: block; color: #1C1C1E; font-size: 23rpx; font-weight: 600; }

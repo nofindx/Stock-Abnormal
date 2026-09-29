@@ -95,6 +95,7 @@ class MarketCalcRepository:
                         deviation_30 DECIMAL(18,8) NULL,
                         same_direction_up SMALLINT NOT NULL DEFAULT 0,
                         same_direction_down SMALLINT NOT NULL DEFAULT 0,
+                        data_stage VARCHAR(16) NOT NULL DEFAULT 'formal',
                         updated_at DATETIME NOT NULL,
                         CONSTRAINT fk_stock_calc_basic FOREIGN KEY (ts_code) REFERENCES stock_basic(ts_code)
                     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
@@ -106,6 +107,7 @@ class MarketCalcRepository:
                         as_of_trade_date CHAR(8) NOT NULL,
                         latest_close DECIMAL(18,6) NULL,
                         index_return_vector JSON NOT NULL,
+                        data_stage VARCHAR(16) NOT NULL DEFAULT 'formal',
                         updated_at DATETIME NOT NULL
                     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
                 """)
@@ -125,6 +127,8 @@ class MarketCalcRepository:
                         trade_date CHAR(8) NOT NULL DEFAULT '',
                         updated_at DATETIME NULL,
                         items JSON NOT NULL,
+                        data_stage VARCHAR(16) NOT NULL DEFAULT 'formal',
+                        data_quality VARCHAR(32) NOT NULL DEFAULT 'confirmed',
                         refreshing_until BIGINT NOT NULL DEFAULT 0,
                         last_error TEXT NOT NULL
                     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
@@ -133,6 +137,10 @@ class MarketCalcRepository:
                 for statement in (
                     "ALTER TABLE market_calc_job ADD COLUMN last_failure_date CHAR(10) NOT NULL DEFAULT ''",
                     "ALTER TABLE market_calc_job ADD COLUMN retry_marker VARCHAR(32) NOT NULL DEFAULT ''",
+                    "ALTER TABLE stock_calc_base ADD COLUMN data_stage VARCHAR(16) NOT NULL DEFAULT 'formal'",
+                    "ALTER TABLE index_calc_base ADD COLUMN data_stage VARCHAR(16) NOT NULL DEFAULT 'formal'",
+                    "ALTER TABLE prediction_cache ADD COLUMN data_stage VARCHAR(16) NOT NULL DEFAULT 'formal'",
+                    "ALTER TABLE prediction_cache ADD COLUMN data_quality VARCHAR(32) NOT NULL DEFAULT 'confirmed'",
                 ):
                     try:
                         cursor.execute(statement)
@@ -277,7 +285,7 @@ class MarketCalcRepository:
                 """, (str(marker),))
             db.commit()
 
-    def upsert_market(self, stocks: Iterable[Dict[str, Any]], calculations: Iterable[Dict[str, Any]], indexes: Iterable[Dict[str, Any]], trade_date: str) -> None:
+    def upsert_market(self, stocks: Iterable[Dict[str, Any]], calculations: Iterable[Dict[str, Any]], indexes: Iterable[Dict[str, Any]], trade_date: str, data_stage: str = "formal") -> None:
         """在一个事务内更新当前计算数据，不保留旧版本。"""
 
         if not self.available:
@@ -307,13 +315,13 @@ class MarketCalcRepository:
                     cursor.execute("""
                         INSERT INTO stock_calc_base
                         (ts_code, as_of_trade_date, latest_close, stock_return_vector, deviation_3,
-                         deviation_10, deviation_30, same_direction_up, same_direction_down, updated_at)
-                        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                         deviation_10, deviation_30, same_direction_up, same_direction_down, data_stage, updated_at)
+                        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                         ON DUPLICATE KEY UPDATE
                         as_of_trade_date=VALUES(as_of_trade_date), latest_close=VALUES(latest_close),
                         stock_return_vector=VALUES(stock_return_vector), deviation_3=VALUES(deviation_3),
                         deviation_10=VALUES(deviation_10), deviation_30=VALUES(deviation_30),
-                        same_direction_up=VALUES(same_direction_up), same_direction_down=VALUES(same_direction_down),
+                        same_direction_up=VALUES(same_direction_up), same_direction_down=VALUES(same_direction_down), data_stage=VALUES(data_stage),
                         updated_at=VALUES(updated_at)
                     """, (
                         item["ts_code"], item.get("as_of_trade_date") or trade_date,
@@ -321,23 +329,23 @@ class MarketCalcRepository:
                         json.dumps(item.get("stockReturns", item.get("stock_return_vector", [])), ensure_ascii=False),
                         item.get("deviation3"), item.get("deviation10"), item.get("deviation30"),
                         item.get("sameDirectionUp", item.get("same_direction_up", 0)),
-                        item.get("sameDirectionDown", item.get("same_direction_down", 0)), now,
+                        item.get("sameDirectionDown", item.get("same_direction_down", 0)), item.get("data_stage", data_stage), now,
                     ))
                 for item in indexes:
                     cursor.execute("""
                         INSERT INTO index_calc_base
-                        (index_code, index_name, as_of_trade_date, latest_close, index_return_vector, updated_at)
-                        VALUES (%s,%s,%s,%s,%s,%s)
+                        (index_code, index_name, as_of_trade_date, latest_close, index_return_vector, data_stage, updated_at)
+                        VALUES (%s,%s,%s,%s,%s,%s,%s)
                         ON DUPLICATE KEY UPDATE
                         index_name=VALUES(index_name), as_of_trade_date=VALUES(as_of_trade_date),
-                        latest_close=VALUES(latest_close), index_return_vector=VALUES(index_return_vector),
+                        latest_close=VALUES(latest_close), index_return_vector=VALUES(index_return_vector), data_stage=VALUES(data_stage),
                         updated_at=VALUES(updated_at)
                     """, (
                         item.get("indexCode", item.get("index_code")),
                         item.get("indexName", item.get("index_name", item.get("indexCode", item.get("index_code")))),
                         item.get("as_of_trade_date") or trade_date,
                         item.get("latestClose", item.get("latest_close")),
-                        json.dumps(item.get("indexReturns", item.get("index_return_vector", [])), ensure_ascii=False), now,
+                        json.dumps(item.get("indexReturns", item.get("index_return_vector", [])), ensure_ascii=False), item.get("data_stage", data_stage), now,
                     ))
                 cursor.execute("""
                     INSERT INTO market_calc_job (job_name, last_success_date, last_attempt_at, last_error)
@@ -406,18 +414,18 @@ class MarketCalcRepository:
             db.commit()
         return True
 
-    def save_prediction(self, scope: str, trade_date: str, items: Iterable[Dict[str, Any]], updated_at: datetime) -> None:
+    def save_prediction(self, scope: str, trade_date: str, items: Iterable[Dict[str, Any]], updated_at: datetime, data_stage: str = "formal", data_quality: str = "confirmed") -> None:
         if not self.available:
             return
         self.ensure_schema()
         with self.connection() as db:
             with db.cursor() as cursor:
                 cursor.execute("""
-                    INSERT INTO prediction_cache (scope, trade_date, updated_at, items, refreshing_until, last_error)
-                    VALUES (%s,%s,%s,%s,0,'')
+                    INSERT INTO prediction_cache (scope, trade_date, updated_at, items, data_stage, data_quality, refreshing_until, last_error)
+                    VALUES (%s,%s,%s,%s,%s,%s,0,'')
                     ON DUPLICATE KEY UPDATE trade_date=VALUES(trade_date), updated_at=VALUES(updated_at),
-                    items=VALUES(items), refreshing_until=0, last_error=''
-                """, (scope, trade_date, updated_at.strftime("%Y-%m-%d %H:%M:%S"), json.dumps(list(items), ensure_ascii=False)))
+                    items=VALUES(items), data_stage=VALUES(data_stage), data_quality=VALUES(data_quality), refreshing_until=0, last_error=''
+                """, (scope, trade_date, updated_at.strftime("%Y-%m-%d %H:%M:%S"), json.dumps(list(items), ensure_ascii=False), data_stage, data_quality))
             db.commit()
 
     def fail_prediction(self, scope: str, error: str) -> None:

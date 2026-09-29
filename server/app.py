@@ -137,7 +137,7 @@ class ApiHandler(BaseHTTPRequestHandler):
             self._respond({"code": 500, "data": None, "message": "服务暂时不可用，请稍后重试"}, status=500)
 
     def do_POST(self):
-        """预测刷新先采用同步快照，后续可替换为后台任务和 snapshot_id。"""
+        """预测刷新只处理已有池的盘中临时行情，不触发全市场后台计算。"""
 
         parsed = urlparse(self.path)
         if parsed.path != "/api/predictions/refresh":

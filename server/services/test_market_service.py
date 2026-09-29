@@ -76,6 +76,25 @@ class MarketVectorTests(unittest.TestCase):
         self.assertEqual(items[0]["ts_code"], "001216.SZ")
         self.assertTrue(items[0]["deviation"].startswith("10日 "))
 
+    def test_intraday_refresh_only_updates_existing_prediction_codes(self):
+        service = self.service
+        service._calc_repository = SimpleNamespace(
+            available=True,
+            get_prediction=lambda scope: {"scope": scope, "items": [{"ts_code": "001216.SZ", "deviation": "10日 +95.00%", "currentPrice": "28.00", "change": "+1.00%"}]},
+            all_calculations=lambda: {"001216.SZ": {"ts_code": "001216.SZ", "latest_close": 28.0, "stock_return_vector": [{"date": f"2026-09-{index:02d}", "return": 0.0} for index in range(1, 31)]}},
+            all_indexes=lambda: {"399001.SZ": {"index_code": "399001.SZ", "latest_close": 10.0, "index_return_vector": [{"date": f"2026-09-{index:02d}", "return": 0.0} for index in range(1, 31)]}},
+        )
+        service._stock_rows = lambda: [{"ts_code": "001216.SZ", "symbol": "001216", "name": "华瓷股份", "market": "SZSE", "board": "主板", "isST": False}]
+        requested = []
+        service._realtime = SimpleNamespace(fetch_many=lambda codes: (requested.extend(list(codes)) or {
+            "001216.SZ": {"current": 28.2, "pctChg": 0.71, "updatedAt": "2026-09-29T10:00:00", "source": "腾讯行情"},
+            "399001.SZ": {"current": 10.1, "pctChg": 1.0, "updatedAt": "2026-09-29T10:00:00", "source": "腾讯行情"},
+        }))
+        result = service._refresh_existing_prediction_scope("next_day")
+        self.assertEqual(["001216.SZ", "399001.SZ"], requested)
+        self.assertEqual(result[0]["currentPrice"], "28.20")
+        self.assertFalse(hasattr(service._calc_repository, "save_prediction"))
+
 
 class MarketRepositoryConfigTests(unittest.TestCase):
     """未配置 MySQL 时必须保持本地开发可用，不触发网络或数据库连接。"""

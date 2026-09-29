@@ -133,6 +133,55 @@ function presentWarnings(warnings = []) {
   })
 }
 
+// 单股页只接收后端给出的收益率向量和规则参数，状态、偏离及四项圆环在本地完成。
+function clientCompound(values) {
+  return values.reduce((total, value) => (1 + total / 100) * (1 + Number(value) / 100) * 100 - 100, 0)
+}
+
+function clientDeviation(stock, index, window) {
+  const stockMap = Object.fromEntries((stock || []).filter(item => item.date).map(item => [item.date, Number(item.return)]))
+  const indexMap = Object.fromEntries((index || []).filter(item => item.date).map(item => [item.date, Number(item.return)]))
+  const dates = Object.keys(stockMap).filter(date => Object.prototype.hasOwnProperty.call(indexMap, date)).sort().slice(-window)
+  if (dates.length < window) return null
+  return clientCompound(dates.map(date => stockMap[date])) - clientCompound(dates.map(date => indexMap[date]))
+}
+
+function clientMetrics(detail) {
+  const input = detail && detail.calculationInput
+  if (!input) return detail
+  const stock = Array.isArray(input.stock) ? input.stock : []
+  const index = Array.isArray(input.index) ? input.index : []
+  const ordinary = Number(input.ordinaryDeviation || 20)
+  const severe10 = input.severe10 || { up: 100, down: -50 }
+  const severe30 = input.severe30 || { up: 200, down: -70 }
+  const sameLimit = Number(input.sameDirectionThreshold || 4)
+  const deviations = { 3: clientDeviation(stock, index, 3), 10: clientDeviation(stock, index, 10), 30: clientDeviation(stock, index, 30) }
+  const stockMap = Object.fromEntries(stock.filter(item => item.date).map(item => [item.date, Number(item.return)]))
+  const indexMap = Object.fromEntries(index.filter(item => item.date).map(item => [item.date, Number(item.return)]))
+  const dates = Object.keys(stockMap).filter(date => Object.prototype.hasOwnProperty.call(indexMap, date)).sort().slice(-10)
+  let up = 0; let down = 0
+  for (let end = 2; end < dates.length; end += 1) {
+    const range = dates.slice(end - 2, end + 1)
+    const deviation = clientCompound(range.map(date => stockMap[date])) - clientCompound(range.map(date => indexMap[date]))
+    if (deviation >= ordinary) up += 1
+    else if (deviation <= -ordinary) down += 1
+  }
+  const same = Math.max(up, down)
+  const severeTriggered = (deviations[30] != null && (deviations[30] >= severe30.up || deviations[30] <= severe30.down)) ||
+    (deviations[10] != null && (deviations[10] >= severe10.up || deviations[10] <= severe10.down)) || same >= sameLimit
+  let status = '安全'; let statusClass = 'safe'
+  if (severeTriggered) { status = '严重异动'; statusClass = 'severe' }
+  else if (deviations[3] != null && Math.abs(deviations[3]) >= ordinary) { status = '风险提示'; statusClass = 'risk' }
+  const thresholdText = (value, threshold) => value == null ? `数据不足（需 ${threshold} 个交易日）` : `阈值 +${threshold === 3 ? ordinary : threshold === 10 ? severe10.up : severe30.up}% / ${threshold === 3 ? -ordinary : threshold === 10 ? severe10.down : severe30.down}%`
+  const warning = [
+    { title: '3 日偏离', value: deviations[3] == null ? '--' : `${deviations[3] >= 0 ? '+' : ''}${deviations[3].toFixed(2)}%`, target: thresholdText(deviations[3], 3), className: deviations[3] == null ? 'neutral' : Math.abs(deviations[3]) >= ordinary ? 'risk' : 'safe' },
+    { title: '10 日偏离', value: deviations[10] == null ? '--' : `${deviations[10] >= 0 ? '+' : ''}${deviations[10].toFixed(2)}%`, target: thresholdText(deviations[10], 10), className: deviations[10] == null ? 'neutral' : (deviations[10] >= severe10.up || deviations[10] <= severe10.down) ? 'risk' : 'safe' },
+    { title: '30 日偏离', value: deviations[30] == null ? '--' : `${deviations[30] >= 0 ? '+' : ''}${deviations[30].toFixed(2)}%`, target: thresholdText(deviations[30], 30), className: deviations[30] == null ? 'neutral' : (deviations[30] >= severe30.up || deviations[30] <= severe30.down) ? 'risk' : 'safe' },
+    { title: '10 日同向', value: '', up: String(up), down: String(down), target: `阈值 ${sameLimit} 次`, className: same >= sameLimit ? 'risk' : 'safe' }
+  ]
+  return { ...detail, status, statusClass, statusDisplay: status === '安全' ? '状态安全' : '状态异常', statusIcon: statusClass === 'safe' ? '✓' : '!', warnings: presentWarnings(warning) }
+}
+
 Page({
   data: {
     query: '', suggestions: [], suggestionHint: false, selected: null, detail: null,
@@ -193,7 +242,7 @@ Page({
       if (requestId !== this.detailRequestId) return
       const futureTradeDates = detail.futureTradeDates || []
       const rows = calculateSimulationRows(createInputRows(2, futureTradeDates), detail)
-      const displayDetail = {
+      const displayDetail = clientMetrics({
         ...detail,
         statusDisplay: detail.status === '安全' ? '状态安全' : '状态异常',
         change: detail.change == null || detail.change === '' ? '--' : String(detail.change),
@@ -201,7 +250,7 @@ Page({
         dataQuality: detail.dataQuality || {},
         warnings: presentWarnings(detail.warnings),
         alerts: presentAlerts(detail.alerts)
-      }
+      })
       this.setData({ selected: { ...stock, ...detail }, detail: displayDetail, detailLoading: false, detailError: '', futureTradeDates, inputRows: rows, matrixGroups: buildMatrixGroups(rows), query: `${detail.name} ${detail.symbol}` })
     }).catch(() => {
       if (requestId !== this.detailRequestId) return
