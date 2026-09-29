@@ -1242,7 +1242,9 @@ class MarketService:
             updated_dt = updated.replace(tzinfo=SHANGHAI_TZ) if isinstance(updated, datetime) and updated.tzinfo is None else updated
             if isinstance(updated_dt, datetime):
                 self._prediction_cache[source_scope] = (updated_dt, persistent.get("items") or [])
-            self._prediction_trade_date[source_scope] = str(persistent.get("trade_date") or "")
+            persistent_item_dates = [str(item.get("tradeDate") or "") for item in (persistent.get("items") or []) if item.get("tradeDate")]
+            # 数据集日期以实际候选的计算日期为准，避免旧版本错误写入自然日。
+            self._prediction_trade_date[source_scope] = max(persistent_item_dates) if persistent_item_dates else str(persistent.get("trade_date") or "")
             if persistent.get("last_error"):
                 self._prediction_last_error[source_scope] = str(persistent.get("last_error"))
         # 盘中实时结果只存在于当前进程的短生命周期内，绝不写入 prediction_cache。
@@ -1259,7 +1261,8 @@ class MarketService:
                     next_dt = next_updated.replace(tzinfo=SHANGHAI_TZ) if isinstance(next_updated, datetime) and next_updated.tzinfo is None else next_updated
                     if isinstance(next_dt, datetime):
                         next_cached = (next_dt, next_persistent.get("items") or [])
-                    self._prediction_trade_date["next_day"] = str(next_persistent.get("trade_date") or "")
+                    next_item_dates = [str(item.get("tradeDate") or "") for item in (next_persistent.get("items") or []) if item.get("tradeDate")]
+                    self._prediction_trade_date["next_day"] = max(next_item_dates) if next_item_dates else str(next_persistent.get("trade_date") or "")
                     self._prediction_cache["next_day"] = next_cached or (now, next_persistent.get("items") or [])
                     next_cached = self._prediction_cache["next_day"]
             except Exception as exc:
