@@ -26,6 +26,7 @@ INDEX_BY_MARKET = {"SSE": "000001.SH", "SZSE": "399001.SZ", "BSE": "899050.BJ"}
 INDEX_BY_BOARD = {"创业板": "399006.SZ", "科创板": "000688.SH", "北交所": "899050.BJ"}
 BOARD_BY_MARKET = {"主板": Board.MAIN, "创业板": Board.CHINEXT, "科创板": Board.STAR, "北交所": Board.BSE}
 SHANGHAI_TZ = ZoneInfo("Asia/Shanghai") if ZoneInfo else timezone(timedelta(hours=8))
+PREDICTION_RULE_VERSION = "2026-09-upward-v2"
 
 # GBK 区位表不依赖第三方拼音包，适合云托管的轻量搜索场景。
 _PINYIN_RANGES = (
@@ -116,6 +117,7 @@ class MarketService:
         self._prediction_ephemeral: Dict[str, tuple[datetime, List[Dict[str, Any]]]] = {}
         self._intraday_refresh_futures: Dict[str, Any] = {}
         self._intraday_refresh_lock = Lock()
+        self._prediction_rebuild_lock = Lock()
         self._realtime = RealtimeQuoteClient()
         self._market_scheduler_stop = Event()
         self._market_scheduler: Optional[Thread] = None
@@ -132,6 +134,23 @@ class MarketService:
         self._market_scheduler_stop.clear()
         self._market_scheduler = Thread(target=self._market_scheduler_loop, name="market-calc", daemon=True)
         self._market_scheduler.start()
+        # 规则代码发布后，持久化预测结果可能仍是旧口径。启动时只读取
+        # MySQL 已有的基础向量重建结果集，不请求行情、不触发全市场采集。
+        Thread(target=self._rebuild_predictions_if_rule_changed, name="prediction-rebuild", daemon=True).start()
+
+    def _rebuild_predictions_if_rule_changed(self) -> None:
+        if not self._calc_repository.available:
+            return
+        with self._prediction_rebuild_lock:
+            try:
+                records = [self._calc_repository.get_prediction(scope) for scope in ("today", "next_day")]
+                if records and all(record and record.get("rule_version") == PREDICTION_RULE_VERSION for record in records):
+                    return
+                stage = self._latest_data_stage() or "formal"
+                if self._calc_repository.all_calculations() and self._calc_repository.all_indexes():
+                    self._generate_prediction_datasets(stage)
+            except Exception as exc:  # noqa: BLE001 - 重建失败不影响旧数据读取
+                self._prediction_last_error["today"] = f"预测规则重建失败：{exc}"
 
     def close(self) -> None:
         """停止每日更新和预测线程池。"""
@@ -884,7 +903,7 @@ class MarketService:
             self._prediction_cache[scope] = (updated_at, items)
             self._prediction_trade_date[scope] = trade_date
             if self._calc_repository.available:
-                self._calc_repository.save_prediction(scope, trade_date, items, updated_at, data_stage=data_stage, data_quality="provisional" if data_stage == "initial" else "confirmed")
+                self._calc_repository.save_prediction(scope, trade_date, items, updated_at, data_stage=data_stage, data_quality="provisional" if data_stage == "initial" else "confirmed", rule_version=PREDICTION_RULE_VERSION)
 
     def detail(self, ts_code: str) -> Dict[str, Any]:
         """返回单股当前状态、四项预警和模拟计算基础数据。"""

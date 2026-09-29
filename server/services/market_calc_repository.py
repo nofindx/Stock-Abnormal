@@ -130,7 +130,8 @@ class MarketCalcRepository:
                         data_stage VARCHAR(16) NOT NULL DEFAULT 'formal',
                         data_quality VARCHAR(32) NOT NULL DEFAULT 'confirmed',
                         refreshing_until BIGINT NOT NULL DEFAULT 0,
-                        last_error TEXT NOT NULL
+                        last_error TEXT NOT NULL,
+                        rule_version VARCHAR(40) NOT NULL DEFAULT ''
                     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
                 """)
                 # 兼容先前已经创建的本地表；新增字段只保存调度状态，不保存行情明细。
@@ -141,6 +142,7 @@ class MarketCalcRepository:
                     "ALTER TABLE index_calc_base ADD COLUMN data_stage VARCHAR(16) NOT NULL DEFAULT 'formal'",
                     "ALTER TABLE prediction_cache ADD COLUMN data_stage VARCHAR(16) NOT NULL DEFAULT 'formal'",
                     "ALTER TABLE prediction_cache ADD COLUMN data_quality VARCHAR(32) NOT NULL DEFAULT 'confirmed'",
+                    "ALTER TABLE prediction_cache ADD COLUMN rule_version VARCHAR(40) NOT NULL DEFAULT ''",
                 ):
                     try:
                         cursor.execute(statement)
@@ -414,18 +416,18 @@ class MarketCalcRepository:
             db.commit()
         return True
 
-    def save_prediction(self, scope: str, trade_date: str, items: Iterable[Dict[str, Any]], updated_at: datetime, data_stage: str = "formal", data_quality: str = "confirmed") -> None:
+    def save_prediction(self, scope: str, trade_date: str, items: Iterable[Dict[str, Any]], updated_at: datetime, data_stage: str = "formal", data_quality: str = "confirmed", rule_version: str = "") -> None:
         if not self.available:
             return
         self.ensure_schema()
         with self.connection() as db:
             with db.cursor() as cursor:
                 cursor.execute("""
-                    INSERT INTO prediction_cache (scope, trade_date, updated_at, items, data_stage, data_quality, refreshing_until, last_error)
-                    VALUES (%s,%s,%s,%s,%s,%s,0,'')
+                    INSERT INTO prediction_cache (scope, trade_date, updated_at, items, data_stage, data_quality, refreshing_until, last_error, rule_version)
+                    VALUES (%s,%s,%s,%s,%s,%s,0,'',%s)
                     ON DUPLICATE KEY UPDATE trade_date=VALUES(trade_date), updated_at=VALUES(updated_at),
-                    items=VALUES(items), data_stage=VALUES(data_stage), data_quality=VALUES(data_quality), refreshing_until=0, last_error=''
-                """, (scope, trade_date, updated_at.strftime("%Y-%m-%d %H:%M:%S"), json.dumps(list(items), ensure_ascii=False), data_stage, data_quality))
+                    items=VALUES(items), data_stage=VALUES(data_stage), data_quality=VALUES(data_quality), refreshing_until=0, last_error='', rule_version=VALUES(rule_version)
+                """, (scope, trade_date, updated_at.strftime("%Y-%m-%d %H:%M:%S"), json.dumps(list(items), ensure_ascii=False), data_stage, data_quality, str(rule_version or "")))
             db.commit()
 
     def fail_prediction(self, scope: str, error: str) -> None:
