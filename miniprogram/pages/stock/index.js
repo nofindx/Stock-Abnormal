@@ -142,16 +142,6 @@ Page({
     inputRows: createInputRows(2), matrixGroups: buildMatrixGroups(createInputRows(2))
   },
   onLoad(options) { if (options.ts_code) this.loadStockByCode(options.ts_code) },
-  openRules() {
-    if (this.rulesNavigating) return
-    this.rulesNavigating = true
-    wx.navigateTo({
-      url: '/pages/rules/index',
-      animationType: 'none',
-      animationDuration: 0,
-      complete: () => { this.rulesNavigating = false }
-    })
-  },
   onShow() {
     const pending = getApp().globalData.pendingStock
     if (pending) { getApp().globalData.pendingStock = null; this.chooseStock(pending) }
@@ -232,6 +222,4 @@ Page({
   onUnload() {
     if (this.searchTimer) clearTimeout(this.searchTimer)
   },
-  openPrivacy() { wx.navigateTo({ url: '/pages/privacy/index', animationType: 'none' }) },
-  openAgreement() { wx.navigateTo({ url: '/pages/agreement/index', animationType: 'none' }) }
 })

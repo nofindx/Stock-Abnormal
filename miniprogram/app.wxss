@@ -110,5 +110,5 @@ button::after { border: 0; }
 }
 .legal-footer-links .page-footer-link,
 .legal-footer-links .footer-separator { display: inline-block; }
-.legal-footer-links .page-footer-link { color: #6B7280; }
+.legal-footer-links .page-footer-link { color: #6B7280; line-height: 32rpx; }
 .legal-footer-links .footer-separator { color: #C4C7CE; }

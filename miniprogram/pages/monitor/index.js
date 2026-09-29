@@ -119,9 +119,6 @@ Page({
       onError: () => wx.showToast({ title: '公告暂时无法打开，请稍后重试', icon: 'none' })
     }).catch(() => {}).finally(() => { this.openingSource = false })
   },
-  openPrivacy() { wx.navigateTo({ url: '/pages/privacy/index', animationType: 'none' }) },
-  openAgreement() { wx.navigateTo({ url: '/pages/agreement/index', animationType: 'none' }) },
-  openRules() { wx.navigateTo({ url: '/pages/rules/index', animationType: 'none' }) },
   onUnload() {
     if (this.pollTimer) clearTimeout(this.pollTimer)
   }

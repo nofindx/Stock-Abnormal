@@ -11,16 +11,6 @@ function normalizeItems(items = []) {
 Page({
   data: { scope: 'today', items: [], refreshing: false, buttonRefreshing: false, loading: false, error: '', updatedAt: '', dataMessage: '', nextDayAvailable: true, nextDayReason: '' },
   onLoad() { this.loadData() },
-  openRules() {
-    if (this.rulesNavigating) return
-    this.rulesNavigating = true
-    wx.navigateTo({
-      url: '/pages/rules/index',
-      animationType: 'none',
-      animationDuration: 0,
-      complete: () => { this.rulesNavigating = false }
-    })
-  },
   switchScope(event) {
     const scope = event.currentTarget.dataset.scope
     if (scope === 'next_day' && !this.data.nextDayAvailable) {
@@ -88,6 +78,4 @@ Page({
   onUnload() {
     if (this.pollTimer) clearTimeout(this.pollTimer)
   },
-  openPrivacy() { wx.navigateTo({ url: '/pages/privacy/index', animationType: 'none' }) },
-  openAgreement() { wx.navigateTo({ url: '/pages/agreement/index', animationType: 'none' }) }
 })
