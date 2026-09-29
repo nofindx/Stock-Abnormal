@@ -100,9 +100,9 @@ Page({
       ...item,
       // 监控池展示按自然日倒计时；结束日当天仍显示 0，次日由后端移出当前池。
       days: naturalDaysRemaining(item.monitorEndDate, item.days),
-      // 所有标的都保留；仅主板、创业板、科创板以外的标的降低视觉权重。
-      // 例如 501、513、159、920 等基金、ETF、北交所标的仍可查看风险类型和公告。
-      mutedSecurity: !isCoreBoardSymbol(item.symbol),
+      // 所有标的都保留；仅非关键标的和 ST 股票弱化名称、代码。
+      // 监管日期、风险标签和剩余天数仍使用正常风险配色。
+      mutedSecurity: !isCoreBoardSymbol(item.symbol) || item.isST || String(item.name || '').toUpperCase().includes('ST'),
       riskTone: item.riskTone || (item.monitorType === '30日严重异动' ? 'severe-30d' : item.monitorType === '10日严重异动' ? 'severe-10d' : 'ordinary')
     }))
     // 去杂同时隐藏 ST 和非关键标的；关闭时保留后端快照中的全部记录。

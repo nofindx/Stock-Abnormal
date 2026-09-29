@@ -1,4 +1,4 @@
-.monitor-page { background: #F2F3F5; }
+.monitor-page { background: #F2F3F5; padding-bottom: 220rpx; }
 .filter-row { display: flex; min-height: 68rpx; align-items: center; justify-content: space-between; gap: 18rpx; margin-top: 14rpx; }
 .type-filters { display: flex; flex: 0 0 50%; width: 50%; min-width: 0; align-items: center; justify-content: space-between; gap: 0; }
 .filter-segment {
@@ -59,7 +59,7 @@
 .source-link-icon { font-size: 25rpx; line-height: 28rpx; }
 .monitor-page .stock-name { flex: 0 1 auto; color: #1A1A1A; font-size: 28rpx; font-weight: 600; white-space: nowrap; }
 .monitor-page .stock-meta { flex: 0 0 auto; margin: 0 0 0 14rpx; color: #6B7280; font-size: 22rpx; }
-.muted-security .stock-name, .muted-security .stock-meta, .muted-security .monitor-period, .muted-security .days-value { color: #9CA3AF; }
+.muted-security .stock-name, .muted-security .stock-meta { color: #9CA3AF; }
 .muted-security .stock-name { font-weight: 500; }
 .monitor-page .badge { max-width: 220rpx; }
 .monitor-page .badge-ordinary { background: #FFFCF8; color: #8A6D0B; }
@@ -76,7 +76,6 @@
 .days-value.days-severe-30d { color: #C0271E; }
 .days-label { color: #1A1A1A; }
 .days-unit { color: #1A1A1A; font-size: 20rpx; font-weight: 400; }
-.muted-security .days-label, .muted-security .days-unit { color: #9CA3AF; }
 .monitor-page .empty { margin-top: 16rpx; background: #FFFFFF; }
 .monitor-page .loading-state, .monitor-page .error-state { margin-top: 16rpx; padding: 34rpx 24rpx; color: #6B7280; text-align: center; }
 .monitor-page .error-state { border-color: #E4B4AD; background: #FDF3F2; color: #C0271E; }

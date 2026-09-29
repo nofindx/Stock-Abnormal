@@ -1,4 +1,4 @@
-.stock-page { padding-top: 32rpx; }
+.stock-page { padding-top: 32rpx; padding-bottom: 220rpx; }
 .search-wrap { position: relative; z-index: 2; margin-top: 12rpx; }
 .search-box {
   display: flex;
