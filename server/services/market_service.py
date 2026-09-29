@@ -1032,9 +1032,9 @@ class MarketService:
             same_deviation = metrics["deviations"].get(10)
             if up_direction >= rule.severe_same_direction_count and same_deviation is not None and same_deviation > 0:
                 same_distance = rule.severe_10d_threshold.up - same_deviation
-                if scope == "today":
-                    options.append((0.0, 10, same_deviation, rule.severe_10d_threshold, "same_direction"))
-                elif 0 < same_distance <= float(rule.limit_price_ratio or 10.0):
+                # 同向次数达到后，仍要检查距离 10 日偏离线是否能在一个
+                # 交易日内完成；不能把“同向次数已达到”直接当作 0 距离。
+                if 0 < same_distance <= float(rule.limit_price_ratio or 10.0):
                     options.append((same_distance, 10, same_deviation, rule.severe_10d_threshold, "same_direction"))
             if not options:
                 continue
