@@ -1,5 +1,4 @@
 <view class="legal-page">
-  <view class="legal-title">用户协议</view>
   <view class="legal-updated">更新日期：2026-09-28</view>
   <view class="legal-section">
     <view class="legal-heading">一、服务内容</view>

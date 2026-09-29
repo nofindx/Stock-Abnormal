@@ -104,7 +104,7 @@
 .status-state { color: #636366; font-size: 29rpx; font-weight: 700; line-height: 38rpx; }
 .status-safe .status-state { color: #248A5A; }
 .status-risk .status-state, .status-severe .status-state { color: #C0271E; }
-.status-board { margin-left: auto; padding: 4rpx 9rpx; border-radius: 7rpx; background: #F2F2F7; color: #636366; font-size: 19rpx; }
+.status-board { margin-left: auto; padding: 0; color: #6B7280; font-size: 19rpx; line-height: 28rpx; }
 .status-stock-line { display: flex; min-width: 0; align-items: flex-end; justify-content: space-between; gap: 12rpx; margin-top: 14rpx; }
 .stock-identity { display: flex; min-width: 0; align-items: baseline; gap: 14rpx; }
 .status-name { color: #1C1C1E; font-size: 29rpx; font-weight: 650; white-space: nowrap; }
@@ -114,14 +114,14 @@
 .quote-line .change { font-size: 24rpx; }
 
 .metric-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12rpx; margin-top: 12rpx; }
-.metric-card { display: flex; min-height: 176rpx; align-items: center; justify-content: space-between; gap: 10rpx; padding: 18rpx 14rpx 16rpx; border-radius: 18rpx; text-align: left; }
-.metric-copy { min-width: 0; flex: 1; }
+.metric-card { display: flex; min-height: 176rpx; align-items: center; justify-content: space-between; gap: 10rpx; padding: 20rpx; border-radius: 18rpx; text-align: left; }
+.metric-copy { min-width: 0; flex: 1; padding-left: 6rpx; }
+.metric-card-2 .metric-copy { padding-top: 8rpx; padding-left: 16rpx; }
 .metric-title { display: block; color: #1A1A1A; font-size: 22rpx; font-weight: 600; line-height: 30rpx; white-space: nowrap; }
-.metric-ring { display: flex; width: 136rpx; height: 136rpx; flex: 0 0 136rpx; align-items: center; justify-content: center; margin: 0; border-radius: 50%; }
-.metric-ring-inner { display: flex; width: 100rpx; height: 100rpx; flex-direction: column; align-items: center; justify-content: center; border-radius: 50%; background: #FFFFFF; }
-.metric-ring-caption { color: #6B7280; font-size: 18rpx; line-height: 24rpx; }
-.metric-ring-value { color: #1A1A1A; font-size: 21rpx; font-weight: 700; line-height: 28rpx; font-variant-numeric: tabular-nums; text-align: center; white-space: nowrap; }
-.metric-current { display: block; margin-top: 10rpx; color: #1A1A1A; font-size: 22rpx; font-weight: 650; line-height: 30rpx; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.metric-ring { display: flex; width: 144rpx; height: 144rpx; flex: 0 0 144rpx; align-items: center; justify-content: center; margin-right: 4rpx; border-radius: 50%; }
+.metric-ring-inner { display: flex; width: 106rpx; height: 106rpx; flex-direction: column; align-items: center; justify-content: center; border-radius: 50%; background: #FFFFFF; }
+.metric-ring-value { font-size: 26rpx; font-weight: 700; line-height: 32rpx; font-variant-numeric: tabular-nums; text-align: center; white-space: nowrap; }
+.metric-current { display: block; margin-top: 10rpx; font-size: 27rpx; line-height: 34rpx; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .metric-target { display: block; margin-top: 5rpx; color: #6B7280; font-size: 18rpx; line-height: 26rpx; white-space: normal; }
 .metric-remaining { display: none; }
 
@@ -189,10 +189,12 @@
   .status-name { font-size: 27rpx; }
   .status-price { font-size: 26rpx; }
   .quote-line .change { font-size: 22rpx; }
-  .metric-card { padding-right: 8rpx; padding-left: 8rpx; }
+  .metric-card { padding: 14rpx; }
+  .metric-copy { padding-left: 2rpx; }
+  .metric-card-2 .metric-copy { padding-top: 6rpx; padding-left: 8rpx; }
   .metric-ring { width: 112rpx; height: 112rpx; flex-basis: 112rpx; }
   .metric-ring-inner { width: 86rpx; height: 86rpx; }
-  .metric-current { font-size: 20rpx; }
+  .metric-current { font-size: 23rpx; }
   .metric-remaining { font-size: 17rpx; }
   .alert-row { gap: 8rpx; font-size: 18rpx; }
   .alert-caption { font-size: 17rpx; }

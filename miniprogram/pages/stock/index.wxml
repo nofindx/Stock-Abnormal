@@ -41,9 +41,9 @@
     <view wx:if="{{detail.dataQuality.message}}" class="data-quality-notice">{{detail.dataQuality.message}}</view>
 
     <view class="metric-grid">
-      <view wx:for="{{detail.warnings}}" wx:key="title" class="card metric-card metric-tone-{{item.tone}}">
-        <view class="metric-copy"><text class="metric-title">{{item.title}}</text><text class="metric-current">{{item.currentText}}</text><text class="metric-target">{{item.target}}</text></view>
-        <view class="metric-ring" style="background: conic-gradient({{item.toneColor}} {{item.progress}}%, #E9EDF1 0);"><view class="metric-ring-inner"><text wx:if="{{item.tone !== 'triggered' && item.tone !== 'unknown'}}" class="metric-ring-caption">还差</text><text class="metric-ring-value">{{item.ringText}}</text></view></view>
+      <view wx:for="{{detail.warnings}}" wx:key="title" wx:for-index="metricIndex" class="card metric-card metric-card-{{metricIndex}} metric-tone-{{item.tone}}">
+        <view class="metric-copy"><text class="metric-title">{{item.title}}</text><text class="metric-current" style="color: {{item.toneColor}};">{{item.currentText}}</text><text class="metric-target">{{item.target}}</text></view>
+        <view class="metric-ring" style="background: conic-gradient({{item.toneColor}} {{item.progress}}%, #E9EDF1 0);"><view class="metric-ring-inner"><text class="metric-ring-value" style="color: {{item.toneColor}};">{{item.ringText}}</text></view></view>
       </view>
     </view>
 
