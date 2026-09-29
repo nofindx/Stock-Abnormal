@@ -26,7 +26,7 @@ INDEX_BY_MARKET = {"SSE": "000001.SH", "SZSE": "399001.SZ", "BSE": "899050.BJ"}
 INDEX_BY_BOARD = {"创业板": "399006.SZ", "科创板": "000688.SH", "北交所": "899050.BJ"}
 BOARD_BY_MARKET = {"主板": Board.MAIN, "创业板": Board.CHINEXT, "科创板": Board.STAR, "北交所": Board.BSE}
 SHANGHAI_TZ = ZoneInfo("Asia/Shanghai") if ZoneInfo else timezone(timedelta(hours=8))
-PREDICTION_RULE_VERSION = "2026-09-upward-v3"
+PREDICTION_RULE_VERSION = "2026-09-upward-v4"
 
 # GBK 区位表不依赖第三方拼音包，适合云托管的轻量搜索场景。
 _PINYIN_RANGES = (
@@ -465,7 +465,12 @@ class MarketService:
 
     @classmethod
     def _vector_metrics(cls, stock: List[Dict[str, Any]], index: List[Dict[str, Any]], rule: Any) -> Dict[str, Any]:
-        """从日期化收益率向量计算偏离和 10 日同向次数。"""
+        """从日期化收益率向量计算偏离和 10 日同向异动段次数。
+
+        同一个连续的 3 日异常区间会产生多个重叠滚动窗口，但在规则口径中
+        只算一次同向异动；命中的 3 日区间会被消费，下一次从未消费的
+        交易日开始扫描。这样连续涨停不会被重叠窗口重复累计成 6 次、7 次。
+        """
 
         deviations = {window: cls._vector_deviation(stock, index, window) for window in (3, 10, 30)}
         stock_map = {item["date"]: item["return"] for item in stock if item.get("date")}
@@ -479,12 +484,21 @@ class MarketService:
             stock_values = [stock_map[item] for item in common_dates]
             index_values = [index_map[item] for item in common_dates]
         up_count = down_count = 0
-        for end in range(2, len(stock_values)):
+        end = 2
+        while end < len(stock_values):
             deviation = cls._compound(stock_values[end - 2 : end + 1]) - cls._compound(index_values[end - 2 : end + 1])
+            direction = 0
             if deviation >= rule.ordinary_deviation:
-                up_count += 1
+                direction = 1
             elif deviation <= -rule.ordinary_deviation:
+                direction = -1
+            if direction == 1:
+                up_count += 1
+            elif direction == -1:
                 down_count += 1
+            # 命中的 3 日区间被消费；下一个事件必须从未消费的交易日开始，
+            # 避免相邻滚动窗口把同一段连续行情重复计数。
+            end += 3 if direction else 1
         same_direction_count = max(up_count, down_count)
         return {
             "deviations": deviations,
@@ -1032,39 +1046,53 @@ class MarketService:
             same_deviation = metrics["deviations"].get(10)
             if up_direction >= rule.severe_same_direction_count and same_deviation is not None and same_deviation > 0:
                 same_distance = rule.severe_10d_threshold.up - same_deviation
-                # 同向次数达到后，仍要检查距离 10 日偏离线是否能在一个
-                # 交易日内完成；不能把“同向次数已达到”直接当作 0 距离。
-                if 0 < same_distance <= float(rule.limit_price_ratio or 10.0):
+                # 当日已经达到同向次数即可入选；次日仍只展示一个交易日内
+                # 可能触线的记录，不能把“已达到”当成新的次日候选。
+                if (scope == "today" and same_distance >= 0) or (scope == "next_day" and 0 < same_distance <= float(rule.limit_price_ratio or 10.0)):
                     options.append((same_distance, 10, same_deviation, rule.severe_10d_threshold, "same_direction"))
             if not options:
                 continue
-            _, window, deviation, threshold, trigger_kind = min(options, key=lambda item: (item[0], -item[1]))
-            if deviation is None:
-                continue
-            target = threshold.up
-            distance = max(0.0, target - deviation)
-            candidate = {
-                **stock,
-                "scope": "当日" if scope == "today" else "次日",
-                "currentPrice": f"{float(calc.get('latest_close')):.2f}" if calc.get("latest_close") is not None else "--",
-                "change": _pct(stock_vector[-1].get("return") if stock_vector else None),
-                "trigger": (
-                    f"同向上涨达到 {up_direction} 次"
-                    if trigger_kind == "same_direction" else
-                    (f"上涨 ≥ {max(0.01, distance):.2f}%" if distance > 0 else "已达到阈值")
-                ),
-                "deviation": f"{window}日 {_pct(deviation)}",
-                "rule": f"连续{window}个交易日内日收盘价格涨跌幅偏离值累计达到+{threshold.up:.0f}% / {threshold.down:.0f}%",
-                "tradeDate": str(calc.get("as_of_trade_date") or ""),
-            }
-            candidate["_stockVector"] = stock_vector
-            candidate["_indexVector"] = index_vector
-            candidate["_indexCode"] = index_code
-            candidate["_indexLatestClose"] = index.get("latest_close")
-            candidate["_deviation"] = deviation
-            candidate["_window"] = window
-            candidate["_threshold"] = threshold
-            candidates.append(candidate)
+
+            # 一只股票的 10 日、30 日条件分别展示；同向条件只并入 10 日卡，
+            # 不再用 min(options) 丢掉同时满足的另一条规则。
+            selected_by_window: Dict[int, tuple] = {}
+            for option in options:
+                distance, window, deviation, threshold, trigger_kind = option
+                current = selected_by_window.get(window)
+                if current is None or (trigger_kind == "same_direction" and current[4] != "same_direction"):
+                    selected_by_window[window] = option
+            for window in sorted(selected_by_window):
+                distance, window, deviation, threshold, trigger_kind = selected_by_window[window]
+                if deviation is None:
+                    continue
+                candidate = {
+                    **stock,
+                    "predictionKey": f"{ts_code}-{window}d",
+                    "predictionWindow": window,
+                    "scope": "当日" if scope == "today" else "次日",
+                    "currentPrice": f"{float(calc.get('latest_close')):.2f}" if calc.get("latest_close") is not None else "--",
+                    "change": _pct(stock_vector[-1].get("return") if stock_vector else None),
+                    "trigger": (
+                        f"同向上涨达到 {up_direction} 次（要求 {rule.severe_same_direction_count} 次）"
+                        if trigger_kind == "same_direction" else
+                        (f"上涨 ≥ {max(0.01, distance):.2f}%" if distance > 0 else "已达到阈值")
+                    ),
+                    "deviation": f"{window}日 {_pct(deviation)}",
+                    "rule": (
+                        f"连续10个交易日内偏离值达到 +{threshold.up:.0f}% 或同向上涨达到 {rule.severe_same_direction_count} 次"
+                        if trigger_kind == "same_direction" else
+                        f"连续{window}个交易日内偏离值达到 +{threshold.up:.0f}%"
+                    ),
+                    "tradeDate": str(calc.get("as_of_trade_date") or ""),
+                }
+                candidate["_stockVector"] = stock_vector
+                candidate["_indexVector"] = index_vector
+                candidate["_indexCode"] = index_code
+                candidate["_indexLatestClose"] = index.get("latest_close")
+                candidate["_deviation"] = deviation
+                candidate["_window"] = window
+                candidate["_threshold"] = threshold
+                candidates.append(candidate)
 
         if use_realtime and candidates:
             codes = []
@@ -1178,7 +1206,7 @@ class MarketService:
                 "change": _pct(last.get("pct_chg")),
                 "trigger": f"上涨 ≥ {max(0.01, distance):.2f}%" if distance > 0 else "已达到阈值",
                 "deviation": f"{window}日 {_pct(deviation)}",
-                "rule": f"连续{window}个交易日内日收盘价格涨跌幅偏离值累计达到+{target_up:.0f}% / {target_down:.0f}%",
+                "rule": f"连续{window}个交易日内偏离值达到 +{target_up:.0f}%",
                 "tradeDate": latest,
             })
         if self._prediction_state()["phase"] == "intraday":

@@ -2,9 +2,10 @@
 const { getPredictions, refreshPredictions } = require('../../utils/api')
 
 function normalizeItems(items = []) {
-  return items.map((item) => {
+  return items.map((item, index) => {
     const change = item.change == null || item.change === '' ? '--' : String(item.change)
-    return { ...item, change, changeClass: change === '--' ? 'neutral' : (change[0] === '-' ? 'down' : 'up') }
+    const window = item.predictionWindow || ((String(item.deviation || '').match(/^(\d+)日/) || [])[1] || '')
+    return { ...item, predictionKey: item.predictionKey || `${item.ts_code || index}-${window || index}`, change, changeClass: change === '--' ? 'neutral' : (change[0] === '-' ? 'down' : 'up') }
   })
 }
 
