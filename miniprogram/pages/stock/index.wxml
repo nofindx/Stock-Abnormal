@@ -34,7 +34,7 @@
     <view class="status-banner card status-{{detail.statusClass}}">
       <view class="status-icon">{{detail.statusIcon}}</view>
       <view class="status-main">
-        <view class="status-heading"><text class="status-label">当前状态</text><text class="status-state">{{detail.status}}</text><text class="status-board">{{detail.board}}</text></view>
+        <view class="status-heading"><text class="status-state">{{detail.statusDisplay}}</text><text class="status-board">{{detail.board}}</text></view>
         <view class="status-stock-line"><view class="stock-identity"><text class="status-name">{{detail.name}}</text><text class="status-symbol">{{detail.symbol}}</text></view><view class="quote-line"><text class="status-price">{{detail.currentPrice}}</text><text class="change {{detail.changeClass}}">{{detail.change}}</text></view></view>
       </view>
     </view>
@@ -42,10 +42,8 @@
 
     <view class="metric-grid">
       <view wx:for="{{detail.warnings}}" wx:key="title" class="card metric-card metric-tone-{{item.tone}}">
-        <text class="metric-title">{{item.title}}</text>
-        <view class="metric-ring" style="background: conic-gradient({{item.toneColor}} {{item.progress}}%, #E9EDF1 0);"><view class="metric-ring-inner"><text class="metric-ring-value">{{item.progress}}%</text></view></view>
-        <text class="metric-current">{{item.currentText}}</text>
-        <text class="metric-remaining">{{item.remainingText}}</text>
+        <view class="metric-copy"><text class="metric-title">{{item.title}}</text><text class="metric-current">{{item.currentText}}</text><text class="metric-target">{{item.target}}</text></view>
+        <view class="metric-ring" style="background: conic-gradient({{item.toneColor}} {{item.progress}}%, #E9EDF1 0);"><view class="metric-ring-inner"><text wx:if="{{item.tone !== 'triggered' && item.tone !== 'unknown'}}" class="metric-ring-caption">还差</text><text class="metric-ring-value">{{item.ringText}}</text></view></view>
       </view>
     </view>
 
@@ -55,7 +53,7 @@
         <view class="matrix-head"><text class="matrix-label">指标</text><view wx:for="{{matrix.columns}}" wx:for-item="column" wx:key="*this" class="matrix-column"><text class="day-badge">{{column.day}}</text><text class="table-date">{{column.date}}</text></view></view>
         <view wx:for="{{matrix.rows}}" wx:for-item="matrixRow" wx:key="key" class="matrix-row"><text class="matrix-label">{{matrixRow.label}}</text><view wx:for="{{matrixRow.values}}" wx:for-item="cell" wx:key="*this" class="matrix-cell"><block wx:if="{{cell.placeholder}}"><text class="matrix-placeholder">—</text></block><block wx:elif="{{cell.editable}}"><view class="matrix-input-wrap"><input class="matrix-input" type="digit" placeholder="0" value="{{cell.value}}" data-row="{{cell.rowIndex}}" data-field="{{cell.field}}" bindinput="editRow" /><text class="matrix-suffix">%</text></view></block><block wx:else><text class="matrix-value {{matrixRow.key === 'space' ? 'safety-value' : cell.className}}">{{cell.value}}</text></block></view></view>
       </view>
-      <view class="simulation-note">填写每日股票与指数涨幅后自动重算；留空按 0% 处理</view>
+      <view class="simulation-note">填写每日股票与指数涨幅后自动重算</view>
     </view>
   </block>
   <view class="legal-footer-links">

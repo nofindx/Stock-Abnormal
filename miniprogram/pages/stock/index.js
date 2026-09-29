@@ -117,11 +117,11 @@ function presentWarnings(warnings = []) {
       const count = Math.max(up, down)
       const progress = limit > 0 ? Math.min(100, count / limit * 100) : 0
       const tone = limit <= 0 ? 'unknown' : progress >= 100 ? 'triggered' : progress >= 66.6667 ? 'warning' : 'safe'
-      return { ...item, currentText: `上涨 ${up} 次 / 下跌 ${down} 次`, remainingText: tone === 'triggered' ? '已触及' : `还差 ${Math.max(0, limit - count)} 次`, progress: Number(progress.toFixed(2)), tone, toneColor: colors[tone] }
+      return { ...item, currentText: `上涨 ${up} 次 / 下跌 ${down} 次`, remainingText: tone === 'triggered' ? '已触及' : `还差 ${Math.max(0, limit - count)} 次`, ringText: tone === 'triggered' ? '已触及' : tone === 'unknown' ? '--' : `${Math.max(0, limit - count)}次`, progress: Number(progress.toFixed(2)), tone, toneColor: colors[tone] }
     }
     const rawValue = String(item.value || '').replace('%', '')
     const value = Number.parseFloat(rawValue)
-    if (!Number.isFinite(value)) return { ...item, currentText: '数据不足', remainingText: '暂不可判定', progress: 0, tone: 'unknown', toneColor: colors.unknown }
+    if (!Number.isFinite(value)) return { ...item, currentText: '数据不足', remainingText: '暂不可判定', ringText: '--', progress: 0, tone: 'unknown', toneColor: colors.unknown }
     const thresholds = String(item.target || '').match(/[+-]?\d+(?:\.\d+)?/g) || []
     const up = Number(thresholds[0] || 0)
     const down = Number(thresholds[1] || (up ? -up : 0))
@@ -129,7 +129,7 @@ function presentWarnings(warnings = []) {
     const progress = target > 0 ? Math.min(100, Math.abs(value) / target * 100) : 0
     const tone = progress >= 100 ? 'triggered' : progress >= 66.6667 ? 'warning' : 'safe'
     const remaining = Math.max(0, target - Math.abs(value))
-    return { ...item, currentText: `${value >= 0 ? '+' : ''}${value.toFixed(2)}%`, remainingText: tone === 'triggered' ? '已触及' : `还差 ${remaining.toFixed(2)}%`, progress: Number(progress.toFixed(2)), tone, toneColor: colors[tone] }
+    return { ...item, currentText: `${value >= 0 ? '+' : ''}${value.toFixed(2)}%`, remainingText: tone === 'triggered' ? '已触及' : `还差 ${remaining.toFixed(2)}%`, ringText: tone === 'triggered' ? '已触及' : `${remaining.toFixed(2)}%`, progress: Number(progress.toFixed(2)), tone, toneColor: colors[tone] }
   })
 }
 
@@ -195,6 +195,7 @@ Page({
       const rows = calculateSimulationRows(createInputRows(2, futureTradeDates), detail)
       const displayDetail = {
         ...detail,
+        statusDisplay: detail.status === '安全' ? '状态安全' : '状态异常',
         change: detail.change == null || detail.change === '' ? '--' : String(detail.change),
         changeClass: changeClass(detail.change),
         dataQuality: detail.dataQuality || {},

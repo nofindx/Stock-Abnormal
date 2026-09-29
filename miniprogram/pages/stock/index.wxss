@@ -95,15 +95,15 @@
   background: #FFFFFF;
 }
 .data-quality-notice { margin-top: 10rpx; padding: 12rpx 16rpx; border-radius: 10rpx; background: #FFF8E7; color: #8A6D0B; font-size: 20rpx; line-height: 28rpx; }
-.status-safe, .status-risk, .status-severe, .status-neutral { border-color: #E5E5EA; color: #1C1C1E; }
+.status-safe { border-color: #B8DEC7; background: #EAF5EF; color: #1C1C1E; }
+.status-risk, .status-severe { border-color: #F0C1BA; background: #FDF3F2; color: #1C1C1E; }
+.status-neutral { border-color: #E5E5EA; background: #FAFBFC; color: #1C1C1E; }
 .status-icon { display: none; }
 .status-main { min-width: 0; width: 100%; }
 .status-heading { display: flex; min-height: 34rpx; align-items: center; gap: 10rpx; }
 .status-state { color: #636366; font-size: 29rpx; font-weight: 700; line-height: 38rpx; }
 .status-safe .status-state { color: #248A5A; }
-.status-risk .status-state { color: #A85B13; }
-.status-severe .status-state { color: #C83A36; }
-.status-label { color: #8E8E93; font-size: 20rpx; }
+.status-risk .status-state, .status-severe .status-state { color: #C0271E; }
 .status-board { margin-left: auto; padding: 4rpx 9rpx; border-radius: 7rpx; background: #F2F2F7; color: #636366; font-size: 19rpx; }
 .status-stock-line { display: flex; min-width: 0; align-items: flex-end; justify-content: space-between; gap: 12rpx; margin-top: 14rpx; }
 .stock-identity { display: flex; min-width: 0; align-items: baseline; gap: 14rpx; }
@@ -114,16 +114,16 @@
 .quote-line .change { font-size: 24rpx; }
 
 .metric-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12rpx; margin-top: 12rpx; }
-.metric-card { min-height: 244rpx; padding: 18rpx 14rpx 16rpx; border-radius: 18rpx; text-align: center; }
-.metric-title { display: block; color: #636366; font-size: 21rpx; }
-.metric-ring { display: flex; width: 136rpx; height: 136rpx; align-items: center; justify-content: center; margin: 14rpx auto 10rpx; border-radius: 50%; }
-.metric-ring-inner { display: flex; width: 100rpx; height: 100rpx; align-items: center; justify-content: center; border-radius: 50%; background: #FFFFFF; }
-.metric-ring-value { color: #1A1A1A; font-size: 22rpx; font-weight: 700; font-variant-numeric: tabular-nums; }
-.metric-current { display: block; color: #1A1A1A; font-size: 22rpx; font-weight: 650; line-height: 30rpx; font-variant-numeric: tabular-nums; white-space: nowrap; }
-.metric-remaining { display: block; margin-top: 3rpx; color: #6B7280; font-size: 19rpx; line-height: 28rpx; white-space: nowrap; }
-.metric-tone-warning .metric-remaining { color: #8A6D0B; }
-.metric-tone-triggered .metric-remaining { color: #C0271E; font-weight: 600; }
-.metric-tone-unknown .metric-remaining { color: #6B7280; }
+.metric-card { display: flex; min-height: 176rpx; align-items: center; justify-content: space-between; gap: 10rpx; padding: 18rpx 14rpx 16rpx; border-radius: 18rpx; text-align: left; }
+.metric-copy { min-width: 0; flex: 1; }
+.metric-title { display: block; color: #1A1A1A; font-size: 22rpx; font-weight: 600; line-height: 30rpx; white-space: nowrap; }
+.metric-ring { display: flex; width: 136rpx; height: 136rpx; flex: 0 0 136rpx; align-items: center; justify-content: center; margin: 0; border-radius: 50%; }
+.metric-ring-inner { display: flex; width: 100rpx; height: 100rpx; flex-direction: column; align-items: center; justify-content: center; border-radius: 50%; background: #FFFFFF; }
+.metric-ring-caption { color: #6B7280; font-size: 18rpx; line-height: 24rpx; }
+.metric-ring-value { color: #1A1A1A; font-size: 21rpx; font-weight: 700; line-height: 28rpx; font-variant-numeric: tabular-nums; text-align: center; white-space: nowrap; }
+.metric-current { display: block; margin-top: 10rpx; color: #1A1A1A; font-size: 22rpx; font-weight: 650; line-height: 30rpx; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.metric-target { display: block; margin-top: 5rpx; color: #6B7280; font-size: 18rpx; line-height: 26rpx; white-space: normal; }
+.metric-remaining { display: none; }
 
 .alert-panel {
   padding: 20rpx;
@@ -190,7 +190,7 @@
   .status-price { font-size: 26rpx; }
   .quote-line .change { font-size: 22rpx; }
   .metric-card { padding-right: 8rpx; padding-left: 8rpx; }
-  .metric-ring { width: 112rpx; height: 112rpx; }
+  .metric-ring { width: 112rpx; height: 112rpx; flex-basis: 112rpx; }
   .metric-ring-inner { width: 86rpx; height: 86rpx; }
   .metric-current { font-size: 20rpx; }
   .metric-remaining { font-size: 17rpx; }

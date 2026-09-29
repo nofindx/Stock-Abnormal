@@ -33,7 +33,7 @@
 .prediction-page .segment-disabled { color: #A7A7AD; background: transparent; opacity: .62; }
 .notice { display: none; }
 .summary, .list-head, .title-row { display: none; }
-.prediction-list { overflow: visible; margin-top: 14rpx; border: 0; background: transparent; }
+.prediction-list { overflow: visible; margin-top: 16rpx; border: 0; background: transparent; }
 .prediction-page .loading-state, .prediction-page .error-state { margin-top: 14rpx; padding: 34rpx 24rpx; color: #8E8E93; text-align: center; }
 .prediction-page .error-state { color: #C83A36; }
 .prediction-row {

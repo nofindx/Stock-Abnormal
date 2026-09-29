@@ -25,8 +25,8 @@
   padding: 0 20rpx;
 }
 .filter-segment-all { font-size: 20rpx; }
-.filter-segment.active { border-color: #0E8796; background: #0E8796; color: #FFFFFF; box-shadow: 0 2rpx 6rpx rgba(14, 135, 150, .16); }
-.filter-segment-risk.active { border-color: #D5B84A; background: #FFF7E0; color: #8A6D0B; box-shadow: none; }
+.filter-segment.active,
+.filter-segment-risk.active,
 .filter-segment-severe.active { border-color: #E49A8E; background: #FDEBE8; color: #C0271E; box-shadow: none; }
 .st-control {
   display: flex;
