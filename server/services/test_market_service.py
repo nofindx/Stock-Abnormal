@@ -121,6 +121,28 @@ class MarketVectorTests(unittest.TestCase):
         }]
         self.assertEqual(service._compute_prediction_from_repository("next_day"), [])
 
+    def test_today_prediction_only_contains_already_triggered_upward_records(self):
+        service = self.service
+        dates = [f"2026-08-{index:02d}" for index in range(1, 31)]
+        stock_vector = [{"date": day, "return": 2.0 if index >= 20 else 0.0} for index, day in enumerate(dates)]
+        index_vector = [{"date": day, "return": 0.0} for day in dates]
+        service._calc_repository = SimpleNamespace(
+            available=True,
+            all_calculations=lambda: {"000001.SZ": {
+                "ts_code": "000001.SZ", "latest_close": 10.0,
+                "as_of_trade_date": "20260928", "stock_return_vector": stock_vector,
+            }},
+            all_indexes=lambda: {"399001.SZ": {
+                "index_code": "399001.SZ", "latest_close": 10.0,
+                "index_return_vector": index_vector,
+            }},
+        )
+        service._stock_rows = lambda: [{
+            "ts_code": "000001.SZ", "symbol": "000001", "name": "测试股票",
+            "market": "SZSE", "board": "主板", "isST": False,
+        }]
+        self.assertEqual(service._compute_prediction_from_repository("today"), [])
+
     def test_intraday_refresh_only_updates_existing_prediction_codes(self):
         service = self.service
         service._calc_repository = SimpleNamespace(

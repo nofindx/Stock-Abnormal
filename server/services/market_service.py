@@ -1001,17 +1001,22 @@ class MarketService:
                 # 旧逻辑对所有板块固定放宽 20%，会把主板下一交易日
                 # 不可能触发的股票也放进来。使用所属板块单日涨幅上限。
                 possible_one_day = float(rule.limit_price_ratio or 10.0)
-                if candidate_distance <= possible_one_day:
-                    # 当日允许展示已触线记录；次日只展示仍需上涨的记录，
-                    # 避免同一只已触线股票同时出现在两个预测池。
-                    if scope == "next_day" and candidate_distance <= 0:
-                        continue
-                    options.append((max(0.0, candidate_distance), candidate_window, candidate_deviation, candidate_threshold, "deviation"))
+                if scope == "today":
+                    # 当日数据已经收盘时，只展示确实达到上涨阈值的记录。
+                    if candidate_deviation >= candidate_threshold.up:
+                        options.append((0.0, candidate_window, candidate_deviation, candidate_threshold, "deviation"))
+                elif 0 < candidate_distance <= possible_one_day:
+                    # 次日只展示下一交易日仍有可能上涨触线的记录。
+                    options.append((candidate_distance, candidate_window, candidate_deviation, candidate_threshold, "deviation"))
             # 同向条件只统计上涨次数；下跌同向不进入预测池。
             up_direction = metrics["up"]
             same_deviation = metrics["deviations"].get(10)
-            if up_direction >= rule.severe_same_direction_count and same_deviation is not None and same_deviation > 0 and scope != "next_day":
-                options.append((0.0, 10, same_deviation, rule.severe_10d_threshold, "same_direction"))
+            if up_direction >= rule.severe_same_direction_count and same_deviation is not None and same_deviation > 0:
+                same_distance = rule.severe_10d_threshold.up - same_deviation
+                if scope == "today":
+                    options.append((0.0, 10, same_deviation, rule.severe_10d_threshold, "same_direction"))
+                elif 0 < same_distance <= float(rule.limit_price_ratio or 10.0):
+                    options.append((same_distance, 10, same_deviation, rule.severe_10d_threshold, "same_direction"))
             if not options:
                 continue
             _, window, deviation, threshold, trigger_kind = min(options, key=lambda item: (item[0], -item[1]))
@@ -1141,7 +1146,10 @@ class MarketService:
                 continue
             target = target_up
             distance = max(0.0, target - deviation)
-            if distance > float(board_rule.limit_price_ratio or 10.0):
+            if scope == "today":
+                if deviation < target_up:
+                    continue
+            elif not (0 < distance <= float(board_rule.limit_price_ratio or 10.0)):
                 continue
             last = sorted(rows, key=lambda item: str(item["trade_date"]))[-1]
             result.append({
