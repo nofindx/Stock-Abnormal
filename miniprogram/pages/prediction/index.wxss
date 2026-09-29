@@ -80,7 +80,7 @@
   border-top: 1rpx solid #F2F2F7;
 }
 .trigger-value { min-width: 0; color: #1C1C1E; font-size: 24rpx; font-weight: 600; line-height: 33rpx; overflow-wrap: break-word; }
-.trigger-field .trigger-value { color: #C0271E; font-size: 28rpx; font-weight: 700; white-space: nowrap; letter-spacing: 0; }
+.trigger-field .trigger-value { display: block; overflow: hidden; color: #C0271E; font-size: 28rpx; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; letter-spacing: 0; }
 .prediction-bottom { display: none; }
 .prediction-bottom > view { min-width: 0; }
 .rule-field { padding-left: 14rpx; border-left: 1rpx solid #E5E5EA; }
