@@ -113,6 +113,13 @@ class MarketVectorTests(unittest.TestCase):
         self.assertEqual(by_window[10]["rule"], "连续10个交易日内偏离值达到 +100%")
         self.assertEqual(by_window[30]["rule"], "连续30个交易日内偏离值达到 +200%")
 
+    def test_best_window_can_be_shorter_than_rule_horizon(self):
+        stock = [{"date": f"2026-09-{index:02d}", "return": value} for index, value in enumerate([0, 0, 0, 0, 0, 0, 0, 0, 0, 10], 1)]
+        index = [{"date": item["date"], "return": 0.0} for item in stock]
+        value, window = MarketService._best_vector_deviation(stock, index, 10)
+        self.assertEqual(window, 3)
+        self.assertAlmostEqual(value, 10.0)
+
     def test_prediction_excludes_downward_direction(self):
         service = self.service
         dates = [f"2026-08-{index:02d}" for index in range(1, 31)]
@@ -138,8 +145,8 @@ class MarketVectorTests(unittest.TestCase):
     def test_prediction_uses_board_limit_instead_of_fixed_twenty_percent_window(self):
         service = self.service
         dates = [f"2026-08-{index:02d}" for index in range(1, 31)]
-        # 10 日偏离约 +85%，距离 +100% 约 15%，超过主板单日 10% 上限。
-        stock_vector = [{"date": day, "return": 6.5 if index >= 20 else 0.0} for index, day in enumerate(dates)]
+        # 最优有效区间距离 +100% 仍超过主板单日 +10% 上限。
+        stock_vector = [{"date": day, "return": 5.0 if index >= 20 else 0.0} for index, day in enumerate(dates)]
         index_vector = [{"date": day, "return": 0.0} for day in dates]
         service._calc_repository = SimpleNamespace(
             available=True,

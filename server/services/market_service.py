@@ -464,6 +464,45 @@ class MarketService:
         return cls._compound(cls._vector_numbers(stock[-window:])) - cls._compound(cls._vector_numbers(index[-window:]))
 
     @classmethod
+    def _best_vector_deviation(cls, stock: List[Dict[str, Any]], index: List[Dict[str, Any]], max_window: int) -> tuple[Optional[float], Optional[int]]:
+        """取规则回看窗口内最接近上涨阈值的有效连续区间。
+
+        交易所规则写的是“连续 N 个交易日内”，实际有效数据可能只有
+        N-1、N-2 个区间（停牌、上市日或指数缺口都会造成这种情况）。
+        对预测和上涨规则，取 3..N 日区间中偏离值最大的正向区间；若只有
+        下行区间，则取最小值，保留方向信息。返回值同时带实际区间长度，
+        用于展示附件中的“9 日”“28 日”，规则文案仍显示 10 日/30 日。
+        """
+        if not stock or not index:
+            return None, None
+        stock_map = {item.get("date"): float(item.get("return")) for item in stock if item.get("date")}
+        index_map = {item.get("date"): float(item.get("return")) for item in index if item.get("date")}
+        dates = sorted(set(stock_map) & set(index_map))
+        if len(dates) < 3:
+            return None, None
+        upper = min(max_window, len(dates))
+        candidates = []
+        for window in range(3, upper + 1):
+            value = cls._compound(stock_map[day] for day in dates[-window:]) - cls._compound(index_map[day] for day in dates[-window:])
+            candidates.append((value, window))
+        positive = [item for item in candidates if item[0] > 0]
+        if positive:
+            return max(positive, key=lambda item: (item[0], -item[1]))
+        return min(candidates, key=lambda item: (item[0], item[1]))
+
+    @classmethod
+    def _required_up_percent(cls, stock: List[Dict[str, Any]], index: List[Dict[str, Any]], actual_window: int, target_deviation: float) -> Optional[float]:
+        """按当前股票/指数区间收益，反推下一交易日达到目标偏离所需涨幅。"""
+        stock_map = {item.get("date"): float(item.get("return")) for item in stock if item.get("date")}
+        index_map = {item.get("date"): float(item.get("return")) for item in index if item.get("date")}
+        dates = sorted(set(stock_map) & set(index_map))[-actual_window:]
+        if len(dates) < actual_window:
+            return None
+        stock_total = cls._compound(stock_map[day] for day in dates)
+        index_total = cls._compound(index_map[day] for day in dates)
+        return max(0.0, ((1.0 + (index_total + target_deviation) / 100.0) / (1.0 + stock_total / 100.0) - 1.0) * 100.0)
+
+    @classmethod
     def _vector_metrics(cls, stock: List[Dict[str, Any]], index: List[Dict[str, Any]], rule: Any) -> Dict[str, Any]:
         """从日期化收益率向量计算偏离和 10 日同向异动段次数。
 
@@ -472,7 +511,14 @@ class MarketService:
         交易日开始扫描。这样连续涨停不会被重叠窗口重复累计成 6 次、7 次。
         """
 
-        deviations = {window: cls._vector_deviation(stock, index, window) for window in (3, 10, 30)}
+        deviations = {}
+        window_lengths = {}
+        for window in (3, 10, 30):
+            if window == 3:
+                deviations[window] = cls._vector_deviation(stock, index, window)
+                window_lengths[window] = window if deviations[window] is not None else None
+            else:
+                deviations[window], window_lengths[window] = cls._best_vector_deviation(stock, index, window)
         stock_map = {item["date"]: item["return"] for item in stock if item.get("date")}
         index_map = {item["date"]: item["return"] for item in index if item.get("date")}
         common_dates = sorted(set(stock_map) & set(index_map))[-10:]
@@ -502,6 +548,7 @@ class MarketService:
         same_direction_count = max(up_count, down_count)
         return {
             "deviations": deviations,
+            "window_lengths": window_lengths,
             "up": up_count,
             "down": down_count,
             "same": same_direction_count,
@@ -1027,29 +1074,35 @@ class MarketService:
                 (30, rule.severe_30d_threshold),
             ):
                 candidate_deviation = metrics["deviations"].get(candidate_window)
+                actual_window = metrics.get("window_lengths", {}).get(candidate_window) or candidate_window
                 # 下跌方向不进入预测池；不能用 abs() 把负值变成“距离很近”。
                 if candidate_deviation is None or candidate_deviation <= 0:
                     continue
-                candidate_distance = candidate_threshold.up - candidate_deviation
+                candidate_distance = self._required_up_percent(stock_vector, index_vector, actual_window, candidate_threshold.up)
+                if candidate_distance is None:
+                    continue
                 # 旧逻辑对所有板块固定放宽 20%，会把主板下一交易日
                 # 不可能触发的股票也放进来。使用所属板块单日涨幅上限。
                 possible_one_day = float(rule.limit_price_ratio or 10.0)
                 if scope == "today":
                     # 当日数据已经收盘时，只展示确实达到上涨阈值的记录。
                     if candidate_deviation >= candidate_threshold.up:
-                        options.append((0.0, candidate_window, candidate_deviation, candidate_threshold, "deviation"))
+                        options.append((0.0, candidate_window, candidate_deviation, candidate_threshold, "deviation", actual_window))
                 elif 0 < candidate_distance <= possible_one_day:
                     # 次日只展示下一交易日仍有可能上涨触线的记录。
-                    options.append((candidate_distance, candidate_window, candidate_deviation, candidate_threshold, "deviation"))
+                    options.append((candidate_distance, candidate_window, candidate_deviation, candidate_threshold, "deviation", actual_window))
             # 同向条件只统计上涨次数；下跌同向不进入预测池。
             up_direction = metrics["up"]
             same_deviation = metrics["deviations"].get(10)
             if up_direction >= rule.severe_same_direction_count and same_deviation is not None and same_deviation > 0:
-                same_distance = rule.severe_10d_threshold.up - same_deviation
+                same_actual_window = metrics.get("window_lengths", {}).get(10) or 10
+                same_distance = self._required_up_percent(stock_vector, index_vector, same_actual_window, rule.severe_10d_threshold.up)
+                if same_distance is None:
+                    continue
                 # 当日已经达到同向次数即可入选；次日仍只展示一个交易日内
                 # 可能触线的记录，不能把“已达到”当成新的次日候选。
                 if (scope == "today" and same_distance >= 0) or (scope == "next_day" and 0 < same_distance <= float(rule.limit_price_ratio or 10.0)):
-                    options.append((same_distance, 10, same_deviation, rule.severe_10d_threshold, "same_direction"))
+                    options.append((same_distance, 10, same_deviation, rule.severe_10d_threshold, "same_direction", metrics.get("window_lengths", {}).get(10) or 10))
             if not options:
                 continue
 
@@ -1057,12 +1110,12 @@ class MarketService:
             # 不再用 min(options) 丢掉同时满足的另一条规则。
             selected_by_window: Dict[int, tuple] = {}
             for option in options:
-                distance, window, deviation, threshold, trigger_kind = option
+                distance, window, deviation, threshold, trigger_kind, actual_window = option
                 current = selected_by_window.get(window)
                 if current is None or (trigger_kind == "same_direction" and current[4] != "same_direction"):
                     selected_by_window[window] = option
             for window in sorted(selected_by_window):
-                distance, window, deviation, threshold, trigger_kind = selected_by_window[window]
+                distance, window, deviation, threshold, trigger_kind, actual_window = selected_by_window[window]
                 if deviation is None:
                     continue
                 candidate = {
@@ -1077,7 +1130,7 @@ class MarketService:
                         if trigger_kind == "same_direction" else
                         (f"上涨 ≥ {max(0.01, distance):.2f}%" if distance > 0 else "已达到阈值")
                     ),
-                    "deviation": f"{window}日 {_pct(deviation)}",
+                    "deviation": f"{actual_window}日 {_pct(deviation)}",
                     "rule": (
                         f"连续10个交易日内偏离值达到 +{threshold.up:.0f}% 或同向上涨达到 {rule.severe_same_direction_count} 次"
                         if trigger_kind == "same_direction" else
@@ -1090,7 +1143,8 @@ class MarketService:
                 candidate["_indexCode"] = index_code
                 candidate["_indexLatestClose"] = index.get("latest_close")
                 candidate["_deviation"] = deviation
-                candidate["_window"] = window
+                candidate["_window"] = actual_window
+                candidate["_rule_window"] = window
                 candidate["_threshold"] = threshold
                 candidates.append(candidate)
 
@@ -1111,16 +1165,16 @@ class MarketService:
                     rule = item["_threshold"]
                     stock_map = {x.get("date"): x.get("return") for x in stock_vector if x.get("date")}
                     index_map = {x.get("date"): x.get("return") for x in index_vector if x.get("date")}
-                    dates = sorted(set(stock_map) & set(index_map))[-item["_window"]:]
-                    if len(dates) == item["_window"]:
-                        deviation = self._compound(stock_map[d] for d in dates) - self._compound(index_map[d] for d in dates)
+                    deviation, actual_window = self._best_vector_deviation(stock_vector, index_vector, item.get("_rule_window", item["_window"]))
+                    if deviation is not None:
                         # 实时修正后仍只保留上涨方向；不能把盘中下跌
                         # 的候选转换成下跌预测。
                         if deviation <= 0:
                             continue
                         target = rule.up
-                        distance = max(0.0, target - deviation)
+                        distance = self._required_up_percent(stock_vector, index_vector, actual_window or item["_window"], target) or 0.0
                         item["_deviation"] = deviation
+                        item["_window"] = actual_window or item["_window"]
                         item["deviation"] = f"{item['_window']}日 {_pct(deviation)}"
                         item["trigger"] = f"上涨 ≥ {max(0.01, distance):.2f}%" if distance > 0 else "已达到阈值"
                     item["currentPrice"] = f"{float(quote.get('current')):.2f}"
@@ -1130,7 +1184,7 @@ class MarketService:
                 updated.append(item)
             candidates = updated
         for item in candidates:
-            for key in ("_stockVector", "_indexVector", "_indexCode", "_indexLatestClose", "_deviation", "_window", "_threshold"):
+            for key in ("_stockVector", "_indexVector", "_indexCode", "_indexLatestClose", "_deviation", "_window", "_rule_window", "_threshold"):
                 item.pop(key, None)
         candidates.sort(key=lambda item: abs(float(item.get("deviation", "0").split()[-1].replace("%", ""))) if item.get("deviation") else 999, reverse=True)
         return candidates[:100]
