@@ -376,13 +376,14 @@ def _best_effective_deviation(
 ) -> Optional[DeviationResult]:
     """在 N、N-1、N-2 个有效交易日中选择当前端点的偏离值。
 
-    交易所的 10/30 日是回看上限；少 1～2 个有效共同交易日可以来自
-    首日边界、停牌或指数对齐缺口，但不能退化成任意 3 日窗口。
+    交易所的 10/30 日是回看上限；10 日允许 8/9/10 个、30 日允许
+    27/28/29/30 个有效共同交易日，可以来自首日边界、停牌或指数对齐缺口，
+    但不能退化成任意 3 日窗口。
     """
 
     _validate_bars(stock_bars, index_bars)
     upper = min(max_window, len(stock_bars) - 1)
-    lower = max(3, max_window - 2)
+    lower = 27 if max_window == 30 else max(3, max_window - 2)
     if upper < lower:
         return None
     results = [

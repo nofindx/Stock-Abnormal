@@ -26,7 +26,7 @@ INDEX_BY_MARKET = {"SSE": "000001.SH", "SZSE": "399001.SZ", "BSE": "899050.BJ"}
 INDEX_BY_BOARD = {"创业板": "399006.SZ", "科创板": "000688.SH", "北交所": "899050.BJ"}
 BOARD_BY_MARKET = {"主板": Board.MAIN, "创业板": Board.CHINEXT, "科创板": Board.STAR, "北交所": Board.BSE}
 SHANGHAI_TZ = ZoneInfo("Asia/Shanghai") if ZoneInfo else timezone(timedelta(hours=8))
-PREDICTION_RULE_VERSION = "2026-09-upward-v6"
+PREDICTION_RULE_VERSION = "2026-09-upward-v7"
 
 # GBK 区位表不依赖第三方拼音包，适合云托管的轻量搜索场景。
 _PINYIN_RANGES = (
@@ -468,8 +468,8 @@ class MarketService:
         """取规则回看窗口内最接近上涨阈值的有效连续区间。
 
         交易所规则写的是“连续 N 个交易日内”，实际有效数据允许因边界、
-        停牌或指数对齐缺口少 1～2 个交易日。这里只在 N-2、N-1、N 日
-        区间中取偏离值最大的正向区间，不能用任意 3 日窗口冒充 10/30 日；
+        停牌或指数对齐缺口少少量交易日。10 日只在 8/9/10 日、30 日只在
+        27/28/29/30 日区间中取偏离值最大的正向区间，不能用任意 3 日窗口冒充 10/30 日；
         返回值同时带实际区间长度，用于展示“9 日”“28 日”等结果。
         """
         if not stock or not index:
@@ -481,8 +481,8 @@ class MarketService:
             return None, None
         upper = min(max_window, len(dates))
         # 交易所的 N 日是回看上限，不是任意更短的 3 日窗口。
-        # 仅允许 N、N-1、N-2 三种有效共同交易日长度，兼容边界/停牌/指数缺口。
-        lower = max(3, max_window - 2)
+        # 10 日允许 8/9/10；30 日允许 27/28/29/30，兼容边界/停牌/指数缺口。
+        lower = 27 if max_window == 30 else max(3, max_window - 2)
         if upper < lower:
             return None, None
         candidates = []
