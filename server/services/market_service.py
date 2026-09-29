@@ -727,9 +727,11 @@ class MarketService:
                             }
                 index_codes = sorted(set(INDEX_BY_MARKET.values()) | set(INDEX_BY_BOARD.values()))
                 indexes: List[Dict[str, Any]] = []
+                index_latest_flags: List[bool] = []
                 for index_code in index_codes:
                     frame = self._index_daily(index_code, needed_dates[0], needed_dates[-1]) if needed_dates else None
                     rows = [] if frame is None or frame.empty else sorted(frame.to_dict("records"), key=lambda row: str(row.get("trade_date")))
+                    index_latest_flags.append(any(str(row.get("trade_date")) == latest for row in rows))
                     item = indexes_existing.get(index_code, {"index_code": index_code, "index_name": index_code, "index_return_vector": []})
                     vector = self._vector_entries(item.get("index_return_vector"))
                     previous_close = item.get("latest_close")
@@ -750,6 +752,17 @@ class MarketService:
                     item["index_return_vector"] = vector[-30:]
                     item["indexName"] = item.get("index_name") or index_code
                     indexes.append(item)
+                # 正式数据必须同时拿到目标交易日的股票日线和全部对应指数日线。
+                # 失败时只更新基础资料，保留已有初态/正式计算行，不能伪造成功。
+                if data_stage == "formal" and latest in needed_dates:
+                    latest_stock_frame = daily_frames.get(latest)
+                    latest_stock_ok = latest_stock_frame is not None and not latest_stock_frame.empty and any(str(row.get("trade_date")) == latest for row in latest_stock_frame.to_dict("records"))
+                    latest_index_ok = bool(index_latest_flags) and all(index_latest_flags)
+                    if not latest_stock_ok or not latest_index_ok:
+                        self._calc_repository.upsert_market(stocks, [], [], previous_date or latest, data_stage="initial" if previous_date == latest else "formal")
+                        self._calc_repository.record_failure("Tushare 当日股票或指数收盘数据尚未完整入盘")
+                        self._market_update_error = "Tushare 当日股票或指数收盘数据尚未完整入盘"
+                        return {"updated": False, "tradeDate": previous_date or latest, "stockCount": len(stocks), "reason": self._market_update_error}
                 calculations = []
                 index_map = {item["index_code"]: item for item in indexes}
                 for stock in stocks:
