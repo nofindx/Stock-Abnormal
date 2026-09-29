@@ -1,3 +1,4 @@
+.prediction-page { padding-bottom: 220rpx; }
 .prediction-page .page-header { display: none; }
 .prediction-page .segmented { margin-top: 16rpx; }
 .prediction-snapshot-row { position: relative; display: flex; align-items: center; min-height: 48rpx; margin-top: 14rpx; padding-right: 120rpx; box-sizing: border-box; }
@@ -46,7 +47,7 @@
   box-shadow: 0 2rpx 8rpx rgba(28, 28, 30, .035);
 }
 .prediction-row:first-child { margin-top: 0; }
-.prediction-top { display: flex; align-items: baseline; justify-content: space-between; gap: 16rpx; }
+.prediction-top { display: flex; align-items: center; justify-content: space-between; gap: 16rpx; }
 .prediction-stock { display: flex; min-width: 0; flex: 1; align-items: baseline; gap: 10rpx; }
 .prediction-page .stock-line { display: flex; align-items: baseline; gap: 14rpx; }
 .quote-label { color: #8E8E93; font-size: 18rpx; }
@@ -55,7 +56,9 @@
 .prediction-page .stock-meta { margin-left: 14rpx; color: #6B7280; font-size: 22rpx; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .prediction-quote { display: flex; flex: 0 0 auto; align-items: baseline; gap: 10rpx; white-space: nowrap; }
 .quote-copy { display: flex; flex-direction: column; align-items: flex-end; gap: 2rpx; }
-.prediction-change { font-size: 29rpx; letter-spacing: .1rpx; }
+.prediction-current-change { display: block; flex: 0 0 auto; color: #636366; font-size: 22rpx; line-height: 31rpx; text-align: right; white-space: nowrap; }
+.prediction-change-prefix { color: #636366; font-size: 22rpx; }
+.prediction-change-value { color: #C0271E; font-size: 28rpx; font-weight: 700; letter-spacing: .1rpx; }
 .prediction-price { color: #1A1A1A; font-size: 32rpx; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .badge-today { background: #F2F2F7; color: #636366; }
 .prediction-middle {
@@ -67,7 +70,7 @@
   border-top: 1rpx solid #F2F2F7;
 }
 .trigger-field, .deviation-field { min-width: 0; }
-.deviation-field { padding-left: 14rpx; border-left: 1rpx solid #E5E5EA; }
+.deviation-field { padding-left: 0; }
 .trigger-block {
   display: flex;
   align-items: baseline;
@@ -77,17 +80,16 @@
   border-top: 1rpx solid #F2F2F7;
 }
 .trigger-value { min-width: 0; color: #1C1C1E; font-size: 24rpx; font-weight: 600; line-height: 33rpx; overflow-wrap: break-word; }
-.trigger-field .trigger-value { color: #C0271E; font-size: 23rpx; font-weight: 700; white-space: nowrap; letter-spacing: 0; }
+.trigger-field .trigger-value { color: #C0271E; font-size: 28rpx; font-weight: 700; white-space: nowrap; letter-spacing: 0; }
 .prediction-bottom { display: none; }
 .prediction-bottom > view { min-width: 0; }
 .rule-field { padding-left: 14rpx; border-left: 1rpx solid #E5E5EA; }
 .prediction-label { display: block; margin-bottom: 4rpx; color: #8E8E93; font-size: 19rpx; line-height: 26rpx; }
 .prediction-value { display: block; color: #1C1C1E; font-size: 22rpx; line-height: 30rpx; overflow-wrap: break-word; }
-.deviation { color: #1A1A1A; font-size: 26rpx; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.deviation { color: #C0271E; font-size: 28rpx; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .rule-value { display: block; color: #636366; font-size: 20rpx; line-height: 29rpx; }
-.prediction-rule { margin-top: 14rpx; padding-top: 13rpx; border-top: 1rpx solid #E5E5EA; }
-.prediction-rule .prediction-label { margin-bottom: 5rpx; }
-.prediction-rule .rule-value { color: #636366; font-size: 22rpx; line-height: 31rpx; }
+.prediction-rule { min-width: 0; margin-top: 14rpx; padding-top: 13rpx; border-top: 1rpx solid #E5E5EA; text-align: left; }
+.prediction-rule-text { display: block; min-width: 0; overflow: hidden; color: #636366; font-size: 22rpx; line-height: 31rpx; text-align: left; text-overflow: ellipsis; white-space: nowrap; }
 .refresh-bar { display: none; }
 .refresh-button {
   min-height: 48rpx;
@@ -111,10 +113,12 @@
 @media (max-width: 390px) {
   .prediction-page .prediction-row { padding: 18rpx 16rpx; }
   .prediction-quote { gap: 7rpx; }
-  .prediction-price, .prediction-change { font-size: 25rpx; }
+  .prediction-price { font-size: 25rpx; }
+  .prediction-change-prefix { font-size: 20rpx; }
+  .prediction-change-value { font-size: 25rpx; }
   .prediction-page .badge { padding: 0 8rpx; font-size: 18rpx; }
   .rule-value { font-size: 19rpx; }
   .prediction-middle { grid-template-columns: minmax(0, .82fr) minmax(204rpx, 1.18fr); gap: 9rpx; }
-  .trigger-field .trigger-value { font-size: 20rpx; }
+  .trigger-field .trigger-value { font-size: 25rpx; }
   .refresh-button { padding: 0 14rpx; font-size: 21rpx; }
 }

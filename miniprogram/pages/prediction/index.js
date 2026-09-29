@@ -5,7 +5,8 @@ function normalizeItems(items = []) {
   return items.map((item, index) => {
     const change = item.change == null || item.change === '' ? '--' : String(item.change)
     const window = item.predictionWindow || ((String(item.deviation || '').match(/^(\d+)日/) || [])[1] || '')
-    return { ...item, predictionKey: item.predictionKey || `${item.ts_code || index}-${window || index}`, change, changeClass: change === '--' ? 'neutral' : (change[0] === '-' ? 'down' : 'up') }
+    const rule = String(item.rule || '').replace(/^连续(\d+)个交易日/, '连续 $1 个交易日')
+    return { ...item, rule, predictionKey: item.predictionKey || `${item.ts_code || index}-${window || index}`, change, changeClass: change === '--' ? 'neutral' : (change[0] === '-' ? 'down' : 'up') }
   })
 }
 

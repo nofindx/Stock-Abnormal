@@ -98,6 +98,8 @@ Page({
   applyFilters(items) {
     let filtered = items.map(item => ({
       ...item,
+      // 监控池展示按自然日倒计时；结束日当天仍显示 0，次日由后端移出当前池。
+      days: naturalDaysRemaining(item.monitorEndDate, item.days),
       // 所有标的都保留；仅主板、创业板、科创板以外的标的降低视觉权重。
       // 例如 501、513、159、920 等基金、ETF、北交所标的仍可查看风险类型和公告。
       mutedSecurity: !isCoreBoardSymbol(item.symbol),
@@ -132,4 +134,15 @@ Page({
 function isCoreBoardSymbol(symbol) {
   const code = String(symbol || '').match(/\d{6}/)?.[0] || ''
   return /^(000|001|002|003|300|301|600|601|603|605|688)/.test(code)
+}
+
+function naturalDaysRemaining(endDate, fallback) {
+  const value = String(endDate || '')
+  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})$/)
+  if (!match) return fallback
+  const end = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]))
+  const now = new Date()
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+  const remaining = Math.floor((end.getTime() - today.getTime()) / 86400000)
+  return Math.max(0, remaining)
 }
