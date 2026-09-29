@@ -369,6 +369,32 @@ def _count_same_direction(records: Iterable[OrdinaryAbnormal]) -> Tuple[int, Dir
     return down_count, Direction.DOWN, up_count, down_count
 
 
+def _best_effective_deviation(
+    stock_bars: Sequence[PriceBar],
+    index_bars: Sequence[PriceBar],
+    max_window: int,
+) -> Optional[DeviationResult]:
+    """在 N、N-1、N-2 个有效交易日中选择当前端点的偏离值。
+
+    交易所的 10/30 日是回看上限；少 1～2 个有效共同交易日可以来自
+    首日边界、停牌或指数对齐缺口，但不能退化成任意 3 日窗口。
+    """
+
+    _validate_bars(stock_bars, index_bars)
+    upper = min(max_window, len(stock_bars) - 1)
+    lower = max(3, max_window - 2)
+    if upper < lower:
+        return None
+    results = [
+        calculate_deviation(stock_bars, index_bars, window)
+        for window in range(lower, upper + 1)
+    ]
+    positive = [item for item in results if item.deviation > 0]
+    if positive:
+        return max(positive, key=lambda item: (item.deviation, -item.window_days))
+    return min(results, key=lambda item: (item.deviation, item.window_days))
+
+
 def detect_severe_abnormal(
     stock_bars: Sequence[PriceBar],
     index_bars: Sequence[PriceBar],
@@ -380,14 +406,12 @@ def detect_severe_abnormal(
     rule = BOARD_RULES[board]
     severe_10d = None
     severe_30d = None
-    if len(stock_bars) >= 11:
-        result_10d = calculate_deviation(stock_bars, index_bars, 10)
-        if rule.severe_10d_threshold.triggered(result_10d.deviation):
-            severe_10d = result_10d
-    if len(stock_bars) >= 31:
-        result_30d = calculate_deviation(stock_bars, index_bars, 30)
-        if rule.severe_30d_threshold.triggered(result_30d.deviation):
-            severe_30d = result_30d
+    result_10d = _best_effective_deviation(stock_bars, index_bars, 10)
+    if result_10d is not None and rule.severe_10d_threshold.triggered(result_10d.deviation):
+        severe_10d = result_10d
+    result_30d = _best_effective_deviation(stock_bars, index_bars, 30)
+    if result_30d is not None and rule.severe_30d_threshold.triggered(result_30d.deviation):
+        severe_30d = result_30d
     ordinary_records = detect_ordinary_abnormal(stock_bars, index_bars, board)
     # 按最近 10 个交易日的日期窗口统计，不能按记录条数截断；同一窗口可能同时
     # 触发偏离值和换手率两条普通异常记录。

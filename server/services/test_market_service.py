@@ -114,11 +114,19 @@ class MarketVectorTests(unittest.TestCase):
         self.assertEqual(by_window[30]["rule"], "连续30个交易日内偏离值达到 +200%")
 
     def test_best_window_can_be_shorter_than_rule_horizon(self):
-        stock = [{"date": f"2026-09-{index:02d}", "return": value} for index, value in enumerate([0, 0, 0, 0, 0, 0, 0, 0, 0, 10], 1)]
+        # 10 日规则允许因有效数据边界少 1～2 日，但不能退化成任意 3 日窗口。
+        stock = [{"date": f"2026-09-{index:02d}", "return": value} for index, value in enumerate([0, 0, 0, 0, 0, 0, 0, 10], 1)]
         index = [{"date": item["date"], "return": 0.0} for item in stock]
         value, window = MarketService._best_vector_deviation(stock, index, 10)
-        self.assertEqual(window, 3)
+        self.assertEqual(window, 8)
         self.assertAlmostEqual(value, 10.0)
+
+    def test_ten_day_rule_never_uses_a_three_day_spike(self):
+        stock = [{"date": f"2026-09-{index:02d}", "return": value} for index, value in enumerate([30, 30, 30], 1)]
+        index = [{"date": item["date"], "return": 0.0} for item in stock]
+        value, window = MarketService._best_vector_deviation(stock, index, 10)
+        self.assertIsNone(value)
+        self.assertIsNone(window)
 
     def test_prediction_excludes_downward_direction(self):
         service = self.service
