@@ -903,22 +903,43 @@ class MarketService:
             stock_vector = self._vector_entries(calc.get("stock_return_vector"))
             index_vector = self._vector_entries(index.get("index_return_vector"))
             metrics = self._vector_metrics(stock_vector, index_vector, rule)
-            window = 30 if scope == "next_day" else 10
-            deviation = metrics["deviations"].get(window)
+            # 当日/次日预测都可能由 10 日或 30 日严重异动线触发。
+            # 旧逻辑在 next_day 只检查 30 日，导致 10 日已接近 +100% 的
+            # 001216.SZ（且同向次数已达线）被错误排除。
+            options = []
+            for candidate_window, candidate_threshold in (
+                (10, rule.severe_10d_threshold),
+                (30, rule.severe_30d_threshold),
+            ):
+                candidate_deviation = metrics["deviations"].get(candidate_window)
+                if candidate_deviation is None:
+                    continue
+                candidate_target = candidate_threshold.up if candidate_deviation >= 0 else candidate_threshold.down
+                candidate_distance = abs(candidate_target - candidate_deviation)
+                if candidate_distance <= 20 or candidate_threshold.triggered(candidate_deviation):
+                    options.append((candidate_distance, candidate_window, candidate_deviation, candidate_threshold, "deviation"))
+            # 同向异动本身也是 10 日严重异动条件；即使偏离值尚未接近
+            # +100%/-50%，也必须进入候选列表。
+            same_direction = metrics["same"]
+            if same_direction >= rule.severe_same_direction_count:
+                options.append((0.0, 10, metrics["deviations"].get(10), rule.severe_10d_threshold, "same_direction"))
+            if not options:
+                continue
+            _, window, deviation, threshold, trigger_kind = min(options, key=lambda item: (item[0], -item[1]))
             if deviation is None:
                 continue
-            threshold = rule.severe_30d_threshold if window == 30 else rule.severe_10d_threshold
             target = threshold.up if deviation >= 0 else threshold.down
             distance = abs(target - deviation)
-            # 只把接近监管线的标的交给实时行情修正。
-            if distance > 20 and not threshold.triggered(deviation):
-                continue
             candidate = {
                 **stock,
                 "scope": "当日" if scope == "today" else "次日",
                 "currentPrice": f"{float(calc.get('latest_close')):.2f}" if calc.get("latest_close") is not None else "--",
                 "change": _pct(stock_vector[-1].get("return") if stock_vector else None),
-                "trigger": (f"上涨 ≥ {max(0.01, distance):.2f}%" if target > 0 else f"下跌 ≤ -{max(0.01, distance):.2f}%") if distance > 0 else "已达到阈值",
+                "trigger": (
+                    f"同向{'上涨' if metrics['up'] >= metrics['down'] else '下跌'}达到 {same_direction} 次"
+                    if trigger_kind == "same_direction" else
+                    ((f"上涨 ≥ {max(0.01, distance):.2f}%" if target > 0 else f"下跌 ≤ -{max(0.01, distance):.2f}%") if distance > 0 else "已达到阈值")
+                ),
                 "deviation": f"{window}日 {_pct(deviation)}",
                 "rule": f"连续{window}个交易日内日收盘价格涨跌幅偏离值累计达到+{threshold.up:.0f}% / {threshold.down:.0f}%",
                 "tradeDate": str(calc.get("as_of_trade_date") or ""),

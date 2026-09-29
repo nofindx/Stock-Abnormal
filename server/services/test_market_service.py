@@ -1,4 +1,5 @@
 import unittest
+from types import SimpleNamespace
 
 from server.services.market_calc_repository import MarketCalcRepository
 from server.services.market_service import MarketService
@@ -47,6 +48,33 @@ class MarketVectorTests(unittest.TestCase):
             "exchange": "SZSE", "name_initials": "WRONG",
         })
         self.assertEqual(row["nameInitials"], "BJGF")
+
+    def test_prediction_checks_ten_day_line_for_next_day_scope(self):
+        """次日预测不能只检查 30 日线，10 日接近 +100% 也必须入选。"""
+        service = self.service
+        dates = [f"2026-08-{index:02d}" for index in range(1, 31)]
+        stock_vector = [{"date": day, "return": 7.0 if index >= 20 else 0.0} for index, day in enumerate(dates)]
+        index_vector = [{"date": day, "return": 0.0} for day in dates]
+        service._calc_repository = SimpleNamespace(
+            available=True,
+            all_calculations=lambda: {"001216.SZ": {
+                "ts_code": "001216.SZ", "latest_close": 28.04,
+                "as_of_trade_date": "20260928", "stock_return_vector": stock_vector,
+            }},
+            all_indexes=lambda: {"000001.SH": {
+                "index_code": "000001.SH", "latest_close": 11.3,
+                "index_return_vector": index_vector,
+            }},
+        )
+        service._stock_rows = lambda: [{
+            "ts_code": "001216.SZ", "symbol": "001216", "name": "华瓷股份",
+            "market": "SSE", "board": "主板", "isST": False,
+        }]
+        service._realtime = SimpleNamespace(fetch_many=lambda _codes: {})
+        items = service._compute_prediction_from_repository("next_day")
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0]["ts_code"], "001216.SZ")
+        self.assertTrue(items[0]["deviation"].startswith("10日 "))
 
 
 class MarketRepositoryConfigTests(unittest.TestCase):

@@ -143,8 +143,13 @@ Page({
   },
   onLoad(options) { if (options.ts_code) this.loadStockByCode(options.ts_code) },
   onShow() {
+    this.syncTabBar()
     const pending = getApp().globalData.pendingStock
     if (pending) { getApp().globalData.pendingStock = null; this.chooseStock(pending) }
+  },
+  syncTabBar() {
+    const tabBar = this.getTabBar && this.getTabBar()
+    if (tabBar) tabBar.setData({ selected: 0 })
   },
   onQueryInput(event) {
     const query = event.detail.value

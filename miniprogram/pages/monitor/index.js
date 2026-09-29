@@ -5,6 +5,10 @@ const { openPdf } = require('../../utils/open-pdf')
 Page({
   data: { type: 'all', hideNoise: false, items: [], rawItems: [], visibleCount: 0, updatedAt: '', loading: false, refreshing: false, buttonRefreshing: false, error: '', skeletonRows: [0, 1, 2, 3], types: [{ key: 'all', label: '全部' }, { key: 'risk', label: '风险提示' }, { key: 'severe', label: '严重异动' }] },
   onLoad() { this.restoreCache(); this.loadData() },
+  onShow() {
+    const tabBar = this.getTabBar && this.getTabBar()
+    if (tabBar) tabBar.setData({ selected: 1 })
+  },
   onPullDownRefresh() { this.loadData().finally(() => wx.stopPullDownRefresh()) },
   selectType(event) {
     this.requestSeq = (this.requestSeq || 0) + 1

@@ -11,6 +11,10 @@ function normalizeItems(items = []) {
 Page({
   data: { scope: 'today', items: [], refreshing: false, buttonRefreshing: false, loading: false, error: '', updatedAt: '', dataMessage: '', nextDayAvailable: true, nextDayReason: '' },
   onLoad() { this.loadData() },
+  onShow() {
+    const tabBar = this.getTabBar && this.getTabBar()
+    if (tabBar) tabBar.setData({ selected: 2 })
+  },
   switchScope(event) {
     const scope = event.currentTarget.dataset.scope
     if (scope === 'next_day' && !this.data.nextDayAvailable) {
