@@ -120,6 +120,7 @@ class MarketService:
         self._market_scheduler_stop = Event()
         self._market_scheduler: Optional[Thread] = None
         self._market_update_lock = Lock()
+        self._market_last_formal_attempt = ""
         self._market_update_error = ""
         # 监控池由 OfficialMonitorService 公告快照链路独立负责。
 
@@ -617,11 +618,19 @@ class MarketService:
                         if self._latest_data_stage_date() != (today, "initial"):
                             if self.update_initial_data().get("updated"):
                                 self._generate_prediction_datasets("initial")
-                    elif (16 <= now.hour < 18 and now.minute in (0, 30)) or (18 <= now.hour < 23 and now.minute == 0):
+                    elif 16 <= now.hour < 23:
                         # 正式数据成功后当天不再重复请求；失败则由下一个时间槽继续尝试。
-                        if self._latest_data_stage() != "formal":
+                        latest = self.client.latest_trade_date()
+                        needs_formal = self._latest_data_stage() != "formal" or self._confirmed_market_trade_date() != latest
+                        slot_marker = f"{today}-{now.hour:02d}-{now.minute:02d}"
+                        # 服务在 16:00 后冷启动时，不必等到下一整点；只补尝试一次，
+                        # 后续失败仍按既定半小时/整点窗口重试，避免每分钟打上游。
+                        catch_up_marker = f"{today}-catchup"
+                        catch_up = needs_formal and self._market_last_formal_attempt != catch_up_marker and now.minute not in (0, 30)
+                        if needs_formal and (now.minute in (0, 30) or catch_up) and self._market_last_formal_attempt != slot_marker:
+                            self._market_last_formal_attempt = catch_up_marker if catch_up else slot_marker
                             result = self.update_market_data(data_stage="formal")
-                            if result.get("updated") and result.get("tradeDate") == self.client.latest_trade_date():
+                            if result.get("updated") and result.get("tradeDate") == latest:
                                 self._generate_prediction_datasets("formal")
             except Exception as exc:  # noqa: BLE001
                 self._market_update_error = str(exc)
