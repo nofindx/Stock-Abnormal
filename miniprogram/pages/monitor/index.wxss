@@ -70,7 +70,7 @@
 .grid-value { display: block; margin-top: 4rpx; color: #1C1C1E; font-size: 22rpx; font-weight: 500; line-height: 30rpx; font-variant-numeric: tabular-nums; }
 .days-value { display: inline-flex; width: 184rpx; align-items: center; justify-content: flex-end; color: #1A1A1A; font-size: 22rpx; font-weight: 600; line-height: 42rpx; text-align: right; white-space: nowrap; }
 .days-label { flex: 0 0 auto; }
-.days-number { width: 60rpx; margin: 0 8rpx; color: inherit; font-size: 38rpx; font-weight: 750; line-height: 44rpx; text-align: center; font-variant-numeric: tabular-nums; }
+.days-number { width: 60rpx; margin: 0 8rpx; color: #C0271E; font-size: 38rpx; font-weight: 750; line-height: 44rpx; text-align: center; font-variant-numeric: tabular-nums; }
 .days-value.days-ordinary { color: #8A6D0B; }
 .days-value.days-severe-10d { color: #E0501F; }
 .days-value.days-severe-30d { color: #C0271E; }
