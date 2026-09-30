@@ -111,13 +111,12 @@ function presentWarnings(warnings = []) {
   return warnings.map((item) => {
     if (item.title === '10 日同向') {
       const up = Number(item.up || 0)
-      const down = Number(item.down || 0)
       const match = String(item.target || '').match(/(\d+(?:\.\d+)?)\s*次/)
       const limit = match ? Number(match[1]) : 0
-      const count = Math.max(up, down)
+      const count = up
       const progress = limit > 0 ? Math.min(100, count / limit * 100) : 0
       const tone = limit <= 0 ? 'unknown' : progress >= 100 ? 'triggered' : progress >= 66.6667 ? 'warning' : 'safe'
-      return { ...item, currentText: `上涨 ${up} 次 / 下跌 ${down} 次`, remainingText: tone === 'triggered' ? '已触及' : `还差 ${Math.max(0, limit - count)} 次`, ringText: tone === 'triggered' ? '已触及' : tone === 'unknown' ? '--' : `${Math.max(0, limit - count)}次`, progress: Number(progress.toFixed(2)), tone, toneColor: colors[tone] }
+      return { ...item, currentText: `上涨 ${up} 次`, remainingText: tone === 'triggered' ? '已触及' : `还差 ${Math.max(0, limit - count)} 次`, ringText: tone === 'triggered' ? '已触及' : tone === 'unknown' ? '--' : `${Math.max(0, limit - count)}次`, progress: Number(progress.toFixed(2)), tone, toneColor: colors[tone] }
     }
     const rawValue = String(item.value || '').replace('%', '')
     const value = Number.parseFloat(rawValue)
@@ -127,7 +126,10 @@ function presentWarnings(warnings = []) {
     const down = Number(thresholds[1] || (up ? -up : 0))
     const target = value >= 0 ? Math.abs(up) : Math.abs(down)
     const progress = target > 0 ? Math.min(100, Math.abs(value) / target * 100) : 0
-    const tone = progress >= 100 ? 'triggered' : progress >= 66.6667 ? 'warning' : 'safe'
+    // 黄色仅用于 3 日偏离；10/30 日偏离只有达到严重线才变红，避免把严重指标的接近值误报成警戒。
+    const tone = item.title === '3 日偏离'
+      ? (progress >= 100 ? 'triggered' : progress >= 66.6667 ? 'warning' : 'safe')
+      : (progress >= 100 ? 'triggered' : 'safe')
     const remaining = Math.max(0, target - Math.abs(value))
     return { ...item, currentText: `${value >= 0 ? '+' : ''}${value.toFixed(2)}%`, remainingText: tone === 'triggered' ? '已触及' : `还差 ${remaining.toFixed(2)}%`, ringText: tone === 'triggered' ? '已触及' : `${remaining.toFixed(2)}%`, progress: Number(progress.toFixed(2)), tone, toneColor: colors[tone] }
   })
@@ -146,40 +148,80 @@ function clientDeviation(stock, index, window) {
   return clientCompound(dates.map(date => stockMap[date])) - clientCompound(dates.map(date => indexMap[date]))
 }
 
+function clientBestDeviation(stock, index, maxWindow) {
+  const stockMap = Object.fromEntries((stock || []).filter(item => item.date).map(item => [item.date, Number(item.return)]))
+  const indexMap = Object.fromEntries((index || []).filter(item => item.date).map(item => [item.date, Number(item.return)]))
+  const dates = Object.keys(stockMap).filter(date => Object.prototype.hasOwnProperty.call(indexMap, date)).sort()
+  const upper = Math.min(maxWindow, dates.length)
+  const lower = maxWindow === 30 ? 27 : Math.max(3, maxWindow - 2)
+  if (upper < lower) return { value: null, window: null }
+  const candidates = []
+  for (let window = lower; window <= upper; window += 1) {
+    const range = dates.slice(-window)
+    candidates.push({ value: clientCompound(range.map(date => stockMap[date])) - clientCompound(range.map(date => indexMap[date])), window })
+  }
+  const positive = candidates.filter(item => item.value > 0)
+  return (positive.length ? positive : candidates).sort((a, b) => b.value - a.value || a.window - b.window)[0]
+}
+
+function clientTrimAfterSuspension(stock, index) {
+  const stockEntries = (stock || []).filter(item => item.date).slice().sort((a, b) => String(a.date).localeCompare(String(b.date)))
+  const indexEntries = (index || []).filter(item => item.date).slice().sort((a, b) => String(a.date).localeCompare(String(b.date)))
+  if (!stockEntries.length || !indexEntries.length) return { stock: stockEntries, index: indexEntries, suspended: false }
+  const stockDates = new Set(stockEntries.map(item => String(item.date)))
+  const indexDates = indexEntries.map(item => String(item.date))
+  const latestStock = String(stockEntries[stockEntries.length - 1].date)
+  const latestIndex = String(indexEntries[indexEntries.length - 1].date)
+  const gaps = indexDates.filter(day => day < latestStock && !stockDates.has(day))
+  const resetDate = gaps.length ? stockEntries.find(item => String(item.date) > gaps[gaps.length - 1])?.date : ''
+  if (resetDate) {
+    return {
+      stock: stockEntries.filter(item => String(item.date) >= String(resetDate)).slice(-30),
+      index: indexEntries.filter(item => String(item.date) >= String(resetDate)).slice(-30),
+      suspended: latestStock < latestIndex,
+    }
+  }
+  return { stock: stockEntries.slice(-30), index: indexEntries.slice(-30), suspended: latestStock < latestIndex }
+}
+
 function clientMetrics(detail) {
   const input = detail && detail.calculationInput
   if (!input) return detail
-  const stock = Array.isArray(input.stock) ? input.stock : []
-  const index = Array.isArray(input.index) ? input.index : []
+  const trimmed = clientTrimAfterSuspension(Array.isArray(input.stock) ? input.stock : [], Array.isArray(input.index) ? input.index : [])
+  const stock = trimmed.stock
+  const index = trimmed.index
   const ordinary = Number(input.ordinaryDeviation || 20)
   const severe10 = input.severe10 || { up: 100, down: -50 }
   const severe30 = input.severe30 || { up: 200, down: -70 }
   const sameLimit = Number(input.sameDirectionThreshold || 4)
-  const deviations = { 3: clientDeviation(stock, index, 3), 10: clientDeviation(stock, index, 10), 30: clientDeviation(stock, index, 30) }
+  const best10 = clientBestDeviation(stock, index, 10)
+  const best30 = clientBestDeviation(stock, index, 30)
+  const deviations = { 3: clientDeviation(stock, index, 3), 10: best10.value, 30: best30.value }
   const stockMap = Object.fromEntries(stock.filter(item => item.date).map(item => [item.date, Number(item.return)]))
   const indexMap = Object.fromEntries(index.filter(item => item.date).map(item => [item.date, Number(item.return)]))
   const dates = Object.keys(stockMap).filter(date => Object.prototype.hasOwnProperty.call(indexMap, date)).sort().slice(-10)
   let up = 0; let down = 0
-  for (let end = 2; end < dates.length; end += 1) {
+  for (let end = 2; end < dates.length;) {
     const range = dates.slice(end - 2, end + 1)
     const deviation = clientCompound(range.map(date => stockMap[date])) - clientCompound(range.map(date => indexMap[date]))
-    if (deviation >= ordinary) up += 1
-    else if (deviation <= -ordinary) down += 1
+    if (deviation >= ordinary) { up += 1; end += 3 }
+    else if (deviation <= -ordinary) { down += 1; end += 3 }
+    else end += 1
   }
-  const same = Math.max(up, down)
+  const same = up
   const severeTriggered = (deviations[30] != null && (deviations[30] >= severe30.up || deviations[30] <= severe30.down)) ||
     (deviations[10] != null && (deviations[10] >= severe10.up || deviations[10] <= severe10.down)) || same >= sameLimit
-  let status = '安全'; let statusClass = 'safe'
-  if (severeTriggered) { status = '严重异动'; statusClass = 'severe' }
-  else if (deviations[3] != null && Math.abs(deviations[3]) >= ordinary) { status = '风险提示'; statusClass = 'risk' }
+  let status = '正常'; let statusClass = 'safe'
+  if (severeTriggered) { status = '触及'; statusClass = 'severe' }
+  else if (deviations[3] != null && Math.abs(deviations[3]) >= ordinary) { status = '警示'; statusClass = 'risk' }
   const thresholdText = (value, threshold) => value == null ? `数据不足（需 ${threshold} 个交易日）` : `阈值 +${threshold === 3 ? ordinary : threshold === 10 ? severe10.up : severe30.up}% / ${threshold === 3 ? -ordinary : threshold === 10 ? severe10.down : severe30.down}%`
   const warning = [
     { title: '3 日偏离', value: deviations[3] == null ? '--' : `${deviations[3] >= 0 ? '+' : ''}${deviations[3].toFixed(2)}%`, target: thresholdText(deviations[3], 3), className: deviations[3] == null ? 'neutral' : Math.abs(deviations[3]) >= ordinary ? 'risk' : 'safe' },
-    { title: '10 日偏离', value: deviations[10] == null ? '--' : `${deviations[10] >= 0 ? '+' : ''}${deviations[10].toFixed(2)}%`, target: thresholdText(deviations[10], 10), className: deviations[10] == null ? 'neutral' : (deviations[10] >= severe10.up || deviations[10] <= severe10.down) ? 'risk' : 'safe' },
-    { title: '30 日偏离', value: deviations[30] == null ? '--' : `${deviations[30] >= 0 ? '+' : ''}${deviations[30].toFixed(2)}%`, target: thresholdText(deviations[30], 30), className: deviations[30] == null ? 'neutral' : (deviations[30] >= severe30.up || deviations[30] <= severe30.down) ? 'risk' : 'safe' },
+    { title: '10 日偏离', value: deviations[10] == null ? '--' : `${deviations[10] >= 0 ? '+' : ''}${deviations[10].toFixed(2)}%`, target: thresholdText(deviations[10], 10), className: deviations[10] == null ? 'neutral' : (deviations[10] >= severe10.up || deviations[10] <= severe10.down) ? 'risk' : 'safe', window: best10.window },
+    { title: '30 日偏离', value: deviations[30] == null ? '--' : `${deviations[30] >= 0 ? '+' : ''}${deviations[30].toFixed(2)}%`, target: thresholdText(deviations[30], 30), className: deviations[30] == null ? 'neutral' : (deviations[30] >= severe30.up || deviations[30] <= severe30.down) ? 'risk' : 'safe', window: best30.window },
     { title: '10 日同向', value: '', up: String(up), down: String(down), target: `阈值 ${sameLimit} 次`, className: same >= sameLimit ? 'risk' : 'safe' }
   ]
-  return { ...detail, status, statusClass, statusDisplay: status === '安全' ? '状态安全' : '状态异常', statusIcon: statusClass === 'safe' ? '✓' : '!', warnings: presentWarnings(warning) }
+  return { ...detail, status, statusClass, statusDisplay: status === '正常' ? '状态安全' : '状态异常', statusIcon: statusClass === 'safe' ? '✓' : '!', warnings: presentWarnings(warning) }
 }
 
 Page({
@@ -244,7 +286,7 @@ Page({
       const rows = calculateSimulationRows(createInputRows(2, futureTradeDates), detail)
       const displayDetail = clientMetrics({
         ...detail,
-        statusDisplay: detail.status === '安全' ? '状态安全' : '状态异常',
+        statusDisplay: detail.status === '正常' ? '状态安全' : '状态异常',
         change: detail.change == null || detail.change === '' ? '--' : String(detail.change),
         changeClass: changeClass(detail.change),
         dataQuality: detail.dataQuality || {},

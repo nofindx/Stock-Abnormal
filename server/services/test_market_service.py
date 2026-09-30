@@ -121,6 +121,54 @@ class MarketVectorTests(unittest.TestCase):
         self.assertEqual(window, 8)
         self.assertAlmostEqual(value, 10.0)
 
+    def test_suspension_reset_discards_pre_resume_returns(self):
+        """复牌后只从首个有效交易日重新累计，不能把停牌前涨幅带入。"""
+        index = [{"date": day, "return": 0.0} for day in ("2026-09-21", "2026-09-22", "2026-09-23", "2026-09-24", "2026-09-25")]
+        stock = [
+            {"date": "2026-09-21", "return": 80.0},
+            {"date": "2026-09-22", "return": 10.0},
+            {"date": "2026-09-25", "return": 5.0},
+        ]
+        trimmed_stock, trimmed_index, meta = MarketService._trim_vectors_after_suspension(stock, index)
+        self.assertEqual([item["date"] for item in trimmed_stock], ["2026-09-25"])
+        self.assertEqual([item["date"] for item in trimmed_index], ["2026-09-25"])
+        self.assertEqual(meta["resetDate"], "20260925")
+        self.assertFalse(meta["suspended"])
+
+    def test_tail_suspension_is_not_predicted(self):
+        """最新交易日仍停牌时不能把停牌前结果伪装成次日候选。"""
+        stock = [{"date": day, "return": 5.0} for day in ("2026-09-21", "2026-09-22")]
+        index = [{"date": day, "return": 0.0} for day in ("2026-09-21", "2026-09-22", "2026-09-23")]
+        _, _, meta = MarketService._trim_vectors_after_suspension(stock, index)
+        self.assertTrue(meta["suspended"])
+
+    def test_prediction_accepts_nine_valid_days_for_ten_day_line(self):
+        """10 日规则在有效窗口边界允许 8/9/10 日，善水科技同类情形应入选。"""
+        service = self.service
+        dates = [f"2026-08-{index:02d}" for index in range(1, 31)]
+        stock_vector = [{"date": day, "return": 6.0 if index >= 21 else 0.0} for index, day in enumerate(dates)]
+        index_vector = [{"date": day, "return": 0.0} for day in dates]
+        service._calc_repository = SimpleNamespace(
+            available=True,
+            all_calculations=lambda: {"301190.SZ": {
+                "ts_code": "301190.SZ", "latest_close": 29.94,
+                "as_of_trade_date": "20260929", "stock_return_vector": stock_vector,
+            }},
+            all_indexes=lambda: {"399006.SZ": {
+                "index_code": "399006.SZ", "latest_close": 100.0,
+                "index_return_vector": index_vector,
+            }},
+        )
+        service._stock_rows = lambda: [{
+            "ts_code": "301190.SZ", "symbol": "301190", "name": "善水科技",
+            "market": "SZSE", "board": "创业板", "isST": False,
+        }]
+        service._realtime = SimpleNamespace(fetch_many=lambda _codes: {})
+        items = service._compute_prediction_from_repository("next_day")
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0]["ts_code"], "301190.SZ")
+        self.assertTrue(items[0]["deviation"].startswith("9日 "))
+
     def test_ten_day_rule_never_uses_a_three_day_spike(self):
         stock = [{"date": f"2026-09-{index:02d}", "return": value} for index, value in enumerate([30, 30, 30], 1)]
         index = [{"date": item["date"], "return": 0.0} for item in stock]

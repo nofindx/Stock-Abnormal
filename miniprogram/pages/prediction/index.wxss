@@ -47,7 +47,7 @@
   box-shadow: 0 2rpx 8rpx rgba(28, 28, 30, .035);
 }
 .prediction-row:first-child { margin-top: 0; }
-.prediction-top { display: flex; align-items: center; justify-content: space-between; gap: 16rpx; }
+.prediction-top { display: grid; grid-template-columns: minmax(0, 1fr) minmax(250rpx, auto); align-items: center; gap: 14rpx; }
 .prediction-stock { display: flex; min-width: 0; flex: 1; align-items: baseline; gap: 10rpx; }
 .prediction-page .stock-line { display: flex; align-items: baseline; gap: 14rpx; }
 .quote-label { color: #8E8E93; font-size: 18rpx; }
@@ -56,8 +56,8 @@
 .prediction-page .stock-meta { margin-left: 14rpx; color: #6B7280; font-size: 22rpx; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .prediction-quote { display: flex; flex: 0 0 auto; align-items: baseline; gap: 10rpx; white-space: nowrap; }
 .quote-copy { display: flex; flex-direction: column; align-items: flex-end; gap: 2rpx; }
-.prediction-current-change { display: block; flex: 0 0 auto; color: #636366; font-size: 22rpx; line-height: 31rpx; text-align: right; white-space: nowrap; }
-.prediction-change-prefix { color: #636366; font-size: 22rpx; }
+.prediction-current-change { display: flex; min-width: 250rpx; align-items: baseline; justify-content: flex-end; gap: 8rpx; color: #6B7280; font-size: 20rpx; line-height: 28rpx; text-align: right; white-space: nowrap; }
+.prediction-change-prefix { color: #6B7280; font-size: 20rpx; }
 .prediction-change-value { color: #C0271E; font-size: 28rpx; font-weight: 700; letter-spacing: .1rpx; }
 .prediction-price { color: #1A1A1A; font-size: 32rpx; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .badge-today { background: #F2F2F7; color: #636366; }
@@ -69,8 +69,9 @@
   padding-top: 14rpx;
   border-top: 1rpx solid #F2F2F7;
 }
-.trigger-field, .deviation-field { min-width: 0; }
+.trigger-field, .deviation-field { display: flex; min-width: 0; align-items: baseline; gap: 8rpx; white-space: nowrap; }
 .deviation-field { padding-left: 0; }
+.trigger-field { justify-content: flex-end; }
 .trigger-block {
   display: flex;
   align-items: baseline;
@@ -80,16 +81,16 @@
   border-top: 1rpx solid #F2F2F7;
 }
 .trigger-value { min-width: 0; color: #1C1C1E; font-size: 24rpx; font-weight: 600; line-height: 33rpx; overflow-wrap: break-word; }
-.trigger-field .trigger-value { display: block; overflow: hidden; color: #C0271E; font-size: 28rpx; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; letter-spacing: 0; }
+.trigger-field .trigger-value { display: block; max-width: 100%; overflow: hidden; color: #C0271E; font-size: 28rpx; font-weight: 700; text-align: right; text-overflow: ellipsis; white-space: nowrap; letter-spacing: 0; }
 .prediction-bottom { display: none; }
 .prediction-bottom > view { min-width: 0; }
 .rule-field { padding-left: 14rpx; border-left: 1rpx solid #E5E5EA; }
-.prediction-label { display: block; margin-bottom: 4rpx; color: #8E8E93; font-size: 19rpx; line-height: 26rpx; }
+.prediction-label { display: inline; flex: 0 0 auto; margin-bottom: 0; color: #6B7280; font-size: 20rpx; line-height: 28rpx; }
 .prediction-value { display: block; color: #1C1C1E; font-size: 22rpx; line-height: 30rpx; overflow-wrap: break-word; }
 .deviation { color: #C0271E; font-size: 28rpx; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .rule-value { display: block; color: #636366; font-size: 20rpx; line-height: 29rpx; }
 .prediction-rule { min-width: 0; margin-top: 14rpx; padding-top: 13rpx; border-top: 1rpx solid #E5E5EA; text-align: left; }
-.prediction-rule-text { display: block; min-width: 0; overflow: hidden; color: #636366; font-size: 22rpx; line-height: 31rpx; text-align: left; text-overflow: ellipsis; white-space: nowrap; }
+.prediction-rule-text { display: block; min-width: 0; overflow: hidden; color: #6B7280; font-size: 20rpx; line-height: 28rpx; text-align: left; text-overflow: ellipsis; white-space: nowrap; }
 .refresh-bar { display: none; }
 .refresh-button {
   min-height: 48rpx;
@@ -112,9 +113,11 @@
 
 @media (max-width: 390px) {
   .prediction-page .prediction-row { padding: 18rpx 16rpx; }
+  .prediction-top { grid-template-columns: minmax(0, 1fr) minmax(228rpx, auto); gap: 8rpx; }
   .prediction-quote { gap: 7rpx; }
   .prediction-price { font-size: 25rpx; }
-  .prediction-change-prefix { font-size: 20rpx; }
+  .prediction-current-change { min-width: 228rpx; font-size: 18rpx; }
+  .prediction-change-prefix { font-size: 18rpx; }
   .prediction-change-value { font-size: 25rpx; }
   .prediction-page .badge { padding: 0 8rpx; font-size: 18rpx; }
   .rule-value { font-size: 19rpx; }

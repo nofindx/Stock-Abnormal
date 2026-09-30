@@ -48,12 +48,11 @@
     </view>
 
     <view class="section simulation-section">
-      <view class="simulation-head"><view class="simulation-title">模拟计算</view><view class="days-picker"><view class="day-option {{simulationExpanded ? 'active' : ''}}" hover-class="button-press" hover-stay-time="100" bindtap="expandSimulation">10日计算</view></view></view>
+      <view class="simulation-head"><view class="simulation-heading"><view class="simulation-title">模拟计算</view><view class="simulation-note">填入股票与指数涨幅后自动重算</view></view><view class="days-picker"><view class="day-option {{simulationExpanded ? 'active' : ''}}" hover-class="button-press" hover-stay-time="100" bindtap="expandSimulation">10日计算</view></view></view>
       <view wx:for="{{matrixGroups}}" wx:for-item="matrix" wx:key="groupKey" class="matrix-card {{matrix.countClass}}">
         <view class="matrix-head"><text class="matrix-label">指标</text><view wx:for="{{matrix.columns}}" wx:for-item="column" wx:key="*this" class="matrix-column"><text class="day-badge">{{column.day}}</text><text class="table-date">{{column.date}}</text></view></view>
         <view wx:for="{{matrix.rows}}" wx:for-item="matrixRow" wx:key="key" class="matrix-row"><text class="matrix-label">{{matrixRow.label}}</text><view wx:for="{{matrixRow.values}}" wx:for-item="cell" wx:key="*this" class="matrix-cell"><block wx:if="{{cell.placeholder}}"><text class="matrix-placeholder">—</text></block><block wx:elif="{{cell.editable}}"><view class="matrix-input-wrap"><input class="matrix-input" type="digit" placeholder="0" value="{{cell.value}}" data-row="{{cell.rowIndex}}" data-field="{{cell.field}}" bindinput="editRow" /><text class="matrix-suffix">%</text></view></block><block wx:else><text class="matrix-value {{matrixRow.key === 'space' ? 'safety-value' : cell.className}}">{{cell.value}}</text></block></view></view>
       </view>
-      <view class="simulation-note">填写每日股票与指数涨幅后自动重算</view>
     </view>
   </block>
   <view class="legal-footer-links">

@@ -26,7 +26,9 @@ INDEX_BY_MARKET = {"SSE": "000001.SH", "SZSE": "399001.SZ", "BSE": "899050.BJ"}
 INDEX_BY_BOARD = {"创业板": "399006.SZ", "科创板": "000688.SH", "北交所": "899050.BJ"}
 BOARD_BY_MARKET = {"主板": Board.MAIN, "创业板": Board.CHINEXT, "科创板": Board.STAR, "北交所": Board.BSE}
 SHANGHAI_TZ = ZoneInfo("Asia/Shanghai") if ZoneInfo else timezone(timedelta(hours=8))
-PREDICTION_RULE_VERSION = "2026-09-upward-v7"
+# 停牌/复牌重置、上涨同向计数和预测阶段切换属于同一套规则口径。
+# 版本变化会触发服务启动时用现有基础数据重建预测数据集。
+PREDICTION_RULE_VERSION = "2026-09-upward-v8-suspension-reset"
 
 # GBK 区位表不依赖第三方拼音包，适合云托管的轻量搜索场景。
 _PINYIN_RANGES = (
@@ -436,6 +438,96 @@ class MarketService:
         return entries[-30:]
 
     @staticmethod
+    def _date_key(value: Any) -> str:
+        """将收益率向量中的 YYYY-MM-DD/yyyymmdd 统一成可排序键。"""
+
+        return str(value or "").replace("-", "")[:8]
+
+    @classmethod
+    def _trim_vectors_after_suspension(
+        cls,
+        stock: List[Dict[str, Any]],
+        index: List[Dict[str, Any]],
+    ) -> tuple[List[Dict[str, Any]], List[Dict[str, Any]], Dict[str, Any]]:
+        """复牌后从新的有效区间重新计算，避免把停牌前涨幅带入规则。
+
+        日线接口通常不会为停牌日返回股票记录，而指数仍会有交易日记录。
+        因此只要股票在指数交易日序列中出现缺口，缺口后的第一条股票数据
+        就是新的计算起点。尾部仍停牌时不伪造结果，调用方会跳过预测。
+        """
+
+        stock_entries = list(stock or [])
+        index_entries = list(index or [])
+        stock_dates = {cls._date_key(item.get("date")) for item in stock_entries if item.get("date")}
+        index_dates = sorted({cls._date_key(item.get("date")) for item in index_entries if item.get("date")})
+        ordered_stock = sorted(
+            (item for item in stock_entries if item.get("date")),
+            key=lambda item: cls._date_key(item.get("date")),
+        )
+        ordered_index = sorted(
+            (item for item in index_entries if item.get("date")),
+            key=lambda item: cls._date_key(item.get("date")),
+        )
+        if not ordered_stock or not ordered_index:
+            return stock_entries, index_entries, {"resetDate": "", "suspended": False}
+
+        stock_latest = cls._date_key(ordered_stock[-1].get("date"))
+        index_latest = cls._date_key(ordered_index[-1].get("date"))
+        missing = [day for day in index_dates if day < stock_latest and day not in stock_dates]
+        reset_date = ""
+        if missing:
+            last_gap = missing[-1]
+            resumed = [cls._date_key(item.get("date")) for item in ordered_stock if cls._date_key(item.get("date")) > last_gap]
+            reset_date = resumed[0] if resumed else ""
+
+        if reset_date:
+            stock_entries = [item for item in ordered_stock if cls._date_key(item.get("date")) >= reset_date]
+            index_entries = [item for item in ordered_index if cls._date_key(item.get("date")) >= reset_date]
+        else:
+            stock_entries = ordered_stock
+            index_entries = ordered_index
+        return stock_entries[-30:], index_entries[-30:], {
+            "resetDate": reset_date,
+            "suspended": bool(stock_latest < index_latest),
+        }
+
+    @classmethod
+    def _trim_bars_after_suspension(
+        cls,
+        stock: List[PriceBar],
+        index: List[PriceBar],
+    ) -> tuple[List[PriceBar], List[PriceBar], Dict[str, Any]]:
+        """PriceBar 版本的复牌重置，供无 MySQL 的冷启动路径使用。"""
+
+        stock_entries = [{"date": item.trade_date.isoformat(), "bar": item} for item in stock]
+        index_entries = [{"date": item.trade_date.isoformat(), "bar": item} for item in index]
+        stock_trimmed, index_trimmed, meta = cls._trim_vectors_after_suspension(stock_entries, index_entries)
+        return (
+            [item["bar"] for item in stock_trimmed],
+            [item["bar"] for item in index_trimmed],
+            meta,
+        )
+
+    @staticmethod
+    def _status_for_metrics(
+        deviations: Dict[int, Optional[float]],
+        same_up: int,
+        rule: Any,
+    ) -> tuple[str, str]:
+        """统一股票状态：正常（绿）/ 警示（黄）/ 触及（红）。"""
+
+        if deviations.get(30) is not None and rule.severe_30d_threshold.triggered(deviations[30]):
+            return "触及", "severe"
+        if deviations.get(10) is not None and rule.severe_10d_threshold.triggered(deviations[10]):
+            return "触及", "severe"
+        # 3 日普通异动和 10 日上涨同向属于警示，不升级为红色严重异常。
+        if same_up >= rule.severe_same_direction_count:
+            return "警示", "risk"
+        if deviations.get(3) is not None and abs(deviations[3]) >= rule.ordinary_deviation:
+            return "警示", "risk"
+        return "正常", "safe"
+
+    @staticmethod
     def _vector_numbers(entries: List[Dict[str, Any]]) -> List[float]:
         return [float(item["return"]) for item in entries]
 
@@ -600,6 +692,7 @@ class MarketService:
             return None
         stock_vector = self._vector_entries(calc.get("stock_return_vector"))
         index_vector = self._vector_entries(index.get("index_return_vector"))
+        stock_vector, index_vector, suspension = self._trim_vectors_after_suspension(stock_vector, index_vector)
         board = BOARD_BY_MARKET.get(stock["board"], Board.MAIN)
         rule = BOARD_RULES[board]
         quotes = self._realtime.fetch_many([stock["ts_code"], index_code])
@@ -612,7 +705,8 @@ class MarketService:
             index_vector = self._apply_quote_to_vector(index_vector, index.get("latest_close"), index_quote)
         metrics = self._vector_metrics(stock_vector, index_vector, rule)
         deviations = metrics["deviations"]
-        same_count = metrics["same"]
+        # 展示和状态只使用上涨同向次数；下跌次数仅作为诊断数据保留。
+        same_count = metrics["up"]
         severe = SimpleNamespace(
             same_direction_count=same_count,
             same_direction_threshold=rule.severe_same_direction_count,
@@ -624,16 +718,7 @@ class MarketService:
                 deviations.get(30) is not None and rule.severe_30d_threshold.triggered(deviations[30])
             ) or same_count >= rule.severe_same_direction_count,
         )
-        status = "安全"
-        status_class = "safe"
-        if deviations.get(30) is not None and rule.severe_30d_threshold.triggered(deviations[30]):
-            status, status_class = "严重异动", "severe"
-        elif deviations.get(10) is not None and rule.severe_10d_threshold.triggered(deviations[10]):
-            status, status_class = "严重异动", "severe"
-        elif same_count >= rule.severe_same_direction_count:
-            status, status_class = "严重异动", "severe"
-        elif deviations.get(3) is not None and abs(deviations[3]) >= rule.ordinary_deviation:
-            status, status_class = "风险提示", "risk"
+        status, status_class = self._status_for_metrics(deviations, metrics["up"], rule)
         current_price = display_quote.get("current") if display_quote else calc.get("latest_close")
         if display_quote and display_quote.get("pctChg") is not None:
             current_change = display_quote.get("pctChg")
@@ -679,8 +764,12 @@ class MarketService:
                 "realtime": realtime,
                 "fallback": not realtime,
                 "isComplete": len(stock_vector) >= 30 and len(index_vector) >= 30,
+                "suspensionResetDate": suspension.get("resetDate", ""),
+                "suspended": suspension.get("suspended", False),
                 "quoteUpdatedAt": display_quote.get("updatedAt", "") if display_quote else "",
-                "message": ("实时行情暂不可用" if not realtime else "") if common_days >= 30 else f"该股票上市时间较近，当前仅有 {common_days} 个交易日数据，10 日和 30 日偏离暂不可计算",
+                "message": (
+                    "实时行情暂不可用" if not realtime else ""
+                ) if common_days >= 30 else f"复牌后重新累计，当前仅有 {common_days} 个有效交易日，10 日和 30 日偏离暂不可计算",
             },
         }
 
@@ -989,7 +1078,14 @@ class MarketService:
         stock_frame = self._daily(stock["ts_code"], start, latest)
         index_code = _index_code_for_stock(stock)
         index_frame = context["indexFrames"].get(index_code)
-        stock_bars, index_bars = self._aligned_bars(stock_frame, index_frame, stock["ts_code"], index_code)
+        stock_all = self._bars(stock_frame, stock["ts_code"])
+        index_all = self._bars(index_frame, index_code)
+        stock_all, index_all, suspension = self._trim_bars_after_suspension(stock_all, index_all)
+        stock_by_date = {bar.trade_date: bar for bar in stock_all}
+        index_by_date = {bar.trade_date: bar for bar in index_all}
+        common_dates = sorted(set(stock_by_date) & set(index_by_date))
+        stock_bars = [stock_by_date[item] for item in common_dates]
+        index_bars = [index_by_date[item] for item in common_dates]
         board = BOARD_BY_MARKET.get(stock["board"], Board.MAIN)
         board_rule = BOARD_RULES[board]
         quotes = self._realtime.fetch_many([stock["ts_code"], index_code])
@@ -1003,12 +1099,11 @@ class MarketService:
             if len(stock_bars) >= window + 1:
                 deviations[window] = calculate_deviation(stock_bars, index_bars, window).deviation
         severe = detect_severe_abnormal(stock_bars, index_bars, board) if len(stock_bars) == len(index_bars) and len(stock_bars) >= 2 else None
-        status = "安全"
-        status_class = "safe"
-        if severe and severe.triggered:
-            status, status_class = "严重异动", "severe"
-        elif deviations[3] is not None and abs(deviations[3]) >= board_rule.ordinary_deviation:
-            status, status_class = "风险提示", "risk"
+        status, status_class = self._status_for_metrics(
+            deviations,
+            severe.up_count if severe else 0,
+            board_rule,
+        )
         latest_row = sorted(stock_frame.to_dict("records"), key=lambda item: str(item["trade_date"]))[-1] if not stock_frame.empty else {}
         current_price = quote["current"] if quote else latest_row.get("close")
         current_change = quote["pctChg"] if quote else latest_row.get("pct_chg")
@@ -1043,7 +1138,9 @@ class MarketService:
                 "realtime": bool(quote and index_quote),
                 "fallback": not bool(quote and index_quote),
                 "quoteUpdatedAt": quote.get("updatedAt") if quote else "",
-                "message": ("实时行情暂不可用" if not (quote and index_quote) else "") if common_days >= 30 else f"该股票上市时间较近，当前仅有 {common_days} 个交易日数据，10 日和 30 日偏离暂不可计算",
+                "suspensionResetDate": suspension.get("resetDate", ""),
+                "suspended": suspension.get("suspended", False),
+                "message": ("实时行情暂不可用" if not (quote and index_quote) else "") if common_days >= 30 else f"复牌后重新累计，当前仅有 {common_days} 个有效交易日，10 日和 30 日偏离暂不可计算",
             },
         }
 
@@ -1068,6 +1165,11 @@ class MarketService:
             rule = BOARD_RULES[board]
             stock_vector = self._vector_entries(calc.get("stock_return_vector"))
             index_vector = self._vector_entries(index.get("index_return_vector"))
+            stock_vector, index_vector, suspension = self._trim_vectors_after_suspension(stock_vector, index_vector)
+            # 停牌尾部没有当前有效价格，不能把停牌前结果伪装成次日候选。
+            # 复牌后的向量已经在上面截断，从复牌首个交易日重新累计。
+            if suspension.get("suspended"):
+                continue
             metrics = self._vector_metrics(stock_vector, index_vector, rule)
             # 当日/次日预测都检查 10 日和 30 日严重异动线，但预测只保留
             # 上涨方向。预测页回答的是“下一交易日上涨后是否可能触线”，
@@ -1141,6 +1243,7 @@ class MarketService:
                         f"连续{window}个交易日内偏离值达到 +{threshold.up:.0f}%"
                     ),
                     "tradeDate": str(calc.get("as_of_trade_date") or ""),
+                    "suspensionResetDate": suspension.get("resetDate", ""),
                 }
                 candidate["_stockVector"] = stock_vector
                 candidate["_indexVector"] = index_vector
@@ -1323,9 +1426,10 @@ class MarketService:
             "previousTradeDate": previous,
             "nextTradeDate": following,
             "phase": phase,
-            # 09:00-15:00 的“当日”沿用前一交易日预先生成的 next_day 池；
-            # 收盘后切回今日池，次日池待正式数据确认后开放。
-            "todaySourceScope": "today" if phase in ("pre_open", "post_close_pending", "post_close_confirmed") else "next_day",
+            # 09:00 前、盘中以及收盘待确认阶段，当前页都展示“下一交易日
+            # 预测”已经生成的本交易日候选。只有正式收盘数据确认后，才把
+            # 当前页切回今天的正式结果，并开放真正的下一交易日按钮。
+            "todaySourceScope": "today" if phase == "post_close_confirmed" else "next_day",
         }
         self._prediction_state_cache = (now, state)
         return state
@@ -1410,11 +1514,8 @@ class MarketService:
         next_trade_date = self._prediction_trade_date.get("next_day", "")
         # 数据集即使候选列表为空也代表已经完成计算，不能用 items 长度判断
         # 次日按钮是否开放；同时必须有实际数据日期，避免把刷新租约空行当成结果。
-        next_trade_available = bool(next_cached and next_trade_date) and (
-            (state["phase"] == "pre_open" and next_trade_date == state["previousTradeDate"]) or
-            (state["phase"] == "post_close_confirmed" and next_trade_date == state["tradeDate"])
-        )
-        if scope == "next_day" and (state["phase"] == "intraday" or state["phase"] == "post_close_pending"):
+        next_trade_available = bool(next_cached and next_trade_date) and state["phase"] == "post_close_confirmed" and next_trade_date == state["tradeDate"]
+        if scope == "next_day" and state["phase"] != "post_close_confirmed":
             items = []
         # GET 只读已有数据；后台租约状态仅用于展示，不会在这里启动刷新。
         # 旧表中的 refreshing_until 仅为历史兼容字段；当前后台更新不由用户请求触发。
@@ -1436,7 +1537,7 @@ class MarketService:
             "phase": state["phase"],
             "todaySourceScope": state["todaySourceScope"],
             "nextDayAvailable": next_trade_available,
-            "nextDayReason": "等待收盘数据" if not next_trade_available else "",
+            "nextDayReason": "等待当日正式收盘数据" if not next_trade_available else "",
             "updatedAt": updated_at,
             "dataStage": "realtime" if ephemeral_active else stored_stage,
             "refreshing": refreshing,
@@ -1483,18 +1584,24 @@ class MarketService:
             if quote and index_quote and calc and index:
                 stock_vector = self._apply_quote_to_vector(self._vector_entries(calc.get("stock_return_vector")), calc.get("latest_close"), quote)
                 index_vector = self._apply_quote_to_vector(self._vector_entries(index.get("index_return_vector")), index.get("latest_close"), index_quote)
+                stock_vector, index_vector, suspension = self._trim_vectors_after_suspension(stock_vector, index_vector)
+                if suspension.get("suspended"):
+                    continue
                 match = re.match(r"(\d+)日", str(item.get("deviation") or ""))
-                window = int(match.group(1)) if match else 10
-                maps = ({x.get("date"): x.get("return") for x in stock_vector}, {x.get("date"): x.get("return") for x in index_vector})
-                dates = sorted(set(maps[0]) & set(maps[1]))[-window:]
-                if len(dates) == window:
-                    deviation = self._compound(maps[0][day] for day in dates) - self._compound(maps[1][day] for day in dates)
-                    item["deviation"] = f"{window}日 {_pct(deviation)}"
-                    rule = BOARD_RULES[BOARD_BY_MARKET.get(stock.get("board"), Board.MAIN)]
-                    threshold = rule.severe_30d_threshold if window == 30 else rule.severe_10d_threshold
-                    target = threshold.up if deviation >= 0 else threshold.down
-                    distance = abs(target - deviation)
-                    item["trigger"] = (f"上涨 ≥ {distance:.2f}%" if target > 0 else f"下跌 ≤ -{distance:.2f}%") if distance > 0 else "已达到阈值"
+                rule_window = int(item.get("predictionWindow") or (match.group(1) if match else 10))
+                rule = BOARD_RULES[BOARD_BY_MARKET.get(stock.get("board"), Board.MAIN)]
+                metrics = self._vector_metrics(stock_vector, index_vector, rule)
+                deviation = metrics.get("deviations", {}).get(rule_window)
+                actual_window = metrics.get("window_lengths", {}).get(rule_window) or rule_window
+                # 盘中只修正已经生成的候选，不重新扫描全市场；但修正必须使用
+                # 与后台生成、单股详情相同的有效窗口和复牌重置逻辑。
+                if deviation is not None and deviation > 0:
+                    item["deviation"] = f"{actual_window}日 {_pct(deviation)}"
+                    threshold = rule.severe_30d_threshold if rule_window == 30 else rule.severe_10d_threshold
+                    distance = self._required_up_percent(stock_vector, index_vector, actual_window, threshold.up)
+                    if distance is not None:
+                        item["trigger"] = f"上涨 ≥ {distance:.2f}%" if distance > 0 else "已达到阈值"
+                        item["rule"] = f"连续{rule_window}个交易日内偏离值达到 +{threshold.up:.0f}%"
             output.append(item)
         return output
 
