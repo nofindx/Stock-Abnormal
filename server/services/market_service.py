@@ -750,7 +750,7 @@ class MarketService:
             "warnings": warnings,
             "alerts": self._build_alerts(deviations, severe, board),
             "simulationBase": {"stock": self._vector_numbers(stock_vector), "index": self._vector_numbers(index_vector)},
-            "calculationInput": {"stock": stock_vector, "index": index_vector, "ordinaryDeviation": rule.ordinary_deviation, "severe10": {"up": rule.severe_10d_threshold.up, "down": rule.severe_10d_threshold.down}, "severe30": {"up": rule.severe_30d_threshold.up, "down": rule.severe_30d_threshold.down}, "sameDirectionThreshold": rule.severe_same_direction_count, "ruleVersion": "2026-09"},
+            "calculationInput": {"stock": stock_vector, "index": index_vector, "ordinaryDeviation": rule.ordinary_deviation, "severe10": {"up": rule.severe_10d_threshold.up, "down": rule.severe_10d_threshold.down}, "severe30": {"up": rule.severe_30d_threshold.up, "down": rule.severe_30d_threshold.down}, "sameDirectionThreshold": rule.severe_same_direction_count, "ruleVersion": PREDICTION_RULE_VERSION},
             "simulationThresholds": {
                 "10": {"up": rule.severe_10d_threshold.up, "down": rule.severe_10d_threshold.down},
                 "30": {"up": rule.severe_30d_threshold.up, "down": rule.severe_30d_threshold.down},
@@ -1124,7 +1124,7 @@ class MarketService:
             ],
             "alerts": self._build_alerts(deviations, severe, board),
             "simulationBase": self._simulation_returns(stock_bars, index_bars),
-            "calculationInput": {"stock": [{"date": bar.trade_date.isoformat(), "return": value} for bar, value in zip(stock_bars[1:], self._simulation_returns(stock_bars, index_bars)["stock"])], "index": [{"date": bar.trade_date.isoformat(), "return": value} for bar, value in zip(index_bars[1:], self._simulation_returns(stock_bars, index_bars)["index"])], "ordinaryDeviation": board_rule.ordinary_deviation, "severe10": {"up": board_rule.severe_10d_threshold.up, "down": board_rule.severe_10d_threshold.down}, "severe30": {"up": board_rule.severe_30d_threshold.up, "down": board_rule.severe_30d_threshold.down}, "sameDirectionThreshold": board_rule.severe_same_direction_count, "ruleVersion": "2026-09"},
+            "calculationInput": {"stock": [{"date": bar.trade_date.isoformat(), "return": value} for bar, value in zip(stock_bars[1:], self._simulation_returns(stock_bars, index_bars)["stock"])], "index": [{"date": bar.trade_date.isoformat(), "return": value} for bar, value in zip(index_bars[1:], self._simulation_returns(stock_bars, index_bars)["index"])], "ordinaryDeviation": board_rule.ordinary_deviation, "severe10": {"up": board_rule.severe_10d_threshold.up, "down": board_rule.severe_10d_threshold.down}, "severe30": {"up": board_rule.severe_30d_threshold.up, "down": board_rule.severe_30d_threshold.down}, "sameDirectionThreshold": board_rule.severe_same_direction_count, "ruleVersion": PREDICTION_RULE_VERSION},
             "simulationThresholds": {
                 "10": {"up": board_rule.severe_10d_threshold.up, "down": board_rule.severe_10d_threshold.down},
                 "30": {"up": board_rule.severe_30d_threshold.up, "down": board_rule.severe_30d_threshold.down},
