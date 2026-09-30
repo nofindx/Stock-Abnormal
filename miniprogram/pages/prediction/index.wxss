@@ -83,7 +83,6 @@
 .trigger-value { min-width: 0; color: #1C1C1E; font-size: 24rpx; font-weight: 600; line-height: 33rpx; overflow-wrap: break-word; }
 .trigger-field .trigger-value { display: block; max-width: 100%; overflow: hidden; color: #C0271E; font-size: 28rpx; font-weight: 700; text-align: right; text-overflow: ellipsis; white-space: nowrap; letter-spacing: 0; }
 .prediction-bottom { display: none; }
-.prediction-bottom > view { min-width: 0; }
 .rule-field { padding-left: 14rpx; border-left: 1rpx solid #E5E5EA; }
 .prediction-label { display: inline; flex: 0 0 auto; margin-bottom: 0; color: #6B7280; font-size: 20rpx; line-height: 28rpx; }
 .prediction-value { display: block; color: #1C1C1E; font-size: 22rpx; line-height: 30rpx; overflow-wrap: break-word; }
