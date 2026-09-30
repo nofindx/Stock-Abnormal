@@ -1,4 +1,5 @@
 import unittest
+from datetime import datetime
 from types import SimpleNamespace
 
 from server.services.market_calc_repository import MarketCalcRepository
@@ -271,6 +272,29 @@ class MarketRepositoryConfigTests(unittest.TestCase):
         self.assertFalse(repository.available)
         self.assertIsNone(repository.list_stocks())
         self.assertIsNone(repository.all_calculations())
+
+    def test_formal_retry_windows_skip_non_slot_minutes(self):
+        self.assertTrue(MarketService._formal_retry_due(datetime(2026, 9, 30, 16, 0)))
+        self.assertTrue(MarketService._formal_retry_due(datetime(2026, 9, 30, 17, 30)))
+        self.assertTrue(MarketService._formal_retry_due(datetime(2026, 9, 30, 18, 0)))
+        self.assertTrue(MarketService._formal_retry_due(datetime(2026, 9, 30, 23, 0)))
+        self.assertFalse(MarketService._formal_retry_due(datetime(2026, 9, 30, 16, 15)))
+        self.assertFalse(MarketService._formal_retry_due(datetime(2026, 9, 30, 23, 30)))
+
+    def test_trade_day_gate_uses_calendar_without_latest_quote_request(self):
+        service = MarketService()
+
+        class Calendar:
+            @staticmethod
+            def to_dict(_orient):
+                return [{"cal_date": "20261001", "is_open": 0}, {"cal_date": "20260930", "is_open": 1}]
+
+        calls = []
+        service.client = SimpleNamespace(trade_cal=lambda start, end: (calls.append((start, end)) or Calendar()))
+        self.assertTrue(service._is_trade_day("20260930"))
+        self.assertFalse(service._is_trade_day("20261001"))
+        self.assertEqual(calls, [("20260930", "20260930"), ("20261001", "20261001")])
+        service.close()
 
 
 if __name__ == "__main__":

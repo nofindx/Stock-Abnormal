@@ -787,27 +787,52 @@ class MarketService:
                     now = datetime.now(SHANGHAI_TZ)
                     job = self._calc_repository.job() or {}
                     today = now.strftime("%Y%m%d")
+                    # 周末、法定节假日和临时休市日不请求行情源，也不刷新基础资料。
+                    # 交易日历本身由 TushareClient 缓存，正常情况下每天只请求一次。
+                    if not self._is_trade_day(today):
+                        self._market_scheduler_stop.wait(60)
+                        continue
                     if now.hour == 15 and now.minute < 5:
                         if self._latest_data_stage_date() != (today, "initial"):
                             if self.update_initial_data().get("updated"):
                                 self._generate_prediction_datasets("initial")
-                    elif 16 <= now.hour < 23:
-                        # 正式数据成功后当天不再重复请求；失败则由下一个时间槽继续尝试。
+                    elif 16 <= now.hour <= 23:
+                        # 16:00-18:00 每 30 分钟，18:00-23:00 每小时；
+                        # 正式数据成功后当天不再重复请求，23:00 是最后一次尝试。
                         latest = self.client.latest_trade_date()
                         needs_formal = self._latest_data_stage() != "formal" or self._confirmed_market_trade_date() != latest
+                        retry_due = self._formal_retry_due(now)
                         slot_marker = f"{today}-{now.hour:02d}-{now.minute:02d}"
-                        # 服务在 16:00 后冷启动时，不必等到下一整点；只补尝试一次，
-                        # 后续失败仍按既定半小时/整点窗口重试，避免每分钟打上游。
-                        catch_up_marker = f"{today}-catchup"
-                        catch_up = needs_formal and self._market_last_formal_attempt != catch_up_marker and now.minute not in (0, 30)
-                        if needs_formal and (now.minute in (0, 30) or catch_up) and self._market_last_formal_attempt != slot_marker:
-                            self._market_last_formal_attempt = catch_up_marker if catch_up else slot_marker
+                        if needs_formal and retry_due and self._market_last_formal_attempt != slot_marker:
+                            self._market_last_formal_attempt = slot_marker
                             result = self.update_market_data(data_stage="formal")
                             if result.get("updated") and result.get("tradeDate") == latest:
                                 self._generate_prediction_datasets("formal")
             except Exception as exc:  # noqa: BLE001
                 self._market_update_error = str(exc)
             self._market_scheduler_stop.wait(60)
+
+    def _is_trade_day(self, trade_date: str) -> bool:
+        """使用交易所日历判断日期是否开市，避免休市日触发行情请求。"""
+
+        value = str(trade_date or "")
+        if len(value) != 8 or not value.isdigit():
+            return False
+        calendar = self.client.trade_cal(value, value)
+        return any(
+            str(row.get("cal_date") or "") == value and int(row.get("is_open", 0)) == 1
+            for row in calendar.to_dict("records")
+        )
+
+    @staticmethod
+    def _formal_retry_due(now: datetime) -> bool:
+        """判断当前分钟是否命中正式数据重试时段。"""
+
+        if now.hour in (16, 17):
+            return now.minute in (0, 30)
+        if 18 <= now.hour <= 23:
+            return now.minute == 0
+        return False
 
     @staticmethod
     def _return_entry(date_value: str, previous: float, current: float) -> Dict[str, Any]:
@@ -843,6 +868,9 @@ class MarketService:
         with self._market_update_lock:
             try:
                 self._calc_repository.ensure_schema()
+                today = datetime.now(SHANGHAI_TZ).strftime("%Y%m%d")
+                if not self._is_trade_day(today):
+                    return {"updated": False, "reason": "今天不是交易日", "tradeDate": ""}
                 latest = self.client.latest_trade_date()
                 try:
                     stock_frame = self.client.stock_basic(force=True)
