@@ -792,8 +792,12 @@ class MarketService:
                     if not self._is_trade_day(today):
                         self._market_scheduler_stop.wait(60)
                         continue
-                    if now.hour == 15 and now.minute < 5:
-                        if self._latest_data_stage_date() != (today, "initial"):
+                    if 15 <= now.hour < 16:
+                        # 容器可能在 15:00 后冷启动；只要当日尚未成功生成初态，
+                        # 在 15:00-16:00 内补做一次，避免错过整天的初态数据。
+                        initial_marker = f"{today}-initial"
+                        if self._latest_data_stage_date() != (today, "initial") and self._market_last_formal_attempt != initial_marker:
+                            self._market_last_formal_attempt = initial_marker
                             if self.update_initial_data().get("updated"):
                                 self._generate_prediction_datasets("initial")
                     elif 16 <= now.hour <= 23:
@@ -802,9 +806,14 @@ class MarketService:
                         latest = self.client.latest_trade_date()
                         needs_formal = self._latest_data_stage() != "formal" or self._confirmed_market_trade_date() != latest
                         retry_due = self._formal_retry_due(now)
+                        # 冷启动错过整点时，在当前小时的前 30 分钟补做一次；
+                        # 23:00 后不再补请求，避免突破当日最后重试边界。
+                        catch_up = self._formal_catch_up_due(now)
                         slot_marker = f"{today}-{now.hour:02d}-{now.minute:02d}"
-                        if needs_formal and retry_due and self._market_last_formal_attempt != slot_marker:
-                            self._market_last_formal_attempt = slot_marker
+                        catch_up_marker = f"{today}-catchup-{now.hour:02d}"
+                        marker = slot_marker if retry_due else catch_up_marker
+                        if needs_formal and (retry_due or catch_up) and self._market_last_formal_attempt != marker:
+                            self._market_last_formal_attempt = marker
                             result = self.update_market_data(data_stage="formal")
                             if result.get("updated") and result.get("tradeDate") == latest:
                                 self._generate_prediction_datasets("formal")
@@ -833,6 +842,12 @@ class MarketService:
         if 18 <= now.hour <= 23:
             return now.minute == 0
         return False
+
+    @staticmethod
+    def _formal_catch_up_due(now: datetime) -> bool:
+        """冷启动补做当前小时已错过的正式重试，23:31 后不再补做。"""
+
+        return 16 <= now.hour <= 23 and 0 < now.minute <= 30
 
     @staticmethod
     def _return_entry(date_value: str, previous: float, current: float) -> Dict[str, Any]:

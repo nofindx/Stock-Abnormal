@@ -10,10 +10,11 @@ from __future__ import annotations
 
 import json
 import os
+from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, quote, urlparse
 
-from .services.market_service import MarketService
+from .services.market_service import MarketService, SHANGHAI_TZ
 from .services.announcement_service import AnnouncementService
 from .services.monitor_service import OfficialMonitorService
 from .services.tushare_client import TushareUnavailable
@@ -56,14 +57,20 @@ class ApiHandler(BaseHTTPRequestHandler):
         try:
             if parsed.path == "/health":
                 market_calc_error = ""
+                now = datetime.now(SHANGHAI_TZ)
+                today = now.strftime("%Y%m%d")
+                today_is_trade_day = False
                 try:
                     market_job = SERVICE._calc_repository.job() if SERVICE._calc_repository.available else None
                     market_calc_available = bool(SERVICE._calc_repository.available)
+                    today_is_trade_day = SERVICE._is_trade_day(today) if SERVICE.client.available else False
                 except Exception as exc:
                     market_job = None
                     market_calc_available = False
                     market_calc_error = str(exc)[:160]
                 calc_config = SERVICE._calc_repository.config
+                last_failure_date = str((market_job or {}).get("last_failure_date") or "")
+                last_error = market_calc_error or (market_job or {}).get("last_error", "")
                 self._respond({"code": 0, "data": {
                     "service": "ok",
                     "tushareConfigured": SERVICE.client.available,
@@ -75,8 +82,13 @@ class ApiHandler(BaseHTTPRequestHandler):
                             "database": bool(calc_config.get("database")),
                             "driver": SERVICE._calc_repository._driver() is not None,
                         },
+                        "today": today,
+                        "todayIsTradeDay": today_is_trade_day,
                         "lastSuccessDate": SERVICE._confirmed_market_trade_date() if market_calc_available else (market_job or {}).get("last_success_date", ""),
-                        "lastError": market_calc_error or (market_job or {}).get("last_error", ""),
+                        "dataStage": SERVICE._latest_data_stage() if market_calc_available else "",
+                        "lastError": last_error,
+                        "lastFailureDate": last_failure_date,
+                        "lastErrorActive": bool(last_error) and (last_failure_date == today or bool(market_calc_error)),
                     },
                     "monitorSnapshot": bool(OFFICIAL_MONITOR.repository.active_snapshot()),
                     "monitorRefreshing": OFFICIAL_MONITOR.refreshing,

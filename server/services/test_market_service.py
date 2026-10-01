@@ -281,6 +281,12 @@ class MarketRepositoryConfigTests(unittest.TestCase):
         self.assertFalse(MarketService._formal_retry_due(datetime(2026, 9, 30, 16, 15)))
         self.assertFalse(MarketService._formal_retry_due(datetime(2026, 9, 30, 23, 30)))
 
+    def test_cold_start_catch_up_is_limited_to_first_half_of_allowed_hour(self):
+        self.assertTrue(MarketService._formal_catch_up_due(datetime(2026, 9, 30, 16, 15)))
+        self.assertTrue(MarketService._formal_catch_up_due(datetime(2026, 9, 30, 23, 30)))
+        self.assertFalse(MarketService._formal_catch_up_due(datetime(2026, 9, 30, 23, 31)))
+        self.assertFalse(MarketService._formal_catch_up_due(datetime(2026, 9, 30, 15, 45)))
+
     def test_trade_day_gate_uses_calendar_without_latest_quote_request(self):
         service = MarketService()
 
