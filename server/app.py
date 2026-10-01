@@ -71,6 +71,7 @@ class ApiHandler(BaseHTTPRequestHandler):
                 calc_config = SERVICE._calc_repository.config
                 last_failure_date = str((market_job or {}).get("last_failure_date") or "")
                 last_error = market_calc_error or (market_job or {}).get("last_error", "")
+                latest_data_date, latest_data_stage = SERVICE._latest_data_stage_date() if market_calc_available else ("", "")
                 self._respond({"code": 0, "data": {
                     "service": "ok",
                     "tushareConfigured": SERVICE.client.available,
@@ -85,7 +86,8 @@ class ApiHandler(BaseHTTPRequestHandler):
                         "today": today,
                         "todayIsTradeDay": today_is_trade_day,
                         "lastSuccessDate": SERVICE._confirmed_market_trade_date() if market_calc_available else (market_job or {}).get("last_success_date", ""),
-                        "dataStage": SERVICE._latest_data_stage() if market_calc_available else "",
+                        "latestDataDate": latest_data_date,
+                        "dataStage": latest_data_stage,
                         "lastError": last_error,
                         "lastFailureDate": last_failure_date,
                         "lastErrorActive": bool(last_error) and (last_failure_date == today or bool(market_calc_error)),
