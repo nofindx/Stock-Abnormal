@@ -66,5 +66,59 @@ class PredictionHealthTests(unittest.TestCase):
             service.close()
 
 
+class DetailDataQualityTests(unittest.TestCase):
+    def _service(self, quotes):
+        service = MarketService()
+        service._stock_rows = lambda: [{
+            "ts_code": "000001.SZ", "symbol": "000001", "name": "测试股票",
+            "market": "SZSE", "board": "主板", "isST": False,
+        }]
+        dates = [f"2026-08-{index:02d}" for index in range(1, 31)]
+        vector = [{"date": value, "return": 0.0} for value in dates]
+        service._calc_repository = SimpleNamespace(
+            available=True,
+            get_index=lambda _code: {
+                "index_code": "399001.SZ", "latest_close": 100.0,
+                "index_return_vector": vector,
+            },
+        )
+        service._realtime = SimpleNamespace(fetch_many=lambda _codes: quotes)
+        service._future_trade_dates = lambda _latest, _count: []
+        return service
+
+    def test_mysql_base_and_both_realtime_quotes_are_reported_as_realtime(self):
+        service = self._service({
+            "000001.SZ": {"current": 11.0, "pctChg": 10.0, "updatedAt": "2026-09-30T10:00:00"},
+            "399001.SZ": {"current": 101.0, "pctChg": 1.0, "updatedAt": "2026-09-30T10:00:00"},
+        })
+        try:
+            result = service._detail_from_repository(
+                service._stock_rows()[0],
+                {"latest_close": 10.0, "as_of_trade_date": "20260929", "data_stage": "formal", "stock_return_vector": [
+                    {"date": f"2026-08-{index:02d}", "return": 0.0} for index in range(1, 31)
+                ]},
+            )
+            self.assertTrue(result["dataQuality"]["realtime"])
+            self.assertFalse(result["dataQuality"]["fallback"])
+        finally:
+            service.close()
+
+    def test_realtime_failure_keeps_mysql_result_and_marks_unavailable(self):
+        service = self._service({})
+        try:
+            result = service._detail_from_repository(
+                service._stock_rows()[0],
+                {"latest_close": 10.0, "as_of_trade_date": "20260929", "data_stage": "formal", "stock_return_vector": [
+                    {"date": f"2026-08-{index:02d}", "return": 0.0} for index in range(1, 31)
+                ]},
+            )
+            self.assertEqual(result["currentPrice"], "10.00")
+            self.assertFalse(result["dataQuality"]["realtime"])
+            self.assertTrue(result["dataQuality"]["fallback"])
+            self.assertEqual(result["dataQuality"]["message"], "实时行情暂不可用")
+        finally:
+            service.close()
+
+
 if __name__ == "__main__":
     unittest.main()
