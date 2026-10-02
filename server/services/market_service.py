@@ -1509,6 +1509,57 @@ class MarketService:
         text = str(value or "")
         return text[:16].replace("T", " ") if text else ""
 
+    @staticmethod
+    def _age_seconds(value: Any) -> Optional[int]:
+        """把持久化更新时间转成健康检查可读的数据年龄。"""
+
+        if not value:
+            return None
+        if isinstance(value, datetime):
+            parsed = value if value.tzinfo else value.replace(tzinfo=SHANGHAI_TZ)
+        else:
+            text = str(value).strip().replace("T", " ")
+            try:
+                parsed = datetime.fromisoformat(text)
+            except ValueError:
+                return None
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=SHANGHAI_TZ)
+        return max(0, int((datetime.now(SHANGHAI_TZ) - parsed.astimezone(SHANGHAI_TZ)).total_seconds()))
+
+    def prediction_health(self, today_is_trade_day: Optional[bool] = None) -> Dict[str, Any]:
+        """返回两个预测数据集的更新时间、年龄和错误状态。"""
+
+        result: Dict[str, Any] = {}
+        for scope in ("today", "next_day"):
+            record: Optional[Dict[str, Any]] = None
+            if self._calc_repository.available:
+                try:
+                    record = self._calc_repository.get_prediction(scope)
+                except Exception as exc:  # noqa: BLE001 - 健康接口不能影响业务接口
+                    result[scope] = {"available": False, "error": str(exc)[:160]}
+                    continue
+            cached = self._prediction_cache.get(scope)
+            updated = (record or {}).get("updated_at") or (cached[0] if cached else None)
+            items = (record or {}).get("items")
+            if items is None and cached:
+                items = cached[1]
+            age_seconds = self._age_seconds(updated)
+            result[scope] = {
+                "available": bool(record or cached),
+                "tradeDate": str((record or {}).get("trade_date") or self._prediction_trade_date.get(scope, "")),
+                "updatedAt": self._format_prediction_datetime(updated),
+                "ageSeconds": age_seconds,
+                # 节假日允许沿用最近成功数据，不把自然日年龄误报成故障。
+                "stale": bool(age_seconds is None or (age_seconds > 36 * 3600 and today_is_trade_day is not False)),
+                "itemCount": len(items or []),
+                "dataStage": str((record or {}).get("data_stage") or "formal"),
+                "dataQuality": str((record or {}).get("data_quality") or "confirmed"),
+                "ruleVersion": str((record or {}).get("rule_version") or PREDICTION_RULE_VERSION),
+                "lastError": str((record or {}).get("last_error") or self._prediction_last_error.get(scope, ""))[:160],
+            }
+        return result
+
     def predictions(self, scope: str, force: bool = False) -> Dict[str, Any]:
         if scope not in ("today", "next_day"):
             raise ValueError("scope 必须是 today 或 next_day")

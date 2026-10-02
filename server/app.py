@@ -72,6 +72,8 @@ class ApiHandler(BaseHTTPRequestHandler):
                 last_failure_date = str((market_job or {}).get("last_failure_date") or "")
                 last_error = market_calc_error or (market_job or {}).get("last_error", "")
                 latest_data_date, latest_data_stage = SERVICE._latest_data_stage_date() if market_calc_available else ("", "")
+                monitor_health = OFFICIAL_MONITOR.health_stats(today_is_trade_day)
+                prediction_health = SERVICE.prediction_health(today_is_trade_day)
                 self._respond({"code": 0, "data": {
                     "service": "ok",
                     "tushareConfigured": SERVICE.client.available,
@@ -92,7 +94,14 @@ class ApiHandler(BaseHTTPRequestHandler):
                         "lastFailureDate": last_failure_date,
                         "lastErrorActive": bool(last_error) and (last_failure_date == today or bool(market_calc_error)),
                     },
-                    "monitorSnapshot": bool(OFFICIAL_MONITOR.repository.active_snapshot()),
+                    "dataSources": {
+                        "tushare": SERVICE.client.health_stats(),
+                        "realtime": SERVICE._realtime.health_stats(),
+                    },
+                    "prediction": prediction_health,
+                    "monitor": monitor_health,
+                    # 保留旧字段，兼容旧版小程序健康检查。
+                    "monitorSnapshot": monitor_health["available"],
                     "monitorRefreshing": OFFICIAL_MONITOR.refreshing,
                 }, "message": "ok"})
                 return

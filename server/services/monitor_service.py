@@ -176,6 +176,36 @@ class OfficialMonitorService:
 
         self._scheduler_stop.set()
 
+    def health_stats(self, today_is_trade_day: Optional[bool] = None) -> Dict[str, Any]:
+        """返回当前监管快照年龄和采集状态，不读取公告正文。"""
+
+        snapshot = self.repository.active_snapshot()
+        state = self.repository.states()
+        updated_at = str((snapshot or {}).get("updatedAt") or "")
+        age_seconds: Optional[int] = None
+        if updated_at:
+            try:
+                parsed = datetime.fromisoformat(updated_at)
+                if parsed.tzinfo is None:
+                    parsed = parsed.replace(tzinfo=SHANGHAI_TZ)
+                age_seconds = max(0, int((datetime.now(SHANGHAI_TZ) - parsed.astimezone(SHANGHAI_TZ)).total_seconds()))
+            except ValueError:
+                age_seconds = None
+        return {
+            "available": bool(snapshot),
+            "snapshotDate": str((snapshot or {}).get("snapshotDate") or ""),
+            "updatedAt": updated_at,
+            "ageSeconds": age_seconds,
+            # 节假日不要求公告快照按自然日滚动更新。
+            "stale": bool(age_seconds is None or (age_seconds > 36 * 3600 and today_is_trade_day is not False)),
+            "itemCount": len((snapshot or {}).get("items") or []),
+            "dataQuality": (snapshot or {}).get("dataQuality") or {},
+            "refreshing": bool(self.refreshing),
+            "lastStatus": state.get("last_status", ""),
+            "lastFailureDate": state.get("last_failure_date", ""),
+            "lastError": self.last_error[:160] if self.last_error else "",
+        }
+
     def _scheduler_loop(self) -> None:
         # 启动后先读当前快照；00:00 后每日首次采集，失败只在次日 01:00-09:00 每小时重试。
         self._scheduler_stop.wait(0.5)

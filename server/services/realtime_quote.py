@@ -8,7 +8,9 @@ from __future__ import annotations
 
 import json
 import re
-from datetime import datetime
+import time
+from datetime import datetime, timezone
+from threading import Lock
 from typing import Any, Dict, Iterable
 from urllib.parse import quote
 from urllib.request import Request, urlopen
@@ -20,6 +22,46 @@ class RealtimeQuoteClient:
     endpoint = "https://qt.gtimg.cn/q="
     sina_endpoint = "https://hq.sinajs.cn/list="
     eastmoney_endpoint = "https://push2.eastmoney.com/api/qt/stock/get"
+
+    def __init__(self) -> None:
+        # 仅记录来源级聚合统计，不保存股票代码、行情正文或请求 URL。
+        self._stats: Dict[str, Dict[str, Any]] = {}
+        self._stats_lock = Lock()
+
+    @staticmethod
+    def _stat_time() -> str:
+        return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+    def _record_stat(self, source: str, success: bool, elapsed: float, error: str = "") -> None:
+        with self._stats_lock:
+            item = self._stats.setdefault(source, {
+                "requests": 0, "successes": 0, "failures": 0,
+                "lastLatencyMs": None, "lastRequestAt": "",
+                "lastSuccessAt": "", "lastFailureAt": "", "lastError": "",
+            })
+            item["requests"] += 1
+            item["lastLatencyMs"] = round(elapsed * 1000, 1)
+            item["lastRequestAt"] = self._stat_time()
+            if success:
+                item["successes"] += 1
+                item["lastSuccessAt"] = item["lastRequestAt"]
+                item["lastError"] = ""
+            else:
+                item["failures"] += 1
+                item["lastFailureAt"] = item["lastRequestAt"]
+                item["lastError"] = str(error or "请求失败")[:160]
+
+    def health_stats(self) -> Dict[str, Any]:
+        """返回腾讯、新浪、东方财富来源级健康统计。"""
+
+        with self._stats_lock:
+            sources = {name: dict(value) for name, value in self._stats.items()}
+        totals = {"requests": 0, "successes": 0, "failures": 0}
+        for value in sources.values():
+            for key in totals:
+                totals[key] += int(value.get(key) or 0)
+        totals["successRate"] = round(totals["successes"] / totals["requests"], 4) if totals["requests"] else None
+        return {"totals": totals, "sources": sources}
 
     @staticmethod
     def _market_code(ts_code: str) -> str:
@@ -35,11 +77,18 @@ class RealtimeQuoteClient:
         result: Dict[str, Dict[str, Any]] = {}
         for offset in range(0, len(codes), 100):
             batch = codes[offset:offset + 100]
-            for parser in (self._fetch_tencent, self._fetch_sina, self._fetch_eastmoney):
+            for source, parser in (
+                ("tencent", self._fetch_tencent),
+                ("sina", self._fetch_sina),
+                ("eastmoney", self._fetch_eastmoney),
+            ):
+                started = time.monotonic()
                 try:
                     quotes = parser(batch)
+                    self._record_stat(source, bool(quotes), time.monotonic() - started, "" if quotes else "未返回有效行情")
                 except Exception:
                     quotes = {}
+                    self._record_stat(source, False, time.monotonic() - started, "上游请求异常")
                 for code, quote_data in quotes.items():
                     result.setdefault(code, quote_data)
                 if all(code.upper() in result for code in batch):

@@ -25,7 +25,7 @@ TUSHARE_TOKEN=你的token MYSQL_HOST=... MYSQL_USER=... MYSQL_PASSWORD=... pytho
 
 ## 接口
 
-- `GET /health`：服务、Tushare、MySQL、当日是否交易日、最新数据日期/阶段和最近失败日期；非交易日不会把上一交易日遗留的失败记录误报为当日活动故障。
+- `GET /health`：服务、Tushare、MySQL、当日是否交易日、最新数据日期/阶段和最近失败日期；同时返回 Tushare 各接口、腾讯/新浪/东方财富各行情源的请求次数、成功率、最近耗时和最近失败时间，以及 `today/next_day` 预测数据集、监控快照的更新时间、年龄、阶段、质量和 `stale` 状态。统计只保留聚合元数据，不保存 Token、请求参数、股票代码或上游响应正文。非交易日不会把上一交易日遗留的失败记录误报为当日活动故障。
 - `GET /api/stocks/search?q=宁`：股票搜索，最多返回 5 条。
 - `GET /api/stocks/detail?ts_code=300750.SZ`：单股状态、偏离和预警。
 - `GET /api/stocks/announcements?ts_code=300750.SZ`：查询巨潮资讯中的交易所异动及风险提示公告。

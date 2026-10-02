@@ -60,6 +60,9 @@ class TushareClient:
         self._pro = None
         self._cache: Dict[str, tuple[float, Any]] = {}
         self._cache_lock = Lock()
+        # 只保留聚合统计，不保存 token、请求参数或上游响应正文。
+        self._stats: Dict[str, Dict[str, Any]] = {}
+        self._stats_lock = Lock()
 
     @property
     def available(self) -> bool:
@@ -76,14 +79,57 @@ class TushareClient:
 
     def call(self, method: str, **kwargs: Any):
         """调用指定接口，统一转换为不含敏感信息的异常。"""
-
+        started = time.monotonic()
         try:
-            return getattr(self._api(), method)(**kwargs)
+            result = getattr(self._api(), method)(**kwargs)
+            self._record_stat(method, True, time.monotonic() - started)
+            return result
         except Exception as exc:  # Tushare 异常类型在不同版本不一致。
+            self._record_stat(method, False, time.monotonic() - started, exc)
             message = str(exc)
             if "token" in message.lower() or "积分" in message or "权限" in message:
                 raise TushareUnavailable("Tushare 授权或接口权限不可用") from exc
             raise TushareUnavailable(f"Tushare {method} 请求失败") from exc
+
+    @staticmethod
+    def _stat_time() -> str:
+        return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+    def _record_stat(self, method: str, success: bool, elapsed: float, error: Optional[Exception] = None) -> None:
+        with self._stats_lock:
+            item = self._stats.setdefault(method, {
+                "requests": 0, "successes": 0, "failures": 0,
+                "lastLatencyMs": None, "lastRequestAt": "",
+                "lastSuccessAt": "", "lastFailureAt": "", "lastError": "",
+            })
+            item["requests"] += 1
+            item["lastLatencyMs"] = round(elapsed * 1000, 1)
+            item["lastRequestAt"] = self._stat_time()
+            if success:
+                item["successes"] += 1
+                item["lastSuccessAt"] = item["lastRequestAt"]
+                item["lastError"] = ""
+            else:
+                item["failures"] += 1
+                item["lastFailureAt"] = item["lastRequestAt"]
+                # 健康接口只保留类别，避免第三方异常带出请求参数或响应正文。
+                message = str(error or "请求失败").lower()
+                if "token" in message or "积分" in message or "权限" in message:
+                    item["lastError"] = "授权或接口权限不可用"
+                else:
+                    item["lastError"] = "上游接口调用失败"
+
+    def health_stats(self) -> Dict[str, Any]:
+        """返回数据源健康统计；结果不含密钥、参数或行情正文。"""
+
+        with self._stats_lock:
+            methods = {name: dict(value) for name, value in self._stats.items()}
+        totals = {"requests": 0, "successes": 0, "failures": 0}
+        for value in methods.values():
+            for key in totals:
+                totals[key] += int(value.get(key) or 0)
+        totals["successRate"] = round(totals["successes"] / totals["requests"], 4) if totals["requests"] else None
+        return {"configured": self.available, "totals": totals, "methods": methods}
 
     def _cached(self, key: str, ttl: int, loader):
         """进程内短缓存，避免页面切换重复请求同一份日历/行情。"""
