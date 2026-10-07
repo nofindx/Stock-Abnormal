@@ -28,7 +28,7 @@ BOARD_BY_MARKET = {"主板": Board.MAIN, "创业板": Board.CHINEXT, "科创板"
 SHANGHAI_TZ = ZoneInfo("Asia/Shanghai") if ZoneInfo else timezone(timedelta(hours=8))
 # 停牌/复牌重置、上涨同向计数和预测阶段切换属于同一套规则口径。
 # 版本变化会触发服务启动时用现有基础数据重建预测数据集。
-PREDICTION_RULE_VERSION = "2026-10-formal-pct-triggered-v9"
+PREDICTION_RULE_VERSION = "2026-10-formal-pct-triggered-v10"
 
 # GBK 区位表不依赖第三方拼音包，适合云托管的轻量搜索场景。
 _PINYIN_RANGES = (
@@ -148,7 +148,11 @@ class MarketService:
                 records = [self._calc_repository.get_prediction(scope) for scope in ("today", "next_day")]
                 if records and all(record and record.get("rule_version") == PREDICTION_RULE_VERSION for record in records):
                     return
-                stage = self._latest_data_stage() or "formal"
+                # 版本升级包含正式涨跌回补修复，先用最近交易日正式日线替换
+                # 历史初态向量，再重建预测缓存，避免旧的 +0.00% 继续外露。
+                stage = "formal"
+                if self._calc_repository.all_calculations() and self._calc_repository.all_indexes():
+                    self.update_market_data(data_stage="formal", allow_non_trade_day=True)
                 if self._calc_repository.all_calculations() and self._calc_repository.all_indexes():
                     self._generate_prediction_datasets(stage)
             except Exception as exc:  # noqa: BLE001 - 重建失败不影响旧数据读取
@@ -933,7 +937,7 @@ class MarketService:
                     needed_dates = [item for item in open_dates if item > previous_date]
                     # 初态已经写入当前交易日时，正式任务仍必须重新拉取该日
                     # Tushare 收盘数据，不能因日期相同而提前返回。
-                    if data_stage == "formal" and self._latest_data_stage() == "initial" and latest not in needed_dates:
+                    if data_stage == "formal" and (self._latest_data_stage() == "initial" or allow_non_trade_day) and latest not in needed_dates:
                         needed_dates.append(latest)
                     if not needed_dates:
                         # 即使没有新增交易日，也要把当日 stock_basic 替换写入，识别新上市和状态变化。
@@ -1007,6 +1011,7 @@ class MarketService:
                     if previous_close:
                         item["latest_close"] = previous_close
                     item["index_return_vector"] = vector[-30:]
+                    item["data_stage"] = data_stage
                     item["indexName"] = item.get("index_name") or index_code
                     indexes.append(item)
                 # 正式数据必须同时拿到目标交易日的股票日线和全部对应指数日线。
