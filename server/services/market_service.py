@@ -28,7 +28,7 @@ BOARD_BY_MARKET = {"主板": Board.MAIN, "创业板": Board.CHINEXT, "科创板"
 SHANGHAI_TZ = ZoneInfo("Asia/Shanghai") if ZoneInfo else timezone(timedelta(hours=8))
 # 停牌/复牌重置、上涨同向计数和预测阶段切换属于同一套规则口径。
 # 版本变化会触发服务启动时用现有基础数据重建预测数据集。
-PREDICTION_RULE_VERSION = "2026-09-upward-v8-suspension-reset"
+PREDICTION_RULE_VERSION = "2026-10-formal-pct-triggered-v9"
 
 # GBK 区位表不依赖第三方拼音包，适合云托管的轻量搜索场景。
 _PINYIN_RANGES = (
@@ -886,12 +886,21 @@ class MarketService:
                     continue
                 vector = self._vector_entries(item.get("stock_return_vector"))
                 previous_close = item.get("latest_close")
-                if previous_close and float(previous_close) > 0:
-                    vector = [entry for entry in vector if entry.get("date") != str(trade_date)]
-                    vector.append(self._return_entry(trade_date, float(previous_close), float(close)))
+                row_date = str(trade_date)
+                # 初态和正式收盘都写同一个交易日。此时 latest_close 是初态价，
+                # 不能拿它作为“前收”再次计算，否则正式涨跌会被写成初态到收盘的
+                # 伪收益，甚至在某些回补路径中落成 0%。正式日线自身的 pct_chg
+                # 才是该交易日相对前收的权威结果。
+                vector = [entry for entry in vector if entry.get("date") != row_date]
+                pct_chg = row.get("pct_chg")
+                as_of = str(item.get("as_of_trade_date") or "")
+                if as_of == row_date and pct_chg is not None:
+                    vector.append({"date": row_date, "return": float(pct_chg)})
+                elif previous_close and float(previous_close) > 0:
+                    vector.append(self._return_entry(row_date, float(previous_close), float(close)))
                 item["stock_return_vector"] = vector[-30:]
                 item["latest_close"] = float(close)
-                item["as_of_trade_date"] = str(trade_date)
+                item["as_of_trade_date"] = row_date
 
     def update_market_data(self, data_stage: str = "formal", allow_non_trade_day: bool = False) -> Dict[str, Any]:
         """生成或增量更新最小计算数据，不保存原始日线。"""
@@ -985,11 +994,16 @@ class MarketService:
                         close = row.get("close")
                         if close is None or float(close) <= 0:
                             continue
-                        if previous_close and float(previous_close) > 0:
-                            vector = [entry for entry in vector if entry.get("date") != str(row["trade_date"])]
-                            vector.append(self._return_entry(row["trade_date"], float(previous_close), float(close)))
+                        row_date = str(row["trade_date"])
+                        vector = [entry for entry in vector if entry.get("date") != row_date]
+                        existing_date = str(item.get("as_of_trade_date") or "")
+                        pct_chg = row.get("pct_chg")
+                        if existing_date == row_date and pct_chg is not None:
+                            vector.append({"date": row_date, "return": float(pct_chg)})
+                        elif previous_close and float(previous_close) > 0:
+                            vector.append(self._return_entry(row_date, float(previous_close), float(close)))
                         previous_close = float(close)
-                        item["as_of_trade_date"] = str(row["trade_date"])
+                        item["as_of_trade_date"] = row_date
                     if previous_close:
                         item["latest_close"] = previous_close
                     item["index_return_vector"] = vector[-30:]
@@ -1295,6 +1309,7 @@ class MarketService:
                     "scope": "当日" if scope == "today" else "次日",
                     "currentPrice": f"{float(calc.get('latest_close')):.2f}" if calc.get("latest_close") is not None else "--",
                     "change": _pct(stock_vector[-1].get("return") if stock_vector else None),
+                    "changeSource": str(calc.get("data_stage") or "formal"),
                     "trigger": (
                         f"同向上涨达到 {up_direction} 次（要求 {rule.severe_same_direction_count} 次）"
                         if trigger_kind == "same_direction" else
@@ -1308,7 +1323,13 @@ class MarketService:
                     ),
                     "tradeDate": str(calc.get("as_of_trade_date") or ""),
                     "suspensionResetDate": suspension.get("resetDate", ""),
+                    "triggered": bool(
+                        trigger_kind == "same_direction"
+                        or deviation >= threshold.up
+                    ),
                 }
+                candidate["alertText"] = "⚠️已触发" if candidate["triggered"] else ""
+                candidate["cardTone"] = "triggered" if candidate["triggered"] else ""
                 candidate["_stockVector"] = stock_vector
                 candidate["_indexVector"] = index_vector
                 candidate["_indexCode"] = index_code
@@ -1317,6 +1338,7 @@ class MarketService:
                 candidate["_window"] = actual_window
                 candidate["_rule_window"] = window
                 candidate["_threshold"] = threshold
+                candidate["_trigger_kind"] = trigger_kind
                 candidates.append(candidate)
 
         if use_realtime and candidates:
@@ -1348,14 +1370,21 @@ class MarketService:
                         item["_window"] = actual_window or item["_window"]
                         item["deviation"] = f"{item['_window']}日 {_pct(deviation)}"
                         item["trigger"] = f"上涨 ≥ {max(0.01, distance):.2f}%" if distance > 0 else "已达到阈值"
+                        item["triggered"] = bool(
+                            item.get("_trigger_kind") == "same_direction"
+                            or deviation >= rule.up
+                        )
+                        item["alertText"] = "⚠️已触发" if item["triggered"] else ""
+                        item["cardTone"] = "triggered" if item["triggered"] else ""
                     item["currentPrice"] = f"{float(quote.get('current')):.2f}"
                     item["change"] = _pct(quote.get("pctChg"))
+                    item["changeSource"] = "realtime"
                     item["quoteUpdatedAt"] = quote.get("updatedAt", "")
                     item["quoteSource"] = quote.get("source", "腾讯行情")
                 updated.append(item)
             candidates = updated
         for item in candidates:
-            for key in ("_stockVector", "_indexVector", "_indexCode", "_indexLatestClose", "_deviation", "_window", "_rule_window", "_threshold"):
+            for key in ("_stockVector", "_indexVector", "_indexCode", "_indexLatestClose", "_deviation", "_window", "_rule_window", "_threshold", "_trigger_kind"):
                 item.pop(key, None)
         candidates.sort(key=lambda item: abs(float(item.get("deviation", "0").split()[-1].replace("%", ""))) if item.get("deviation") else 999, reverse=True)
         return candidates[:100]
@@ -1728,6 +1757,7 @@ class MarketService:
             if quote:
                 item["currentPrice"] = f"{float(quote.get('current')):.2f}"
                 item["change"] = _pct(quote.get("pctChg"))
+                item["changeSource"] = "realtime"
                 item["quoteUpdatedAt"] = quote.get("updatedAt", "")
                 item["quoteSource"] = quote.get("source", "腾讯行情")
             # 只有股票和对应指数同时成功，才临时修正偏离值，避免混合时点。
@@ -1752,6 +1782,16 @@ class MarketService:
                     if distance is not None:
                         item["trigger"] = f"上涨 ≥ {distance:.2f}%" if distance > 0 else "已达到阈值"
                         item["rule"] = f"连续{rule_window}个交易日内偏离值达到 +{threshold.up:.0f}%"
+                    item["triggered"] = bool(
+                        deviation >= threshold.up
+                        or str(item.get("trigger") or "").startswith("同向上涨")
+                    )
+                    item["alertText"] = "⚠️已触发" if item["triggered"] else ""
+                    item["cardTone"] = "triggered" if item["triggered"] else ""
+                elif deviation is not None:
+                    item["triggered"] = False
+                    item["alertText"] = ""
+                    item["cardTone"] = ""
             output.append(item)
         return output
 

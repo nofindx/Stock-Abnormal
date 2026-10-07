@@ -82,7 +82,7 @@
 .guide-line { display: block; line-height: 38rpx; }
 .guide-line-primary { color: #1C1C1E; font-size: 29rpx; font-weight: 650; text-align: center; }
 .guide-lines { display: flex; width: 100%; flex-direction: column; align-items: center; margin-top: 16rpx; }
-.guide-line-secondary { width: 100%; color: #1C1C1E; font-size: 23rpx; text-align: left; }
+.guide-line-secondary { width: 100%; color: #1C1C1E; font-size: 23rpx; text-align: center; }
 .guide-line-item { width: 100%; color: #1C1C1E; font-size: 24rpx; text-align: center; text-indent: 0; }
 .guide-bullet { display: inline-block; width: 28rpx; color: #1C1C1E; font-weight: 700; text-align: center; }
 

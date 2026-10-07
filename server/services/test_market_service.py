@@ -44,6 +44,25 @@ class MarketVectorTests(unittest.TestCase):
         self.assertEqual(len(result), 2)
         self.assertAlmostEqual(result[-1]["return"], 4.0285714286, places=6)
 
+    def test_formal_backfill_replaces_same_day_initial_return_with_pct_chg(self):
+        calculations = {
+            "000001.SZ": {
+                "latest_close": 110.0,
+                "as_of_trade_date": "20260930",
+                "stock_return_vector": [{"date": "20260930", "return": 5.0}],
+            }
+        }
+
+        class Frame:
+            empty = False
+
+            @staticmethod
+            def to_dict(_orient):
+                return [{"ts_code": "000001.SZ", "trade_date": "20260930", "close": 120.0, "pct_chg": 20.0}]
+
+        self.service._append_daily_rows(calculations, {"20260930": Frame()}, ["20260930"])
+        self.assertEqual(calculations["000001.SZ"]["stock_return_vector"][-1]["return"], 20.0)
+
     def test_same_direction_counts_one_continuous_run_once(self):
         """重叠的 3 日异常窗口只消费一次，不重复计数。"""
         dates = [f"2026-08-{index:02d}" for index in range(1, 11)]
@@ -113,6 +132,8 @@ class MarketVectorTests(unittest.TestCase):
         self.assertEqual(sorted(by_window), [10, 30])
         self.assertEqual(by_window[10]["rule"], "连续10个交易日内偏离值达到 +100%")
         self.assertEqual(by_window[30]["rule"], "连续30个交易日内偏离值达到 +200%")
+        self.assertTrue(by_window[10]["triggered"])
+        self.assertEqual(by_window[10]["alertText"], "⚠️已触发")
 
     def test_best_window_can_be_shorter_than_rule_horizon(self):
         # 10 日规则允许因有效数据边界少 1～2 日，但不能退化成任意 3 日窗口。

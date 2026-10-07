@@ -46,6 +46,11 @@
   background: #FFFFFF;
   box-shadow: 0 2rpx 8rpx rgba(28, 28, 30, .035);
 }
+.prediction-row-triggered { border-color: #F0B6B2; background: #FFF4F2; }
+.prediction-row-triggered .prediction-change-value,
+.prediction-row-triggered .deviation,
+.prediction-row-triggered .trigger-value { color: #C0271E; }
+.prediction-alert { display: inline-block; margin-left: 10rpx; color: #C0271E; font-size: 20rpx; font-weight: 700; white-space: nowrap; }
 .prediction-row:first-child { margin-top: 0; }
 .prediction-top { display: grid; grid-template-columns: minmax(0, 1fr) minmax(250rpx, auto); align-items: center; gap: 14rpx; }
 .prediction-stock { display: flex; min-width: 0; flex: 1; align-items: baseline; gap: 10rpx; }

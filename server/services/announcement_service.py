@@ -49,8 +49,9 @@ class AnnouncementService:
 
         found: Dict[str, Dict[str, Any]] = {}
         errors: List[str] = []
-        # 巨潮的 fulltext 查询按交易所栏目分别执行；单查 szse 会漏掉上交所披露。
-        for column in ("sse", "szse"):
+        # 巨潮的 fulltext 查询按交易所栏目分别执行；北交所使用 bse，
+        # 否则 8/4/9 开头的北交所股票（例如世纪数码 920229）会漏掉。
+        for column in ("sse", "szse", "bse"):
             for keyword in self.keywords:
                 page = 1
                 while page <= 8:
@@ -207,9 +208,10 @@ class AnnouncementService:
         symbol = str(symbol or "").strip()
         if not symbol:
             return {"items": [], "source": "巨潮资讯", "sourceUrl": self.endpoint, "available": True}
+        column = "bse" if symbol.startswith(("4", "8", "9")) else "szse" if symbol.startswith(("0", "2", "3")) else "sse"
         payload = {
             "pageNum": 1, "pageSize": max(20, min(int(limit) * 5, 50)),
-            "column": "szse" if symbol.startswith(("0", "2", "3")) else "sse",
+            "column": column,
             "tabName": "fulltext", "plate": "", "stock": "", "searchkey": symbol,
             "secid": "", "category": "", "trade": "", "seDate": "",
         }

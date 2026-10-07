@@ -20,9 +20,9 @@
       <view class="guide-line guide-line-primary">搜索你想查询的股票</view>
       <view class="guide-lines">
         <view class="guide-line guide-line-secondary">按交易所最新规则计算</view>
-        <view class="guide-line guide-line-item"><text class="guide-bullet">-</text>当前异动状态</view>
-        <view class="guide-line guide-line-item"><text class="guide-bullet">-</text>四项预警阈值</view>
-        <view class="guide-line guide-line-item"><text class="guide-bullet">-</text>未来十日偏离</view>
+        <view class="guide-line guide-line-item"><text class="guide-bullet">·</text>当前异动状态</view>
+        <view class="guide-line guide-line-item"><text class="guide-bullet">·</text>四项预警阈值</view>
+        <view class="guide-line guide-line-item"><text class="guide-bullet">·</text>未来十日偏离</view>
       </view>
     </view>
   </block>

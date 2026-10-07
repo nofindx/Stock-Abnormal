@@ -3,10 +3,12 @@ const { getPredictions, refreshPredictions } = require('../../utils/api')
 
 function normalizeItems(items = []) {
   return items.map((item, index) => {
-    const change = item.change == null || item.change === '' ? '--' : String(item.change)
+    const rawChange = item.change == null || item.change === '' ? '' : String(item.change)
+    const change = /^[-+]?0\.00%$/.test(rawChange) && !item.changeSource ? '--' : (rawChange || '--')
     const window = item.predictionWindow || ((String(item.deviation || '').match(/^(\d+)日/) || [])[1] || '')
     const rule = String(item.rule || '').replace(/^连续(\d+)个交易日/, '连续 $1 个交易日')
-    return { ...item, rule, predictionKey: item.predictionKey || `${item.ts_code || index}-${window || index}`, change, changeClass: change === '--' ? 'neutral' : (change[0] === '-' ? 'down' : 'up') }
+    const triggered = Boolean(item.triggered || item.cardTone === 'triggered')
+    return { ...item, rule, triggered, alertText: triggered ? (item.alertText || '⚠️已触发') : '', cardTone: triggered ? 'triggered' : '', predictionKey: item.predictionKey || `${item.ts_code || index}-${window || index}`, change, changeClass: change === '--' ? 'neutral' : (change[0] === '-' ? 'down' : 'up') }
   })
 }
 

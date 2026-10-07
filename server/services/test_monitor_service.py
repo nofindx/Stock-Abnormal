@@ -5,6 +5,7 @@ from datetime import date, timedelta
 from unittest.mock import Mock
 
 from server.services.monitor_service import OfficialMonitorService
+from server.services.announcement_service import AnnouncementService
 
 
 class MonitorWindowTests(unittest.TestCase):
@@ -21,6 +22,19 @@ class MonitorWindowTests(unittest.TestCase):
         else:
             os.environ["MONITOR_DB_PATH"] = self.previous_db_path
         self.temp_dir.cleanup()
+
+    def test_cninfo_query_market_includes_bse_column(self):
+        service = AnnouncementService()
+        columns = []
+
+        def request(payload):
+            columns.append(payload["column"])
+            return {"announcements": [], "hasMore": False}
+
+        service._request = request
+        result = service.query_market("2026-09-30", "2026-10-07")
+        self.assertTrue(result["available"])
+        self.assertIn("bse", columns)
 
     @staticmethod
     def event(start, end, risk="ordinary"):
