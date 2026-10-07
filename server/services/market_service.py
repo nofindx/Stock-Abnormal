@@ -790,6 +790,18 @@ class MarketService:
                     # 周末、法定节假日和临时休市日不请求行情源，也不刷新基础资料。
                     # 交易日历本身由 TushareClient 缓存，正常情况下每天只请求一次。
                     if not self._is_trade_day(today):
+                        # 休息日只允许把最近已完成交易日的初态补确认为正式收盘数据。
+                        # 不把休市日当成行情日，也不在空库时触发全市场初始化。
+                        latest = self.client.latest_trade_date()
+                        latest_date, latest_stage = self._latest_data_stage_date()
+                        if latest_date and latest_date <= latest and latest_stage == "initial":
+                            catch_up_slot = now.strftime("%Y%m%d-%H-%M")[:-1]
+                            marker = f"rest-formal-{latest}-{catch_up_slot}"
+                            if self._market_last_formal_attempt != marker:
+                                self._market_last_formal_attempt = marker
+                                result = self.update_market_data(data_stage="formal", allow_non_trade_day=True)
+                                if result.get("updated") and result.get("tradeDate") == latest:
+                                    self._generate_prediction_datasets("formal")
                         self._market_scheduler_stop.wait(60)
                         continue
                     if 15 <= now.hour < 16:
@@ -834,6 +846,12 @@ class MarketService:
         )
 
     @staticmethod
+    def _market_update_allowed(today_is_trade_day: bool, allow_non_trade_day: bool = False) -> bool:
+        """仅显式的历史正式回补可以越过当前自然日休市闸门。"""
+
+        return bool(today_is_trade_day or allow_non_trade_day)
+
+    @staticmethod
     def _formal_retry_due(now: datetime) -> bool:
         """判断当前分钟是否命中正式数据重试时段。"""
 
@@ -875,7 +893,7 @@ class MarketService:
                 item["latest_close"] = float(close)
                 item["as_of_trade_date"] = str(trade_date)
 
-    def update_market_data(self, data_stage: str = "formal") -> Dict[str, Any]:
+    def update_market_data(self, data_stage: str = "formal", allow_non_trade_day: bool = False) -> Dict[str, Any]:
         """生成或增量更新最小计算数据，不保存原始日线。"""
 
         if not self._calc_repository.available:
@@ -884,7 +902,7 @@ class MarketService:
             try:
                 self._calc_repository.ensure_schema()
                 today = datetime.now(SHANGHAI_TZ).strftime("%Y%m%d")
-                if not self._is_trade_day(today):
+                if not self._market_update_allowed(self._is_trade_day(today), allow_non_trade_day):
                     return {"updated": False, "reason": "今天不是交易日", "tradeDate": ""}
                 latest = self.client.latest_trade_date()
                 try:

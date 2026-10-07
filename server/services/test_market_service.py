@@ -302,6 +302,12 @@ class MarketRepositoryConfigTests(unittest.TestCase):
         self.assertEqual(calls, [("20260930", "20260930"), ("20261001", "20261001")])
         service.close()
 
+    def test_rest_day_formal_backfill_requires_explicit_opt_in(self):
+        self.assertFalse(MarketService._market_update_allowed(False))
+        # 显式允许时才会越过自然日闸门；后续行情读取仍由正式数据完整性校验保护。
+        self.assertTrue(MarketService._market_update_allowed(False, allow_non_trade_day=True))
+        self.assertTrue(MarketService._market_update_allowed(True))
+
 
 class PredictionVisibilityTests(unittest.TestCase):
     """次日预测按交易阶段和数据集日期控制可见性。"""
