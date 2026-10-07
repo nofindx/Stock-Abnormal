@@ -308,6 +308,15 @@ class MarketRepositoryConfigTests(unittest.TestCase):
         self.assertTrue(MarketService._market_update_allowed(False, allow_non_trade_day=True))
         self.assertTrue(MarketService._market_update_allowed(True))
 
+    def test_latest_data_stage_prefers_formal_batch(self):
+        service = MarketService()
+        service._calc_repository = SimpleNamespace(available=True, all_calculations=lambda: {
+            "a": {"as_of_trade_date": "20260930", "data_stage": "initial"},
+            "b": {"as_of_trade_date": "20260930", "data_stage": "formal"},
+        })
+        self.assertEqual(service._latest_data_stage_date(), ("20260930", "formal"))
+        service.close()
+
 
 class PredictionVisibilityTests(unittest.TestCase):
     """次日预测按交易阶段和数据集日期控制可见性。"""

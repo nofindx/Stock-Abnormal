@@ -1050,7 +1050,8 @@ class MarketService:
             if not rows:
                 return "", ""
             latest = max(str(item.get("as_of_trade_date") or "") for item in rows)
-            stage = next((str(item.get("data_stage") or "") for item in rows if str(item.get("as_of_trade_date") or "") == latest), "")
+            stages = [str(item.get("data_stage") or "") for item in rows if str(item.get("as_of_trade_date") or "") == latest]
+            stage = "formal" if "formal" in stages else (stages[0] if stages else "")
             return latest, stage
         except Exception:
             return "", ""
