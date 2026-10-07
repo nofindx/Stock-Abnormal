@@ -303,5 +303,52 @@ class MarketRepositoryConfigTests(unittest.TestCase):
         service.close()
 
 
+class PredictionVisibilityTests(unittest.TestCase):
+    """次日预测按交易阶段和数据集日期控制可见性。"""
+
+    STATE = {
+        "previousTradeDate": "20260930",
+        "targetTradeDate": "20261008",
+    }
+
+    def test_rest_day_uses_previous_trade_day_dataset(self):
+        self.assertTrue(MarketService._next_day_dataset_available(
+            "rest_day", self.STATE, "20260930", True,
+        ))
+
+    def test_trade_day_pre_open_uses_previous_trade_day_dataset(self):
+        self.assertTrue(MarketService._next_day_dataset_available(
+            "pre_open", self.STATE, "20260930", True,
+        ))
+
+    def test_intraday_hides_next_day_dataset(self):
+        self.assertFalse(MarketService._next_day_dataset_available(
+            "intraday", self.STATE, "20260930", True,
+        ))
+
+    def test_post_close_pending_shows_current_initial_dataset(self):
+        self.assertTrue(MarketService._next_day_dataset_available(
+            "post_close_pending", self.STATE, "20261008", True, "initial",
+        ))
+
+    def test_post_close_pending_hides_previous_dataset(self):
+        self.assertFalse(MarketService._next_day_dataset_available(
+            "post_close_pending", self.STATE, "20260930", True, "initial",
+        ))
+
+    def test_confirmed_close_requires_current_trade_day_dataset(self):
+        self.assertFalse(MarketService._next_day_dataset_available(
+            "post_close_confirmed", self.STATE, "20260930", True, "formal",
+        ))
+        self.assertTrue(MarketService._next_day_dataset_available(
+            "post_close_confirmed", self.STATE, "20261008", True, "formal",
+        ))
+
+    def test_missing_dataset_is_never_available(self):
+        self.assertFalse(MarketService._next_day_dataset_available(
+            "rest_day", self.STATE, "20260930", False,
+        ))
+
+
 if __name__ == "__main__":
     unittest.main()

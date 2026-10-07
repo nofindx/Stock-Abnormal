@@ -1095,7 +1095,9 @@ class MarketService:
         for scope in ("today", "next_day"):
             items = self._compute_prediction_from_repository(scope, use_realtime=False) or []
             dates = [str(item.get("tradeDate") or "") for item in items if item.get("tradeDate")]
-            trade_date = max(dates) if dates else self._confirmed_market_trade_date()
+            # 初态数据可能暂时没有任何候选，但仍绑定实际行情日期；否则
+            # 收盘待确认阶段会误判为尚未生成数据集。
+            trade_date = max(dates) if dates else (self._latest_data_stage_date()[0] or self._confirmed_market_trade_date())
             updated_at = datetime.now(SHANGHAI_TZ)
             self._prediction_cache[scope] = (updated_at, items)
             self._prediction_trade_date[scope] = trade_date
@@ -1452,7 +1454,9 @@ class MarketService:
         target_trade_date = today_value if is_trade_day else min((item for item in opened if item > today_value), default="")
         previous = max((item for item in opened if item < target_trade_date), default=self.client.latest_trade_date())
         following = min((item for item in opened if item > target_trade_date), default="")
-        if not is_trade_day or now.hour < 9:
+        if not is_trade_day:
+            phase = "rest_day"
+        elif now.hour < 9:
             phase = "pre_open"
         elif now.hour < 15:
             phase = "intraday"
@@ -1469,13 +1473,38 @@ class MarketService:
             "previousTradeDate": previous,
             "nextTradeDate": following,
             "phase": phase,
-            # 09:00 前、盘中以及收盘待确认阶段，当前页都展示“下一交易日
-            # 预测”已经生成的本交易日候选。只有正式收盘数据确认后，才把
-            # 当前页切回今天的正式结果，并开放真正的下一交易日按钮。
+            # 休息日和交易日盘前都沿用上一交易日生成的次日预测；交易日
+            # 盘中仍沿用它作为“当日预测”展示。收盘后的初态数据生成后，
+            # 次日页即可开放；正式确认后切回今天的正式结果。
             "todaySourceScope": "today" if phase == "post_close_confirmed" else "next_day",
         }
         self._prediction_state_cache = (now, state)
         return state
+
+    @staticmethod
+    def _next_day_dataset_available(
+        phase: str,
+        state: Dict[str, Any],
+        dataset_date: str,
+        has_dataset: bool,
+        data_stage: str = "formal",
+    ) -> bool:
+        """判断次日页是否可见，不把“有数据”与“当前阶段”混为一谈。
+
+        休息日和交易日盘前展示上一交易日生成的次日预测；交易时间隐藏；
+        收盘待确认期间若已有当天初态数据则开放；正式收盘确认后必须
+        使用当天正式数据集。
+        """
+
+        if not has_dataset or not dataset_date:
+            return False
+        if phase in ("rest_day", "pre_open"):
+            return dataset_date == str(state.get("previousTradeDate") or "")
+        if phase == "post_close_pending":
+            return data_stage == "initial" and dataset_date == str(state.get("targetTradeDate") or "")
+        if phase == "post_close_confirmed":
+            return data_stage == "formal" and dataset_date == str(state.get("targetTradeDate") or "")
+        return False
 
     def _confirmed_market_trade_date(self) -> str:
         """返回已经落入基础数据集的最近交易日，不把日历日期当收盘日期。"""
@@ -1602,14 +1631,17 @@ class MarketService:
                     next_cached = self._prediction_cache["next_day"]
             except Exception as exc:
                 self._prediction_last_error["next_day"] = str(exc)
+        next_data_stage = str((next_persistent or {}).get("data_stage") or "formal")
         cached = self._prediction_cache.get(source_scope)
         items = cached[1] if cached else []
         trade_date = self._prediction_trade_date.get(source_scope, "")
         next_trade_date = self._prediction_trade_date.get("next_day", "")
         # 数据集即使候选列表为空也代表已经完成计算，不能用 items 长度判断
         # 次日按钮是否开放；同时必须有实际数据日期，避免把刷新租约空行当成结果。
-        next_trade_available = bool(next_cached and next_trade_date) and state["phase"] == "post_close_confirmed" and next_trade_date == state["tradeDate"]
-        if scope == "next_day" and state["phase"] != "post_close_confirmed":
+        next_trade_available = self._next_day_dataset_available(
+            state["phase"], state, next_trade_date, bool(next_cached), next_data_stage
+        )
+        if scope == "next_day" and not next_trade_available:
             items = []
         # GET 只读已有数据；后台租约状态仅用于展示，不会在这里启动刷新。
         # 旧表中的 refreshing_until 仅为历史兼容字段；当前后台更新不由用户请求触发。
@@ -1631,7 +1663,12 @@ class MarketService:
             "phase": state["phase"],
             "todaySourceScope": state["todaySourceScope"],
             "nextDayAvailable": next_trade_available,
-            "nextDayReason": "等待当日正式收盘数据" if not next_trade_available else "",
+            "nextDayReason": (
+                "交易时间内暂不开放次日预测" if state["phase"] == "intraday" else
+                "等待当日初态数据" if state["phase"] == "post_close_pending" else
+                "等待上一交易日预测数据" if state["phase"] in ("rest_day", "pre_open") else
+                "次日预测数据暂不可用"
+            ) if not next_trade_available else "",
             "updatedAt": updated_at,
             "dataStage": "realtime" if ephemeral_active else stored_stage,
             "refreshing": refreshing,
