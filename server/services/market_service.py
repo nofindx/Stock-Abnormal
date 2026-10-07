@@ -1037,6 +1037,7 @@ class MarketService:
                     board = BOARD_BY_MARKET.get(stock["board"], Board.MAIN)
                     metrics = self._vector_metrics(self._vector_entries(item.get("stock_return_vector")), self._vector_entries(index_item.get("index_return_vector")), BOARD_RULES[board])
                     item.update({"deviation3": metrics["deviations"][3], "deviation10": metrics["deviations"][10], "deviation30": metrics["deviations"][30], "sameDirectionUp": metrics["up"], "sameDirectionDown": metrics["down"]})
+                    item["data_stage"] = data_stage
                     calculations.append(item)
                 # 任务日期取实际写入的股票/指数收盘数据日期。交易日历中的
                 # 当天可能尚未入盘，不能把它写成已确认日期。

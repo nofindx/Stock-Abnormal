@@ -37,6 +37,9 @@ MONITOR_PERIOD_TRADING_DAYS = {
 }
 # 兼容外部测试/旧调用方；业务代码统一使用 MONITOR_PERIOD_TRADING_DAYS。
 MONITOR_WINDOW_TRADING_DAYS = MONITOR_PERIOD_TRADING_DAYS
+# 公告分类口径变化时，启动任务主动重采一次当前快照；避免必须等到次日
+# 00:00 才让修复后的北交所严重异动进入监控池。
+MONITOR_RULE_VERSION = "2026-10-bse-severe-deviation-v2"
 
 
 class MonitorRepository:
@@ -216,7 +219,9 @@ class OfficialMonitorService:
                 state = self.repository.states()
                 last_attempt_date = state.get("last_attempt_date", "")
                 # 无当前快照时冷启动立即补采；有当前快照时每天 00:00 后只尝试一次。
-                if (not self.repository.active_snapshot() and not last_attempt_date) or (
+                if state.get("monitor_rule_version") != MONITOR_RULE_VERSION or (
+                    not self.repository.active_snapshot() and not last_attempt_date
+                ) or (
                     now.hour == 0 and last_attempt_date != today
                 ):
                     self.refresh()
@@ -236,8 +241,7 @@ class OfficialMonitorService:
     def _classify_monitor_text(title: str, body: str) -> tuple[str, str]:
         """按 18.cn/巨潮正文语义分类：30 日、10 日、风险提示；无法确认则丢弃。"""
 
-        # 标题只用于日志定位，分类严格基于正文；正文为空时不纳入。
-        del title
+        # 分类严格基于正文；标题仅用于确认公告是否明确写明“严重异常波动”。
         text = re.sub(r"\s+", "", body or "").replace("％", "%")
         has_30_window = "30个交易日" in text
         has_10_window = "10个交易日" in text
@@ -255,6 +259,14 @@ class OfficialMonitorService:
         if has_30_window and has_30_threshold:
             return "30日严重异动", "severe-30d"
         if has_10_window and has_10_threshold:
+            return "10日严重异动", "severe-10d"
+        # 北交所公告常按实际连续交易日数披露（例如“连续4个交易日跌幅
+        # 偏离值累计达到 -61.39%”），不一定写成沪深的 10/30 日固定窗口。
+        # 标题明确为“严重异常波动”且正文给出累计偏离百分比时，按严重异动
+        # 纳入 10 日监管期，不能因为窗口不是 10/30 日而漏掉。
+        has_severe_title = "严重异常波动" in str(title or "")
+        has_explicit_deviation = bool(re.search(r"(?:涨幅|跌幅)偏离值累计达到[-+]?\d+(?:\.\d+)?%", text))
+        if has_severe_title and has_explicit_deviation:
             return "10日严重异动", "severe-10d"
         if has_risk_wording:
             return "风险提示", "ordinary"
@@ -570,6 +582,7 @@ class OfficialMonitorService:
                 },
             }
             self.repository.publish(snapshot, parsed_events, run_id)
+            self.repository.set_state("monitor_rule_version", MONITOR_RULE_VERSION)
             self.last_error = ""
             return {"started": True, "refreshing": False, "count": len(parsed)}
         except Exception as exc:
