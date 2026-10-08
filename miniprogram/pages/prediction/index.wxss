@@ -46,11 +46,11 @@
   background: #FFFFFF;
   box-shadow: 0 2rpx 8rpx rgba(28, 28, 30, .035);
 }
-.prediction-row-triggered { border-color: #F0B6B2; background: #FFF4F2; }
+.prediction-row-triggered { border-color: #D94A42; background: #FFE2DF; }
 .prediction-row-triggered .prediction-change-value,
 .prediction-row-triggered .deviation,
 .prediction-row-triggered .trigger-value { color: #C0271E; }
-.prediction-alert { display: inline-block; margin-left: 10rpx; color: #C0271E; font-size: 20rpx; font-weight: 700; white-space: nowrap; }
+.prediction-alert { display: none; }
 .prediction-row:first-child { margin-top: 0; }
 .prediction-top { display: grid; grid-template-columns: minmax(0, 1fr) minmax(250rpx, auto); align-items: center; gap: 14rpx; }
 .prediction-stock { display: flex; min-width: 0; flex: 1; align-items: baseline; gap: 10rpx; }
@@ -93,8 +93,9 @@
 .prediction-value { display: block; color: #1C1C1E; font-size: 22rpx; line-height: 30rpx; overflow-wrap: break-word; }
 .deviation { color: #C0271E; font-size: 28rpx; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .rule-value { display: block; color: #636366; font-size: 20rpx; line-height: 29rpx; }
-.prediction-rule { min-width: 0; margin-top: 14rpx; padding-top: 13rpx; border-top: 1rpx solid #E5E5EA; text-align: left; }
-.prediction-rule-text { display: block; min-width: 0; overflow: hidden; color: #6B7280; font-size: 20rpx; line-height: 28rpx; text-align: left; text-overflow: ellipsis; white-space: nowrap; }
+.prediction-rule { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: 12rpx; margin-top: 14rpx; padding-top: 13rpx; border-top: 1rpx solid #E5E5EA; text-align: left; }
+.prediction-rule-text { display: block; min-width: 0; flex: 1; overflow: hidden; color: #6B7280; font-size: 20rpx; line-height: 28rpx; text-align: left; text-overflow: ellipsis; white-space: nowrap; }
+.prediction-rule-alert { flex: 0 0 auto; color: #B42318; font-size: 24rpx; font-weight: 800; line-height: 28rpx; white-space: nowrap; }
 .refresh-bar { display: none; }
 .refresh-button {
   min-height: 48rpx;

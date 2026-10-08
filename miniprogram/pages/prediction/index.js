@@ -8,7 +8,7 @@ function normalizeItems(items = []) {
     const window = item.predictionWindow || ((String(item.deviation || '').match(/^(\d+)日/) || [])[1] || '')
     const rule = String(item.rule || '').replace(/^连续(\d+)个交易日/, '连续 $1 个交易日')
     const triggered = Boolean(item.triggered || item.cardTone === 'triggered')
-    return { ...item, rule, triggered, alertText: triggered ? (item.alertText || '⚠️已触发') : '', cardTone: triggered ? 'triggered' : '', predictionKey: item.predictionKey || `${item.ts_code || index}-${window || index}`, change, changeClass: change === '--' ? 'neutral' : (change[0] === '-' ? 'down' : 'up') }
+    return { ...item, currentPrice: item.currentPrice == null || item.currentPrice === '' ? '--' : String(item.currentPrice), rule, triggered, alertText: triggered ? (item.alertText || '⚠️已触发') : '', cardTone: triggered ? 'triggered' : '', predictionKey: item.predictionKey || `${item.ts_code || index}-${window || index}`, change, changeClass: change === '--' ? 'neutral' : (change[0] === '-' ? 'down' : 'up') }
   })
 }
 

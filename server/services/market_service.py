@@ -810,15 +810,17 @@ class MarketService:
                                     self._generate_prediction_datasets("formal")
                         self._market_scheduler_stop.wait(60)
                         continue
-                    if 15 <= now.hour < 16:
+                    if 15 <= now.hour <= 23:
                         # 容器可能在 15:00 后冷启动；只要当日尚未成功生成初态，
-                        # 在 15:00-16:00 内补做一次，避免错过整天的初态数据。
+                        # 在当前允许时段补做一次，避免错过整天的初态数据。
+                        # 正式数据已成功写入当日时不重复覆盖为初态。
                         initial_marker = f"{today}-initial"
-                        if self._latest_data_stage_date() != (today, "initial") and self._market_last_formal_attempt != initial_marker:
+                        latest_stage_date = self._latest_data_stage_date()
+                        if latest_stage_date not in ((today, "initial"), (today, "formal")) and self._market_last_formal_attempt != initial_marker:
                             self._market_last_formal_attempt = initial_marker
                             if self.update_initial_data().get("updated"):
                                 self._generate_prediction_datasets("initial")
-                    elif 16 <= now.hour <= 23:
+                    if 16 <= now.hour <= 23:
                         # 16:00-18:00 每 30 分钟，18:00-23:00 每小时；
                         # 正式数据成功后当天不再重复请求，23:00 是最后一次尝试。
                         latest = self.client.latest_trade_date()
@@ -1717,8 +1719,14 @@ class MarketService:
         next_data_stage = str((next_persistent or {}).get("data_stage") or "formal")
         cached = self._prediction_cache.get(source_scope)
         items = cached[1] if cached else []
+        ephemeral_active = bool(ephemeral and cached is ephemeral and (now - ephemeral[0]).total_seconds() <= 90)
         if today_persistent:
-            items = self._merge_prediction_items(today_persistent.get("items") or [], items)
+            # 盘中临时快照优先，确保已触发卡片也使用本次刷新拿到的最新价；
+            # 非盘中仍以 today 持久化结果为主，保留原有去重优先级。
+            if ephemeral_active:
+                items = self._merge_prediction_items(items, today_persistent.get("items") or [])
+            else:
+                items = self._merge_prediction_items(today_persistent.get("items") or [], items)
         trade_date = self._prediction_trade_date.get(source_scope, "")
         next_trade_date = self._prediction_trade_date.get("next_day", "")
         # 数据集即使候选列表为空也代表已经完成计算，不能用 items 长度判断
@@ -1736,7 +1744,6 @@ class MarketService:
         # 结果同时拿到实时行情时，才向前端宣称使用实时源。
         has_realtime = state["phase"] == "intraday" and any(item.get("quoteSource") for item in items)
         stored_stage = str((persistent or {}).get("data_stage") or "formal")
-        ephemeral_active = bool(ephemeral and cached is ephemeral and (now - ephemeral[0]).total_seconds() <= 90)
         quality = "realtime" if ephemeral_active else str((persistent or {}).get("data_quality") or ("provisional" if stored_stage == "initial" else "confirmed"))
         return {
             "scope": scope,
@@ -1770,7 +1777,17 @@ class MarketService:
     def _refresh_existing_prediction_scope(self, source_scope: str) -> List[Dict[str, Any]]:
         """只刷新已有预测池，不重新扫描全市场，也不保存盘中结果。"""
         persistent = self._calc_repository.get_prediction(source_scope) if self._calc_repository.available else None
-        base_items = list((persistent or {}).get("items") or self._prediction_cache.get(source_scope, (datetime.now(SHANGHAI_TZ), []))[1])
+        persistent_items = list((persistent or {}).get("items") or [])
+        if self._calc_repository.available:
+            # 盘中当日页由 today 和 next_day 两份快照合并展示；刷新必须同时
+            # 覆盖两份快照，否则已触发卡片会继续显示收盘价。
+            other_scope = "today" if source_scope == "next_day" else "next_day"
+            other = self._calc_repository.get_prediction(other_scope)
+            persistent_items.extend((other or {}).get("items") or [])
+        base_items = list(self._merge_prediction_items(
+            persistent_items,
+            self._prediction_cache.get(source_scope, (datetime.now(SHANGHAI_TZ), []))[1],
+        ))
         if not base_items:
             return []
         calculations = self._calc_repository.all_calculations() if self._calc_repository.available else {}
