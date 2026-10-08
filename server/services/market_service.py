@@ -28,7 +28,7 @@ BOARD_BY_MARKET = {"主板": Board.MAIN, "创业板": Board.CHINEXT, "科创板"
 SHANGHAI_TZ = ZoneInfo("Asia/Shanghai") if ZoneInfo else timezone(timedelta(hours=8))
 # 停牌/复牌重置、上涨同向计数和预测阶段切换属于同一套规则口径。
 # 版本变化会触发服务启动时用现有基础数据重建预测数据集。
-PREDICTION_RULE_VERSION = "2026-10-formal-pct-triggered-v11"
+PREDICTION_RULE_VERSION = "2026-10-formal-pct-triggered-v13"
 
 # GBK 区位表不依赖第三方拼音包，适合云托管的轻量搜索场景。
 _PINYIN_RANGES = (
@@ -577,8 +577,10 @@ class MarketService:
             return None, None
         upper = min(max_window, len(dates))
         # 交易所的 N 日是回看上限，不是任意更短的 3 日窗口。
-        # 10 日允许 8/9/10；30 日允许 27/28/29/30，兼容边界/停牌/指数缺口。
-        lower = 27 if max_window == 30 else max(3, max_window - 2)
+        # 10 日允许 7/8/9/10；30 日允许 27/28/29/30，兼容复牌边界、
+        # 上市日和指数缺口。有效交易日不足名义窗口时，仍按实际有效窗口
+        # 复核是否已经触线，不能因为少于 8 日就漏掉 100% 异动。
+        lower = 27 if max_window == 30 else max(3, max_window - 3)
         if upper < lower:
             return None, None
         candidates = []
@@ -1259,6 +1261,8 @@ class MarketService:
             # 上涨方向。预测页回答的是“下一交易日上涨后是否可能触线”，
             # 不是把已经发生的下跌异动重新列一遍。
             options = []
+            pending_today_options = []
+            today_triggered = False
             for candidate_window, candidate_threshold in (
                 (10, rule.severe_10d_threshold),
                 (30, rule.severe_30d_threshold),
@@ -1275,9 +1279,13 @@ class MarketService:
                 # 不可能触发的股票也放进来。使用所属板块单日涨幅上限。
                 possible_one_day = float(rule.limit_price_ratio or 10.0)
                 if scope == "today":
-                    # 当日数据已经收盘时，只展示确实达到上涨阈值的记录。
                     if candidate_deviation >= candidate_threshold.up:
                         options.append((0.0, candidate_window, candidate_deviation, candidate_threshold, "deviation", actual_window))
+                        today_triggered = True
+                    elif 0 < candidate_distance <= possible_one_day:
+                        # 只有同一股票已经触发另一条严重异动线时，才在当日
+                        # 保留尚未触发但下一交易日仍可能触线的另一张卡。
+                        pending_today_options.append((candidate_distance, candidate_window, candidate_deviation, candidate_threshold, "deviation", actual_window))
                 elif 0 < candidate_distance <= possible_one_day:
                     # 次日只展示下一交易日仍有可能上涨触线的记录。
                     options.append((candidate_distance, candidate_window, candidate_deviation, candidate_threshold, "deviation", actual_window))
@@ -1287,12 +1295,14 @@ class MarketService:
             if up_direction >= rule.severe_same_direction_count and same_deviation is not None and same_deviation > 0:
                 same_actual_window = metrics.get("window_lengths", {}).get(10) or 10
                 same_distance = self._required_up_percent(stock_vector, index_vector, same_actual_window, rule.severe_10d_threshold.up)
-                if same_distance is None:
-                    continue
                 # 当日已经达到同向次数即可入选；次日仍只展示一个交易日内
                 # 可能触线的记录，不能把“已达到”当成新的次日候选。
-                if (scope == "today" and same_distance >= 0) or (scope == "next_day" and 0 < same_distance <= float(rule.limit_price_ratio or 10.0)):
+                if same_distance is not None and ((scope == "today" and same_distance >= 0) or (scope == "next_day" and 0 < same_distance <= float(rule.limit_price_ratio or 10.0))):
                     options.append((same_distance, 10, same_deviation, rule.severe_10d_threshold, "same_direction", metrics.get("window_lengths", {}).get(10) or 10))
+                    if scope == "today":
+                        today_triggered = True
+            if scope == "today" and today_triggered:
+                options.extend(pending_today_options)
             if not options:
                 continue
 
@@ -1593,6 +1603,16 @@ class MarketService:
         return text[:16].replace("T", " ") if text else ""
 
     @staticmethod
+    def _merge_prediction_items(primary: Iterable[Dict[str, Any]], secondary: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """合并同一展示日的已触发卡和临界卡，按窗口键去重。"""
+        merged: Dict[str, Dict[str, Any]] = {}
+        for item in list(primary or []) + list(secondary or []):
+            key = item.get("predictionKey") or f"{item.get('ts_code', '')}-{item.get('predictionWindow', '')}d"
+            if key not in merged:
+                merged[key] = item
+        return list(merged.values())
+
+    @staticmethod
     def _age_seconds(value: Any) -> Optional[int]:
         """把持久化更新时间转成健康检查可读的数据年龄。"""
 
@@ -1669,6 +1689,15 @@ class MarketService:
         ephemeral = self._prediction_ephemeral.get(source_scope)
         if ephemeral and (now - ephemeral[0]).total_seconds() <= 90:
             self._prediction_cache[source_scope] = ephemeral
+        today_persistent = None
+        if scope == "today" and state["phase"] == "intraday" and source_scope == "next_day" and self._calc_repository.available:
+            # 盘中“当日”需要同时展示已经在上一收盘触发的卡片，
+            # 以及下一交易日仍可能触线的卡片。后者单独读取 next_day
+            # 会把善水科技、近岸蛋白这类已触发 10 日线的卡片漏掉。
+            try:
+                today_persistent = self._calc_repository.get_prediction("today")
+            except Exception as exc:
+                self._prediction_last_error["today"] = str(exc)
         next_persistent = persistent if source_scope == "next_day" else None
         next_cached = self._prediction_cache.get("next_day")
         if next_persistent is None and self._calc_repository.available:
@@ -1688,6 +1717,8 @@ class MarketService:
         next_data_stage = str((next_persistent or {}).get("data_stage") or "formal")
         cached = self._prediction_cache.get(source_scope)
         items = cached[1] if cached else []
+        if today_persistent:
+            items = self._merge_prediction_items(today_persistent.get("items") or [], items)
         trade_date = self._prediction_trade_date.get(source_scope, "")
         next_trade_date = self._prediction_trade_date.get("next_day", "")
         # 数据集即使候选列表为空也代表已经完成计算，不能用 items 长度判断

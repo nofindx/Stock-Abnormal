@@ -130,10 +130,10 @@ Page({
   }
 })
 
-// 沪深主板、创业板、科创板保持正常强调；其余证券仅做弱化展示，不参与过滤。
+// 沪深主板、创业板、科创板和北交所保持正常强调；其余证券仅做弱化展示，不参与过滤。
 function isCoreBoardSymbol(symbol) {
   const code = String(symbol || '').match(/\d{6}/)?.[0] || ''
-  return /^(000|001|002|003|300|301|600|601|603|605|688)/.test(code)
+  return /^(000|001|002|003|300|301|600|601|603|605|688|[489]\d{5})/.test(code)
 }
 
 function naturalDaysRemaining(endDate, fallback) {

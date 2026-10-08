@@ -39,7 +39,7 @@ MONITOR_PERIOD_TRADING_DAYS = {
 MONITOR_WINDOW_TRADING_DAYS = MONITOR_PERIOD_TRADING_DAYS
 # 公告分类口径变化时，启动任务主动重采一次当前快照；避免必须等到次日
 # 00:00 才让修复后的北交所严重异动进入监控池。
-MONITOR_RULE_VERSION = "2026-10-bse-severe-deviation-v2"
+MONITOR_RULE_VERSION = "2026-10-bse-severe-deviation-v3"
 
 
 class MonitorRepository:
@@ -265,7 +265,10 @@ class OfficialMonitorService:
         # 标题明确为“严重异常波动”且正文给出累计偏离百分比时，按严重异动
         # 纳入 10 日监管期，不能因为窗口不是 10/30 日而漏掉。
         has_severe_title = "严重异常波动" in str(title or "")
-        has_explicit_deviation = bool(re.search(r"(?:涨幅|跌幅)偏离值累计达到[-+]?\d+(?:\.\d+)?%", text))
+        has_explicit_deviation = bool(re.search(
+            r"(?:涨幅|跌幅|涨跌幅).*?偏离值累计(?:达到|超过|为)[-+]?\d+(?:\.\d+)?%",
+            text,
+        ))
         if has_severe_title and has_explicit_deviation:
             return "10日严重异动", "severe-10d"
         if has_risk_wording:
@@ -312,24 +315,28 @@ class OfficialMonitorService:
             if (start + timedelta(days=offset)).weekday() < 5
         ]
 
-    def _monitor_period(self, source_date: str, source_type: str, risk_tone: str = "ordinary") -> tuple[str, str]:
+    def _monitor_period(self, source_date: str, source_type: str, risk_tone: str = "ordinary", symbol: str = "") -> tuple[str, str]:
         """按附件口径计算监管期：起点取生效交易日，起点计第 1 日共 N 个交易日。"""
 
-        dates = self._monitor_period_dates(source_date, source_type, risk_tone)
+        dates = self._monitor_period_dates(source_date, source_type, risk_tone, symbol)
         if not dates:
             raise ValueError(f"无法计算监管期：{source_date}")
         return dates[0], dates[-1]
 
-    def _monitor_period_dates(self, source_date: str, source_type: str, risk_tone: str = "ordinary") -> List[str]:
+    def _monitor_period_dates(self, source_date: str, source_type: str, risk_tone: str = "ordinary", symbol: str = "") -> List[str]:
         """返回已冻结的监管交易日序列，供快照保存和倒计时使用。"""
 
         window = MONITOR_PERIOD_TRADING_DAYS.get(risk_tone, MONITOR_PERIOD_TRADING_DAYS["ordinary"])
         dates = self._trade_dates(source_date, window)
         if not dates:
             return []
-        # 18.cn 风险提示通常在收盘后发布，监管期从其后的首个交易日开始；
-        # 巨潮严重异动公告按公告日期所在交易日开始。
-        comparator = (lambda value: value > source_date) if source_type == "broker-risk-alert" else (lambda value: value >= source_date)
+        # 18.cn 风险提示通常在收盘后发布，监管期从其后的首个交易日开始。
+        # 北交所严重异动公告也在收盘后披露；公告写明的最后一个异常交易日
+        # 仍是触发日，因此监管期同样从下一个交易日开始。沪深巨潮公告保持
+        # 公告日作为起点，避免改变已有的其他监管记录。
+        is_bse = bool(re.match(r"^(?:4|8|9)\d{5}", str(symbol or "")))
+        starts_next_trade_day = source_type == "broker-risk-alert" or (is_bse and risk_tone in ("severe-10d", "severe-30d"))
+        comparator = (lambda value: value > source_date) if starts_next_trade_day else (lambda value: value >= source_date)
         start_index = next((index for index, value in enumerate(dates) if comparator(value)), 0)
         end_index = min(start_index + window - 1, len(dates) - 1)
         return dates[start_index:end_index + 1]
@@ -494,7 +501,7 @@ class OfficialMonitorService:
                     continue
                 if not announcement.get("date"):
                     continue
-                monitor_dates = self._monitor_period_dates(announcement["date"], "issuer-disclosure", risk_tone)
+                monitor_dates = self._monitor_period_dates(announcement["date"], "issuer-disclosure", risk_tone, announcement.get("stockCode", ""))
                 if not monitor_dates:
                     continue
                 monitor_start, monitor_end = monitor_dates[0], monitor_dates[-1]

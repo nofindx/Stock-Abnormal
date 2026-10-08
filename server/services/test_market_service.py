@@ -135,13 +135,87 @@ class MarketVectorTests(unittest.TestCase):
         self.assertTrue(by_window[10]["triggered"])
         self.assertEqual(by_window[10]["alertText"], "⚠️已触发")
 
+    def test_today_prediction_keeps_pending_thirty_day_card_after_ten_day_trigger(self):
+        service = self.service
+        dates = [f"2026-08-{index:02d}" for index in range(1, 31)]
+        stock_vector = [{"date": day, "return": 2.0 if index < 20 else 7.2} for index, day in enumerate(dates)]
+        index_vector = [{"date": day, "return": 0.0} for day in dates]
+        service._calc_repository = SimpleNamespace(
+            available=True,
+            all_calculations=lambda: {"000001.SZ": {
+                "ts_code": "000001.SZ", "latest_close": 10.0,
+                "as_of_trade_date": "20260928", "stock_return_vector": stock_vector,
+            }},
+            all_indexes=lambda: {"399001.SZ": {
+                "index_code": "399001.SZ", "latest_close": 10.0,
+                "index_return_vector": index_vector,
+            }},
+        )
+        service._stock_rows = lambda: [{
+            "ts_code": "000001.SZ", "symbol": "000001", "name": "测试股票",
+            "market": "SZSE", "board": "主板", "isST": False,
+        }]
+        service._realtime = SimpleNamespace(fetch_many=lambda _codes: {})
+        items = service._compute_prediction_from_repository("today")
+        by_window = {item["predictionWindow"]: item for item in items}
+        self.assertEqual(sorted(by_window), [10, 30])
+        self.assertTrue(by_window[10]["triggered"])
+        self.assertFalse(by_window[30]["triggered"])
+
+    def test_intraday_display_merges_triggered_and_next_day_cards(self):
+        merged = MarketService._merge_prediction_items(
+            [{"predictionKey": "688137.SH-10d", "triggered": True}],
+            [
+                {"predictionKey": "688137.SH-30d", "triggered": False},
+                {"predictionKey": "688137.SH-10d", "triggered": False},
+                {"predictionKey": "301190.SZ-10d", "triggered": False},
+            ],
+        )
+        self.assertEqual([item["predictionKey"] for item in merged], [
+            "688137.SH-10d", "688137.SH-30d", "301190.SZ-10d",
+        ])
+
     def test_best_window_can_be_shorter_than_rule_horizon(self):
-        # 10 日规则允许因有效数据边界少 1～2 日，但不能退化成任意 3 日窗口。
+        # 10 日规则允许因复牌边界少至 7 个有效交易日，但不能退化成任意 3 日窗口。
         stock = [{"date": f"2026-09-{index:02d}", "return": value} for index, value in enumerate([0, 0, 0, 0, 0, 0, 0, 10], 1)]
         index = [{"date": item["date"], "return": 0.0} for item in stock]
         value, window = MarketService._best_vector_deviation(stock, index, 10)
-        self.assertEqual(window, 8)
+        self.assertEqual(window, 7)
         self.assertAlmostEqual(value, 10.0)
+
+    def test_seven_valid_days_can_trigger_ten_day_prediction(self):
+        stock = [{"date": f"2026-09-{index:02d}", "return": 0.0 if index < 7 else 100.0} for index in range(1, 8)]
+        index = [{"date": item["date"], "return": 0.0} for item in stock]
+        value, window = MarketService._best_vector_deviation(stock, index, 10)
+        self.assertEqual(window, 7)
+        self.assertGreaterEqual(value, 100.0)
+
+    def test_today_prediction_accepts_seven_valid_days_at_ten_day_threshold(self):
+        service = self.service
+        dates = [f"2026-09-{index:02d}" for index in range(1, 8)]
+        stock_vector = [{"date": day, "return": 12.0} for day in dates]
+        index_vector = [{"date": day, "return": 0.0} for day in dates]
+        service._calc_repository = SimpleNamespace(
+            available=True,
+            all_calculations=lambda: {"600825.SH": {
+                "ts_code": "600825.SH", "latest_close": 10.0,
+                "as_of_trade_date": "20260930", "stock_return_vector": stock_vector,
+            }},
+            all_indexes=lambda: {"000001.SH": {
+                "index_code": "000001.SH", "latest_close": 100.0,
+                "index_return_vector": index_vector,
+            }},
+        )
+        service._stock_rows = lambda: [{
+            "ts_code": "600825.SH", "symbol": "600825", "name": "新华传媒",
+            "market": "SSE", "board": "主板", "isST": False,
+        }]
+        service._realtime = SimpleNamespace(fetch_many=lambda _codes: {})
+        items = service._compute_prediction_from_repository("today")
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0]["predictionWindow"], 10)
+        self.assertTrue(items[0]["triggered"])
+        self.assertTrue(items[0]["deviation"].startswith("7日 "))
 
     def test_suspension_reset_discards_pre_resume_returns(self):
         """复牌后只从首个有效交易日重新累计，不能把停牌前涨幅带入。"""
@@ -190,6 +264,37 @@ class MarketVectorTests(unittest.TestCase):
         self.assertEqual(len(items), 1)
         self.assertEqual(items[0]["ts_code"], "301190.SZ")
         self.assertTrue(items[0]["deviation"].startswith("9日 "))
+
+    def test_today_prediction_includes_shanshui_after_ten_day_trigger(self):
+        """善水科技触发 10 日 +100% 后，当日快照不能被次日过滤逻辑漏掉。"""
+        service = self.service
+        dates = [f"2026-08-{index:02d}" for index in range(1, 30)]
+        # 末尾 10 个有效交易日累计相对指数偏离约 +100.89%，
+        # 与实际善水科技的边界形态一致；30 日线仍未达到 +200%。
+        stock_returns = [0.0] * 19 + [7.2] * 10
+        stock_vector = [{"date": day, "return": value} for day, value in zip(dates, stock_returns)]
+        index_vector = [{"date": day, "return": 0.0} for day in dates]
+        service._calc_repository = SimpleNamespace(
+            available=True,
+            all_calculations=lambda: {"301190.SZ": {
+                "ts_code": "301190.SZ", "latest_close": 35.93,
+                "as_of_trade_date": "20260930", "stock_return_vector": stock_vector,
+            }},
+            all_indexes=lambda: {"399006.SZ": {
+                "index_code": "399006.SZ", "latest_close": 3210.0,
+                "index_return_vector": index_vector,
+            }},
+        )
+        service._stock_rows = lambda: [{
+            "ts_code": "301190.SZ", "symbol": "301190", "name": "善水科技",
+            "market": "SZSE", "board": "创业板", "isST": False,
+        }]
+        service._realtime = SimpleNamespace(fetch_many=lambda _codes: {})
+        items = service._compute_prediction_from_repository("today")
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0]["ts_code"], "301190.SZ")
+        self.assertEqual(items[0]["predictionWindow"], 10)
+        self.assertTrue(items[0]["triggered"])
 
     def test_ten_day_rule_never_uses_a_three_day_spike(self):
         stock = [{"date": f"2026-09-{index:02d}", "return": value} for index, value in enumerate([30, 30, 30], 1)]

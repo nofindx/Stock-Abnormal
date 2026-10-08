@@ -63,6 +63,18 @@ class MonitorWindowTests(unittest.TestCase):
         self.assertEqual(self.service._monitor_period("2026-09-23", "issuer-disclosure", "severe-10d"), ("2026-09-23", "2026-10-14"))
         self.assertEqual(self.service._monitor_period("2026-09-23", "broker-risk-alert"), ("2026-09-24", "2026-10-15"))
 
+    def test_bse_severe_notice_starts_on_next_trade_day(self):
+        dates = [
+            "2026-09-28", "2026-09-29", "2026-09-30",
+            "2026-10-08", "2026-10-09", "2026-10-12", "2026-10-13",
+            "2026-10-14", "2026-10-15", "2026-10-16", "2026-10-19", "2026-10-20",
+        ]
+        self.service._trade_dates = lambda source_date, days: dates
+        self.assertEqual(
+            self.service._monitor_period("2026-09-29", "issuer-disclosure", "severe-10d", "920229"),
+            ("2026-09-30", "2026-10-20"),
+        )
+
     def test_thirty_day_detection_window_does_not_create_thirty_day_monitor_period(self):
         dates = [
             (date(2026, 8, 21) + timedelta(days=index)).strftime("%Y-%m-%d")
@@ -136,6 +148,13 @@ class MonitorWindowTests(unittest.TestCase):
         body = "股票连续4个交易日内日收盘价跌幅偏离值累计达到-61.39%，属于股票交易严重异常波动情形。"
         self.assertEqual(
             OfficialMonitorService._monitor_type("股票交易严重异常波动公告", body),
+            ("10日严重异动", "severe-10d"),
+        )
+        self.assertEqual(
+            OfficialMonitorService._monitor_type(
+                "郑州新世纪数码科技股份有限公司股票交易严重异常波动公告",
+                "连续4个交易日内日收盘价跌幅偏离值累计达到-61.39%，属于股票交易严重异常波动情形。",
+            ),
             ("10日严重异动", "severe-10d"),
         )
 

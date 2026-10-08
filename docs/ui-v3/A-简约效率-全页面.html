@@ -1,0 +1,848 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>异动查查 · 方案A 简约效率 · 全页面（12 屏）</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+body{background:#F7F8FA;font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Helvetica Neue","Microsoft YaHei",Arial,sans-serif;color:#1A1A1A;-webkit-font-smoothing:antialiased}
+.wrap{max-width:1300px;margin:0 auto;padding:36px 24px 72px}
+.hd{margin-bottom:8px}
+.hd h1{font-size:26px;letter-spacing:-.3px}
+.hd h1 em{font-style:normal;background:#1A1A1A;color:#fff;padding:3px 10px;border-radius:4px;margin-right:10px;font-size:19px}
+.hd p{font-size:13px;color:#6B7280;margin-top:8px;line-height:1.75;max-width:900px}
+.legend{display:flex;flex-wrap:wrap;gap:8px;margin:16px 0 30px}
+.legend span{font-size:11px;color:#4B5563;background:#fff;border:1px solid #E5E7EB;border-radius:4px;padding:5px 9px;display:flex;align-items:center;gap:6px}
+.legend i{width:10px;height:10px;border-radius:2px;display:inline-block}
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:34px 26px}
+.shot{background:#fff;border:1px solid #E5E7EB;border-radius:12px;padding:16px 16px 14px}
+.cap{font-size:13px;font-weight:700;margin-bottom:3px;display:flex;align-items:center;gap:8px}
+.cap b{background:#1A1A1A;color:#fff;font-size:10px;padding:2px 6px;border-radius:3px;font-weight:600;letter-spacing:.5px}
+.note{font-size:11px;color:#6B7280;line-height:1.65;margin:0 0 12px}
+.phonebox{display:flex;justify-content:center}
+
+/* ---------- 手机外壳 ---------- */
+.phone{width:375px;height:780px;border-radius:26px;overflow:hidden;position:relative;background:#F2F3F5;
+  box-shadow:0 8px 28px rgba(16,24,40,.10);border:1px solid #DCDFE5;display:flex;flex-direction:column}
+.sb{height:44px;flex:0 0 44px;display:flex;align-items:center;justify-content:space-between;padding:0 20px 0 24px;font-size:12px;font-weight:600;background:#fff;color:#1A1A1A}
+.sb .r{display:flex;align-items:center;gap:5px}
+.sb svg{display:block}
+.nb{height:44px;flex:0 0 44px;background:#fff;display:flex;align-items:center;justify-content:center;position:relative;font-size:16px;font-weight:600;border-bottom:1px solid #EBEDF0}
+.nb .bk{position:absolute;left:12px;top:10px;width:24px;height:24px}
+.nb .rt{position:absolute;right:12px;top:12px;font-size:13px;font-weight:500;color:#4B5563}
+.body{flex:1;overflow:hidden;position:relative;background:#F2F3F5}
+.tb{height:56px;flex:0 0 56px;background:#fff;border-top:1px solid #EBEDF0;display:flex}
+.tb div{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;font-size:10px;color:#9CA3AF}
+.tb div.on{color:#1A1A1A;font-weight:600}
+.hm{height:34px;flex:0 0 34px;background:#fff;display:flex;align-items:center;justify-content:center}
+.hm i{width:134px;height:5px;border-radius:3px;background:#1A1A1A;display:block}
+
+/* ---------- 通用原子 ---------- */
+.pad{padding:12px 14px}
+.card{background:#fff;border:1px solid #EBEDF0;border-radius:4px}
+.row{display:flex;align-items:center}
+.btw{display:flex;align-items:center;justify-content:space-between}
+.t1{font-size:14px;color:#1A1A1A}
+.t2{font-size:12px;color:#6B7280}
+.t3{font-size:11px;color:#9CA3AF}
+.num{font-variant-numeric:tabular-nums;font-feature-settings:"tnum"}
+.up{color:#D93025}.down{color:#0E9F6E}
+.b{font-weight:600}
+.mono{font-family:"SF Mono",Menlo,Consolas,monospace;font-variant-numeric:tabular-nums}
+.tag{font-size:10px;line-height:1;padding:3px 5px;border-radius:2px;font-weight:600;white-space:nowrap}
+.t-30{background:#C0271E;color:#fff}
+.t-10{background:#E0501F;color:#fff}
+.t-same{background:#E8890C;color:#fff}
+.t-ord{background:#8A6D0B;color:#fff}
+.t-safe{background:#128A5F;color:#fff}
+.t-unk{background:#6B7280;color:#fff}
+.t-gy{background:#F2F3F5;color:#6B7280}
+.t-st{background:#fff;color:#C0271E;border:1px solid #C0271E}
+.seg{display:flex;background:#F2F3F5;border-radius:4px;padding:2px}
+.seg span{flex:1;text-align:center;font-size:13px;padding:6px 0;color:#6B7280;border-radius:3px}
+.seg span.on{background:#fff;color:#1A1A1A;font-weight:600;box-shadow:0 1px 2px rgba(0,0,0,.06)}
+.chips{display:flex;gap:6px;overflow:hidden}
+.chip{font-size:11px;padding:5px 9px;border:1px solid #E5E7EB;border-radius:3px;color:#4B5563;background:#fff;white-space:nowrap}
+.chip.on{background:#1A1A1A;color:#fff;border-color:#1A1A1A}
+.bar{height:4px;background:#F2F3F5;border-radius:2px;overflow:hidden}
+.bar i{display:block;height:100%;border-radius:2px}
+.hr{height:1px;background:#EBEDF0}
+.badge-dot{width:6px;height:6px;border-radius:50%;display:inline-block;margin-right:4px}
+.disc{font-size:10px;color:#9CA3AF;text-align:center;line-height:1.6;padding:8px 0}
+.btn{background:#1A1A1A;color:#fff;font-size:13px;border-radius:4px;padding:8px 14px;font-weight:600}
+.btn.gh{background:#fff;color:#1A1A1A;border:1px solid #DCDFE5}
+.fade{position:absolute;left:0;right:0;bottom:0;height:26px;background:linear-gradient(180deg,rgba(242,243,245,0),rgba(242,243,245,.96))}
+input.f{background:#F7F8FA;border:1px solid #DCDFE5;border-radius:3px;font-size:12px;padding:0 6px;height:28px;color:#1A1A1A;text-align:right;font-variant-numeric:tabular-nums;width:100%}
+input.f.err{border-color:#C0271E;background:#FDF3F2}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="hd">
+    <h1><em>方案 A</em>简约效率 · 清单流</h1>
+    <p>浅色、零装饰、高密度：所有页面由「筛选条 + 紧凑列表行 + 数据表格」构成，用 1px 分割线代替卡片与阴影，数字全部等宽对齐。面向盘中快速核查的熟练用户，单屏信息量最大、操作路径最短。以下 12 屏覆盖三个 Tab 的正常态与全部异常态。</p>
+  </div>
+  <div class="legend">
+    <span><i style="background:#C0271E"></i>30 日严重异常</span>
+    <span><i style="background:#E0501F"></i>10 日严重异常</span>
+    <span><i style="background:#E8890C"></i>同向严重异常</span>
+    <span><i style="background:#8A6D0B"></i>普通风险提示</span>
+    <span><i style="background:#128A5F"></i>安全</span>
+    <span><i style="background:#6B7280"></i>数据不可判定</span>
+    <span><i style="background:#D93025"></i>涨（红）</span>
+    <span><i style="background:#0E9F6E"></i>跌（绿）</span>
+  </div>
+
+  <div class="grid">
+
+  <!-- ============ S1 ============ -->
+  <figure class="shot">
+    <div class="cap"><b>S1</b>单股计算 · 搜索联想</div>
+    <p class="note">输入 1 个字符即请求（250ms 防抖）；下拉首屏固定 5 条，按「完整代码 &gt; 代码前缀 &gt; 完整名称 &gt; 名称包含」排序；超过 5 条只提示继续输入，不加载第二屏。每行含名称/代码/交易所/板块/ST 标签。</p>
+    <div class="phonebox"><div class="phone">
+      <div class="sb"><span>9:41</span><span class="r">
+        <svg width="17" height="11"><rect x="0" y="7" width="3" height="4" rx="1" fill="#1A1A1A"/><rect x="4.5" y="5" width="3" height="6" rx="1" fill="#1A1A1A"/><rect x="9" y="2.5" width="3" height="8.5" rx="1" fill="#1A1A1A"/><rect x="13.5" y="0" width="3" height="11" rx="1" fill="#1A1A1A"/></svg>
+        <svg width="16" height="11"><rect x="0" y="2" width="13" height="7" rx="2" fill="none" stroke="#1A1A1A"/><rect x="1.5" y="3.5" width="9" height="4" rx="1" fill="#1A1A1A"/><rect x="14.5" y="4" width="1.5" height="3" rx=".5" fill="#1A1A1A"/></svg>
+      </span></div>
+      <div class="nb">单股计算<span class="rt">规则</span></div>
+      <div class="body">
+        <div style="background:#fff;padding:10px 14px;border-bottom:1px solid #EBEDF0">
+          <div class="row" style="background:#F7F8FA;border:1px solid #1A1A1A;border-radius:4px;height:38px;padding:0 10px;gap:8px">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#9CA3AF" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>
+            <span style="font-size:15px" class="b">3007</span>
+            <span style="width:1px;height:14px;background:#1A1A1A;display:inline-block"></span>
+            <span class="t3" style="flex:1">输入代码 / 名称 / 简称</span>
+          </div>
+        </div>
+        <div style="background:#fff;margin:0 14px;border:1px solid #DCDFE5;border-radius:4px;box-shadow:0 4px 14px rgba(0,0,0,.08)">
+          <div class="row" style="padding:9px 10px;border-bottom:1px solid #EBEDF0;gap:6px">
+            <span class="b" style="font-size:14px">宁德时代</span><span class="tag t-gy mono">300750</span><span class="t3">深交所 · 创业板</span>
+          </div>
+          <div class="row" style="padding:9px 10px;border-bottom:1px solid #EBEDF0;gap:6px">
+            <span class="b" style="font-size:14px">康龙化成</span><span class="tag t-gy mono">300759</span><span class="t3">深交所 · 创业板</span>
+          </div>
+          <div class="row" style="padding:9px 10px;border-bottom:1px solid #EBEDF0;gap:6px">
+            <span class="b" style="font-size:14px">迈瑞医疗</span><span class="tag t-gy mono">300760</span><span class="t3">深交所 · 创业板</span>
+          </div>
+          <div class="row" style="padding:9px 10px;border-bottom:1px solid #EBEDF0;gap:6px">
+            <span class="b" style="font-size:14px">德方纳米</span><span class="tag t-gy mono">300769</span><span class="t3">深交所 · 创业板</span>
+          </div>
+          <div class="row" style="padding:9px 10px;gap:6px">
+            <span class="b" style="font-size:14px">左江科技</span><span class="tag t-st">*ST</span><span class="tag t-gy mono">300799</span><span class="t3">深交所 · 创业板</span>
+          </div>
+          <div style="padding:7px 10px;background:#F7F8FA;font-size:11px;color:#9CA3AF;border-top:1px solid #EBEDF0">继续输入以缩小范围</div>
+        </div>
+        <div class="pad">
+          <div class="card" style="padding:16px 14px;text-align:center">
+            <div class="t2" style="margin-bottom:6px">未选择股票</div>
+            <div class="t3">搜索并选择一只 A 股，查看当前异动状态与 T+1 ~ T+10 假设计算</div>
+          </div>
+        </div>
+        <div class="disc">仅供参考，不构成投资建议</div>
+      </div>
+      <div class="tb">
+        <div class="on"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="#1A1A1A" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>单股计算</div>
+        <div><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="#9CA3AF" stroke-width="2"><path d="M12 3l7 3v6c0 4-3 7-7 9-4-2-7-5-7-9V6l7-3z"/></svg>监控池</div>
+        <div><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="#9CA3AF" stroke-width="2"><path d="M13 2L4 14h6l-1 8 9-12h-6l1-8z"/></svg>异动预测</div>
+      </div>
+      <div class="hm"><i></i></div>
+    </div></div>
+  </figure>
+
+  <!-- ============ S2 ============ -->
+  <figure class="shot">
+    <div class="cap"><b>S2</b>单股计算 · 当前状态与四项预警</div>
+    <p class="note">状态按优先级只显示一个；风险用「色块 + 文字」双通道。四项预警用同构的 4 行清单：当前偏离 / 阈值 / 触发价 / 剩余空间 + 细进度条，全部等宽数字右对齐，便于纵向扫读对比。</p>
+    <div class="phonebox"><div class="phone">
+      <div class="sb"><span>9:41</span><span class="r">
+        <svg width="17" height="11"><rect x="0" y="7" width="3" height="4" rx="1" fill="#1A1A1A"/><rect x="4.5" y="5" width="3" height="6" rx="1" fill="#1A1A1A"/><rect x="9" y="2.5" width="3" height="8.5" rx="1" fill="#1A1A1A"/><rect x="13.5" y="0" width="3" height="11" rx="1" fill="#1A1A1A"/></svg>
+        <svg width="16" height="11"><rect x="0" y="2" width="13" height="7" rx="2" fill="none" stroke="#1A1A1A"/><rect x="1.5" y="3.5" width="9" height="4" rx="1" fill="#1A1A1A"/><rect x="14.5" y="4" width="1.5" height="3" rx=".5" fill="#1A1A1A"/></svg>
+      </span></div>
+      <div class="nb">单股计算<span class="rt">规则</span></div>
+      <div class="body">
+        <div style="background:#fff;padding:10px 14px;border-bottom:1px solid #EBEDF0">
+          <div class="row" style="background:#F7F8FA;border:1px solid #DCDFE5;border-radius:4px;height:38px;padding:0 10px;gap:8px">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#9CA3AF" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>
+            <span style="font-size:14px" class="b">宁德时代</span><span class="tag t-gy mono">300750</span>
+            <span style="flex:1"></span><span class="t3">×</span>
+          </div>
+        </div>
+        <div style="background:#fff;padding:12px 14px;border-bottom:1px solid #EBEDF0">
+          <div class="btw">
+            <div class="row" style="gap:8px"><span style="font-size:17px" class="b">宁德时代</span><span class="tag t-gy mono">300750</span></div>
+            <div style="text-align:right"><div style="font-size:20px" class="b up num">268.40</div><div style="font-size:12px" class="up num b">+7.82%</div></div>
+          </div>
+          <div class="btw" style="margin-top:6px">
+            <span class="t3">深交所 · 创业板</span>
+            <span class="t3">行情 14:52 <span class="tag t-safe" style="margin-left:4px">实时</span></span>
+          </div>
+        </div>
+        <div style="background:#FDF3F2;border-left:4px solid #E0501F;padding:10px 14px">
+          <div class="btw"><span class="tag t-10">10日严重异常</span><span class="t3">规则版本 2026-07-06</span></div>
+          <div style="font-size:12px;color:#4B5563;margin-top:6px;line-height:1.6">10 日累计偏离 <b class="num">+103.42%</b>，已超过上涨阈值 <b class="num">+100%</b>；最近 10 个交易日内同向普通异动 3 次（创业板要求 3 次）。</div>
+        </div>
+        <div class="pad" style="padding-bottom:0">
+          <div class="btw" style="margin-bottom:8px"><span class="t2 b">四项预警</span><span class="t3">单位：%</span></div>
+          <div class="card">
+            <div style="padding:10px 12px;border-bottom:1px solid #EBEDF0">
+              <div class="btw"><span class="b" style="font-size:13px">3 日偏离</span><span class="t3">11/18 ~ 11/20</span></div>
+              <div class="btw" style="margin-top:6px">
+                <span class="t2">当前 <b class="num" style="color:#1A1A1A;font-size:14px">+18.62</b> / 阈值 <b>±30</b></span>
+                <span class="t2">距阈值 <b class="num">11.38</b> 触发价 <b class="num">291.35</b></span>
+              </div>
+              <div class="bar" style="margin-top:7px"><i style="width:62%;background:#E8890C"></i></div>
+            </div>
+            <div style="padding:10px 12px;border-bottom:1px solid #EBEDF0;background:#FFFCF8">
+              <div class="btw"><span class="b" style="font-size:13px">10 日偏离</span><span class="tag t-10">已触发</span></div>
+              <div class="btw" style="margin-top:6px">
+                <span class="t2">当前 <b class="num" style="color:#E0501F;font-size:14px">+103.42</b> / 阈值 <b>+100 / -50</b></span>
+                <span class="t2">方向 <b>上涨</b></span>
+              </div>
+              <div class="bar" style="margin-top:7px"><i style="width:100%;background:#E0501F"></i></div>
+            </div>
+            <div style="padding:10px 12px;border-bottom:1px solid #EBEDF0">
+              <div class="btw"><span class="b" style="font-size:13px">30 日偏离</span><span class="t3">10/22 ~ 11/20</span></div>
+              <div class="btw" style="margin-top:6px">
+                <span class="t2">当前 <b class="num" style="color:#1A1A1A;font-size:14px">+146.80</b> / 阈值 <b>+200 / -70</b></span>
+                <span class="t2">剩余空间 <b class="num">53.20</b></span>
+              </div>
+              <div class="bar" style="margin-top:7px"><i style="width:73%;background:#C0271E"></i></div>
+            </div>
+            <div style="padding:10px 12px">
+              <div class="btw"><span class="b" style="font-size:13px">10 日同向异动</span><span class="tag t-same">已达要求</span></div>
+              <div class="btw" style="margin-top:6px">
+                <span class="t2">同向 <b class="num" style="font-size:14px">3</b> 次 / 要求 <b>3</b> 次（创业板）</span>
+                <span class="t2">方向 <b>上涨</b> · 还差 <b>0</b> 次</span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="disc">数据更新 14:52 · 仅供参考，不构成投资建议</div>
+        <div class="fade"></div>
+      </div>
+      <div class="tb">
+        <div class="on"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="#1A1A1A" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>单股计算</div>
+        <div><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="#9CA3AF" stroke-width="2"><path d="M12 3l7 3v6c0 4-3 7-7 9-4-2-7-5-7-9V6l7-3z"/></svg>监控池</div>
+        <div><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="#9CA3AF" stroke-width="2"><path d="M13 2L4 14h6l-1 8 9-12h-6l1-8z"/></svg>异动预测</div>
+      </div>
+      <div class="hm"><i></i></div>
+    </div></div>
+  </figure>
+
+  <!-- ============ S3 ============ -->
+  <figure class="shot">
+    <div class="cap"><b>S3</b>单股计算 · T+1 ~ T+10 假设表</div>
+    <p class="note">时间为行、指标为列，横向滚动；只生成交易日，非交易日不出现。输入失焦/回车即本地重算（100ms 内，不重新请求历史行情），空值按 0% 参与计算但输入框保持为空。非法输入只影响该行，字段级红框提示。</p>
+    <div class="phonebox"><div class="phone">
+      <div class="sb"><span>9:41</span><span class="r">
+        <svg width="17" height="11"><rect x="0" y="7" width="3" height="4" rx="1" fill="#1A1A1A"/><rect x="4.5" y="5" width="3" height="6" rx="1" fill="#1A1A1A"/><rect x="9" y="2.5" width="3" height="8.5" rx="1" fill="#1A1A1A"/><rect x="13.5" y="0" width="3" height="11" rx="1" fill="#1A1A1A"/></svg>
+        <svg width="16" height="11"><rect x="0" y="2" width="13" height="7" rx="2" fill="none" stroke="#1A1A1A"/><rect x="1.5" y="3.5" width="9" height="4" rx="1" fill="#1A1A1A"/><rect x="14.5" y="4" width="1.5" height="3" rx=".5" fill="#1A1A1A"/></svg>
+      </span></div>
+      <div class="nb">T+N 假设计算<span class="bk" style="top:12px"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#1A1A1A" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg></span><span class="rt">规则</span></div>
+      <div class="body">
+        <div style="background:#fff;padding:10px 14px;border-bottom:1px solid #EBEDF0" class="btw">
+          <div class="row" style="gap:8px"><span class="b" style="font-size:14px">宁德时代</span><span class="tag t-gy mono">300750</span><span class="tag t-10">10日严重异常</span></div>
+        </div>
+        <div style="background:#F7F8FA;padding:7px 14px;font-size:11px;color:#6B7280;border-bottom:1px solid #EBEDF0">输入股票涨幅 / 指数涨幅（%，可留空）· 空值按 0% 计算 · 已保留上次输入</div>
+        <div style="background:#fff">
+          <table style="border-collapse:collapse;width:100%;font-size:10px;table-layout:fixed">
+            <thead><tr style="background:#F7F8FA;color:#6B7280">
+              <th style="padding:7px 4px 7px 10px;text-align:left;font-weight:500;width:62px">交易日</th>
+              <th style="padding:7px 2px;font-weight:500;width:44px">股票%</th>
+              <th style="padding:7px 2px;font-weight:500;width:44px">指数%</th>
+              <th style="padding:7px 2px;font-weight:500;width:42px">3日</th>
+              <th style="padding:7px 2px;font-weight:500;width:46px">10日</th>
+              <th style="padding:7px 2px;font-weight:500;width:46px">30日</th>
+              <th style="padding:7px 10px 7px 2px;font-weight:500;text-align:right">安全空间</th>
+            </tr></thead>
+            <tbody class="num">
+              <tr style="border-bottom:1px solid #EBEDF0"><td style="padding:5px 4px 5px 10px"><b>T+1</b> <span style="color:#9CA3AF">11-21</span></td><td style="padding:2px"><input class="f" style="font-size:11px;padding:0 4px" value="5"></td><td style="padding:2px"><input class="f" style="font-size:11px;padding:0 4px" value="0.3"></td><td style="text-align:center">+22.10</td><td style="text-align:center;color:#E0501F">+107.9</td><td style="text-align:center">+150.2</td><td style="text-align:right;padding-right:10px;color:#C0271E;font-weight:600">已触发</td></tr>
+              <tr style="border-bottom:1px solid #EBEDF0"><td style="padding:5px 4px 5px 10px"><b>T+2</b> <span style="color:#9CA3AF">11-24</span></td><td style="padding:2px"><input class="f" style="font-size:11px;padding:0 4px" value=""></td><td style="padding:2px"><input class="f" style="font-size:11px;padding:0 4px" value=""></td><td style="text-align:center">+22.10</td><td style="text-align:center;color:#E0501F">+108.4</td><td style="text-align:center">+150.9</td><td style="text-align:right;padding-right:10px;color:#C0271E;font-weight:600">已触发</td></tr>
+              <tr style="border-bottom:1px solid #EBEDF0;background:#FFFCF8"><td style="padding:5px 4px 5px 10px"><b>T+3</b> <span style="color:#9CA3AF">11-25</span></td><td style="padding:2px"><input class="f err" style="font-size:11px;padding:0 4px" value="3.2.%"></td><td style="padding:2px"><input class="f" style="font-size:11px;padding:0 4px" value="-0.1"></td><td style="text-align:center">+25.4</td><td style="text-align:center;color:#E0501F">+112.0</td><td style="text-align:center">+154.6</td><td style="text-align:right;padding-right:10px;color:#C0271E;font-weight:600">已触发</td></tr>
+              <tr style="border-bottom:1px solid #EBEDF0"><td style="padding:5px 4px 5px 10px"><b>T+4</b> <span style="color:#9CA3AF">11-26</span></td><td style="padding:2px"><input class="f" style="font-size:11px;padding:0 4px" value=""></td><td style="padding:2px"><input class="f" style="font-size:11px;padding:0 4px" value=""></td><td style="text-align:center">+25.4</td><td style="text-align:center;color:#E0501F">+112.4</td><td style="text-align:center">+155.1</td><td style="text-align:right;padding-right:10px;color:#C0271E;font-weight:600">已触发</td></tr>
+              <tr style="border-bottom:1px solid #EBEDF0"><td style="padding:5px 4px 5px 10px"><b>T+5</b> <span style="color:#9CA3AF">11-27</span></td><td style="padding:2px"><input class="f" style="font-size:11px;padding:0 4px" value=""></td><td style="padding:2px"><input class="f" style="font-size:11px;padding:0 4px" value=""></td><td style="text-align:center">+25.4</td><td style="text-align:center;color:#E0501F">+112.8</td><td style="text-align:center">+155.6</td><td style="text-align:right;padding-right:10px;color:#C0271E;font-weight:600">已触发</td></tr>
+              <tr style="border-bottom:1px solid #EBEDF0"><td style="padding:5px 4px 5px 10px"><b>T+6</b> <span style="color:#9CA3AF">11-28</span></td><td style="padding:2px"><input class="f" style="font-size:11px;padding:0 4px" value=""></td><td style="padding:2px"><input class="f" style="font-size:11px;padding:0 4px" value=""></td><td style="text-align:center">+25.4</td><td style="text-align:center;color:#E0501F">+113.1</td><td style="text-align:center">+156.0</td><td style="text-align:right;padding-right:10px;color:#C0271E;font-weight:600">已触发</td></tr>
+              <tr style="border-bottom:1px solid #EBEDF0"><td style="padding:5px 4px 5px 10px"><b>T+7</b> <span style="color:#9CA3AF">12-01</span></td><td style="padding:2px"><input class="f" style="font-size:11px;padding:0 4px" value=""></td><td style="padding:2px"><input class="f" style="font-size:11px;padding:0 4px" value=""></td><td style="text-align:center">+25.4</td><td style="text-align:center;color:#E0501F">+113.5</td><td style="text-align:center">+156.4</td><td style="text-align:right;padding-right:10px;color:#C0271E;font-weight:600">已触发</td></tr>
+              <tr style="border-bottom:1px solid #EBEDF0"><td style="padding:5px 4px 5px 10px"><b>T+8</b> <span style="color:#9CA3AF">12-02</span></td><td style="padding:2px"><input class="f" style="font-size:11px;padding:0 4px" value=""></td><td style="padding:2px"><input class="f" style="font-size:11px;padding:0 4px" value=""></td><td style="text-align:center">+25.4</td><td style="text-align:center;color:#E0501F">+113.8</td><td style="text-align:center">+156.8</td><td style="text-align:right;padding-right:10px;color:#C0271E;font-weight:600">已触发</td></tr>
+              <tr style="border-bottom:1px solid #EBEDF0"><td style="padding:5px 4px 5px 10px"><b>T+9</b> <span style="color:#9CA3AF">12-03</span></td><td style="padding:2px"><input class="f" style="font-size:11px;padding:0 4px" value=""></td><td style="padding:2px"><input class="f" style="font-size:11px;padding:0 4px" value=""></td><td style="text-align:center">+25.4</td><td style="text-align:center;color:#E0501F">+114.1</td><td style="text-align:center">+157.1</td><td style="text-align:right;padding-right:10px;color:#C0271E;font-weight:600">已触发</td></tr>
+              <tr><td style="padding:5px 4px 5px 10px"><b>T+10</b> <span style="color:#9CA3AF">12-04</span></td><td style="padding:2px"><input class="f" style="font-size:11px;padding:0 4px" value=""></td><td style="padding:2px"><input class="f" style="font-size:11px;padding:0 4px" value=""></td><td style="text-align:center">+25.4</td><td style="text-align:center;color:#E0501F">+114.4</td><td style="text-align:center">+157.4</td><td style="text-align:right;padding-right:10px;color:#C0271E;font-weight:600">已触发</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div style="background:#FDF3F2;color:#C0271E;font-size:11px;padding:7px 14px;border-top:1px solid #F3D6D3">T+3「股票涨幅」格式不合法，请填写百分比数字（如 3.2）</div>
+        <div class="pad" style="padding-top:10px">
+          <div class="btw">
+            <span class="t3">共 10 个交易日（交易日历生成）</span>
+            <span class="btn gh" style="font-size:12px;padding:6px 12px">清空输入</span>
+          </div>
+        </div>
+        <div class="disc">规则辅助预测 · 数据更新 14:52 · 仅供参考，不构成投资建议</div>
+        <div class="fade"></div>
+      </div>
+      <div class="tb">
+        <div class="on"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="#1A1A1A" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>单股计算</div>
+        <div><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="#9CA3AF" stroke-width="2"><path d="M12 3l7 3v6c0 4-3 7-7 9-4-2-7-5-7-9V6l7-3z"/></svg>监控池</div>
+        <div><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="#9CA3AF" stroke-width="2"><path d="M13 2L4 14h6l-1 8 9-12h-6l1-8z"/></svg>异动预测</div>
+      </div>
+      <div class="hm"><i></i></div>
+    </div></div>
+  </figure>
+
+  <!-- ============ S4 ============ -->
+  <figure class="shot">
+    <div class="cap"><b>S4</b>监控池 · 当前监控</div>
+    <p class="note">顶部两段筛选（当前/历史、四类类型 + ST 开关）常驻；结果数量与刷新按钮同行。列表行三行文本、行高 88px，一屏 6 条；触底加载下一页（每页 20 条）。当前记录按严重程度 → 剩余交易日排序。</p>
+    <div class="phonebox"><div class="phone">
+      <div class="sb"><span>9:41</span><span class="r">
+        <svg width="17" height="11"><rect x="0" y="7" width="3" height="4" rx="1" fill="#1A1A1A"/><rect x="4.5" y="5" width="3" height="6" rx="1" fill="#1A1A1A"/><rect x="9" y="2.5" width="3" height="8.5" rx="1" fill="#1A1A1A"/><rect x="13.5" y="0" width="3" height="11" rx="1" fill="#1A1A1A"/></svg>
+        <svg width="16" height="11"><rect x="0" y="2" width="13" height="7" rx="2" fill="none" stroke="#1A1A1A"/><rect x="1.5" y="3.5" width="9" height="4" rx="1" fill="#1A1A1A"/><rect x="14.5" y="4" width="1.5" height="3" rx=".5" fill="#1A1A1A"/></svg>
+      </span></div>
+      <div class="nb">监控池</div>
+      <div class="body">
+        <div style="background:#fff;padding:10px 14px 8px;border-bottom:1px solid #EBEDF0">
+          <div class="seg"><span class="on">当前监控</span><span>历史监控</span></div>
+        </div>
+        <div style="background:#fff;padding:8px 14px;border-bottom:1px solid #EBEDF0">
+          <div class="row" style="gap:6px;overflow:hidden">
+            <span class="chip on">全部</span><span class="chip">普通</span><span class="chip">10日严重</span><span class="chip">30日严重</span>
+            <span style="flex:1"></span><span class="chip">ST 开</span>
+          </div>
+        </div>
+        <div style="background:#fff;padding:8px 14px;border-bottom:1px solid #EBEDF0" class="btw">
+          <span class="t2">共 <b class="num">37</b> 条 · 数据 14:50</span>
+          <span class="row" style="gap:8px"><span class="t3">上次 14:35</span><span class="btn" style="font-size:12px;padding:6px 12px">刷新</span></span>
+        </div>
+        <div style="background:#fff">
+          <div style="padding:10px 14px;border-bottom:1px solid #EBEDF0">
+            <div class="btw"><span class="row" style="gap:6px"><span class="b" style="font-size:14px">比亚迪</span><span class="tag t-gy mono">002594</span><span class="tag t-30">30日严重异常</span></span><span class="up b num" style="font-size:13px">+9.98%</span></div>
+            <div class="btw" style="margin-top:5px"><span class="t3">监控期 11-12 ~ 11-26 · 剩余 <b>4</b> 个交易日</span><span class="t3">深交所主板</span></div>
+            <div class="t3" style="margin-top:4px">30日累计偏离 +203.11%（阈值 +200%）· 数据 14:50</div>
+          </div>
+          <div style="padding:10px 14px;border-bottom:1px solid #EBEDF0">
+            <div class="btw"><span class="row" style="gap:6px"><span class="b" style="font-size:14px">宁德时代</span><span class="tag t-gy mono">300750</span><span class="tag t-10">10日严重异常</span></span><span class="up b num" style="font-size:13px">+7.82%</span></div>
+            <div class="btw" style="margin-top:5px"><span class="t3">监控期 11-13 ~ 11-27 · 剩余 <b>5</b> 个交易日</span><span class="t3">创业板</span></div>
+            <div class="t3" style="margin-top:4px">10日累计偏离 +103.42%（阈值 +100%）· 数据 14:50</div>
+          </div>
+          <div style="padding:10px 14px;border-bottom:1px solid #EBEDF0">
+            <div class="btw"><span class="row" style="gap:6px"><span class="b" style="font-size:14px">中际旭创</span><span class="tag t-gy mono">300308</span><span class="tag t-same">同向严重异常</span></span><span class="up b num" style="font-size:13px">+5.41%</span></div>
+            <div class="btw" style="margin-top:5px"><span class="t3">监控期 11-14 ~ 11-28 · 剩余 <b>6</b> 个交易日</span><span class="t3">创业板</span></div>
+            <div class="t3" style="margin-top:4px">10日内同向普通异动 3 次（要求 3 次）· 数据 14:50</div>
+          </div>
+          <div style="padding:10px 14px;border-bottom:1px solid #EBEDF0">
+            <div class="btw"><span class="row" style="gap:6px"><span class="b" style="font-size:14px">中科曙光</span><span class="tag t-gy mono">603019</span><span class="tag t-ord">普通风险提示</span></span><span class="up b num" style="font-size:13px">+3.20%</span></div>
+            <div class="btw" style="margin-top:5px"><span class="t3">监控期 11-18 ~ 11-22 · 剩余 <b>2</b> 个交易日</span><span class="t3">上交所主板</span></div>
+            <div class="t3" style="margin-top:4px">3日累计偏离 +18.90%（阈值 ±20%）· 数据 14:50</div>
+          </div>
+          <div style="padding:10px 14px;border-bottom:1px solid #EBEDF0">
+            <div class="btw"><span class="row" style="gap:6px"><span class="b" style="font-size:14px">左江科技</span><span class="tag t-st">*ST</span><span class="tag t-gy mono">300799</span><span class="tag t-10">10日严重异常</span></span><span class="down b num" style="font-size:13px">-4.96%</span></div>
+            <div class="btw" style="margin-top:5px"><span class="t3">监控期 11-10 ~ 11-24 · 剩余 <b>3</b> 个交易日</span><span class="t3">创业板</span></div>
+            <div class="t3" style="margin-top:4px">10日累计偏离 -52.70%（阈值 -50%）· 数据 14:50</div>
+          </div>
+          <div style="padding:10px 14px;border-bottom:1px solid #EBEDF0">
+            <div class="btw"><span class="row" style="gap:6px"><span class="b" style="font-size:14px">北方华创</span><span class="tag t-gy mono">002371</span><span class="tag t-ord">普通风险提示</span></span><span class="down b num" style="font-size:13px">-2.11%</span></div>
+            <div class="btw" style="margin-top:5px"><span class="t3">监控期 11-18 ~ 11-22 · 剩余 <b>2</b> 个交易日</span><span class="t3">深交所主板</span></div>
+            <div class="t3" style="margin-top:4px">3日均换手率/前5日 = 33.6 倍，3日累计换手 22.4% · 数据 14:50</div>
+          </div>
+        </div>
+        <div style="padding:10px 0;text-align:center;font-size:11px;color:#9CA3AF;background:#F2F3F5">正在加载第 2 页…</div>
+        <div class="fade"></div>
+      </div>
+      <div class="tb">
+        <div><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="#9CA3AF" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>单股计算</div>
+        <div class="on"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="#1A1A1A" stroke-width="2"><path d="M12 3l7 3v6c0 4-3 7-7 9-4-2-7-5-7-9V6l7-3z"/></svg>监控池</div>
+        <div><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="#9CA3AF" stroke-width="2"><path d="M13 2L4 14h6l-1 8 9-12h-6l1-8z"/></svg>异动预测</div>
+      </div>
+      <div class="hm"><i></i></div>
+    </div></div>
+  </figure>
+
+  <!-- ============ S5 ============ -->
+  <figure class="shot">
+    <div class="cap"><b>S5</b>监控池 · 历史监控（近 30 个自然日）</div>
+    <p class="note">历史切换后按结束日期倒序，只保留最近 30 个自然日；列表行把「剩余交易日」换成「已结束 / 结束日期」，并保留当时的触发类型与规则文本，避免与当前监控混淆。</p>
+    <div class="phonebox"><div class="phone">
+      <div class="sb"><span>9:41</span><span class="r">
+        <svg width="17" height="11"><rect x="0" y="7" width="3" height="4" rx="1" fill="#1A1A1A"/><rect x="4.5" y="5" width="3" height="6" rx="1" fill="#1A1A1A"/><rect x="9" y="2.5" width="3" height="8.5" rx="1" fill="#1A1A1A"/><rect x="13.5" y="0" width="3" height="11" rx="1" fill="#1A1A1A"/></svg>
+        <svg width="16" height="11"><rect x="0" y="2" width="13" height="7" rx="2" fill="none" stroke="#1A1A1A"/><rect x="1.5" y="3.5" width="9" height="4" rx="1" fill="#1A1A1A"/><rect x="14.5" y="4" width="1.5" height="3" rx=".5" fill="#1A1A1A"/></svg>
+      </span></div>
+      <div class="nb">监控池</div>
+      <div class="body">
+        <div style="background:#fff;padding:10px 14px 8px;border-bottom:1px solid #EBEDF0">
+          <div class="seg"><span>当前监控</span><span class="on">历史监控</span></div>
+        </div>
+        <div style="background:#fff;padding:8px 14px;border-bottom:1px solid #EBEDF0">
+          <div class="row" style="gap:6px;overflow:hidden">
+            <span class="chip on">全部</span><span class="chip">普通</span><span class="chip">10日严重</span><span class="chip">30日严重</span>
+            <span style="flex:1"></span><span class="chip">ST 开</span>
+          </div>
+        </div>
+        <div style="background:#F7F8FA;padding:7px 14px;font-size:11px;color:#6B7280;border-bottom:1px solid #EBEDF0">仅保留最近 30 个自然日（2026-10-22 起）</div>
+        <div style="background:#fff;padding:8px 14px;border-bottom:1px solid #EBEDF0" class="btw">
+          <span class="t2">共 <b class="num">64</b> 条 · 已结束</span>
+          <span class="row" style="gap:8px"><span class="t3">结束日期倒序</span><span class="btn" style="font-size:12px;padding:6px 12px">刷新</span></span>
+        </div>
+        <div style="background:#fff">
+          <div style="padding:10px 14px;border-bottom:1px solid #EBEDF0">
+            <div class="btw"><span class="row" style="gap:6px"><span class="b" style="font-size:14px">寒武纪</span><span class="tag t-gy mono">688256</span><span class="tag t-30">30日严重异常</span></span><span class="t3">结束 11-20</span></div>
+            <div class="btw" style="margin-top:5px"><span class="t3">监控期 10-09 ~ 11-20 · 共 30 个交易日</span><span class="t3">科创板</span></div>
+            <div class="t3" style="margin-top:4px">30日累计偏离 +212.40%（阈值 +200%）· 数据 11-20 15:00</div>
+          </div>
+          <div style="padding:10px 14px;border-bottom:1px solid #EBEDF0">
+            <div class="btw"><span class="row" style="gap:6px"><span class="b" style="font-size:14px">赛力斯</span><span class="tag t-gy mono">601127</span><span class="tag t-10">10日严重异常</span></span><span class="t3">结束 11-19</span></div>
+            <div class="btw" style="margin-top:5px"><span class="t3">监控期 11-05 ~ 11-19 · 共 11 个交易日</span><span class="t3">上交所主板</span></div>
+            <div class="t3" style="margin-top:4px">10日累计偏离 +108.15%（阈值 +100%）· 数据 11-19 15:00</div>
+          </div>
+          <div style="padding:10px 14px;border-bottom:1px solid #EBEDF0">
+            <div class="btw"><span class="row" style="gap:6px"><span class="b" style="font-size:14px">昆仑万维</span><span class="tag t-gy mono">300418</span><span class="tag t-same">同向严重异常</span></span><span class="t3">结束 11-18</span></div>
+            <div class="btw" style="margin-top:5px"><span class="t3">监控期 11-05 ~ 11-18 · 共 10 个交易日</span><span class="t3">创业板</span></div>
+            <div class="t3" style="margin-top:4px">10日内同向普通异动 3 次（要求 3 次）· 数据 11-18 15:00</div>
+          </div>
+          <div style="padding:10px 14px;border-bottom:1px solid #EBEDF0">
+            <div class="btw"><span class="row" style="gap:6px"><span class="b" style="font-size:14px">浪潮信息</span><span class="tag t-gy mono">000977</span><span class="tag t-ord">普通风险提示</span></span><span class="t3">结束 11-17</span></div>
+            <div class="btw" style="margin-top:5px"><span class="t3">监控期 11-13 ~ 11-17 · 共 3 个交易日</span><span class="t3">深交所主板</span></div>
+            <div class="t3" style="margin-top:4px">3日累计偏离 +20.35%（阈值 ±20%）· 数据 11-17 15:00</div>
+          </div>
+          <div style="padding:10px 14px;border-bottom:1px solid #EBEDF0">
+            <div class="btw"><span class="row" style="gap:6px"><span class="b" style="font-size:14px">贝达药业</span><span class="tag t-gy mono">300558</span><span class="tag t-ord">普通风险提示</span></span><span class="t3">结束 11-14</span></div>
+            <div class="btw" style="margin-top:5px"><span class="t3">监控期 11-10 ~ 11-14 · 共 3 个交易日</span><span class="t3">创业板</span></div>
+            <div class="t3" style="margin-top:4px">3日累计偏离 -27.60%（阈值 ±30%）· 数据 11-14 15:00</div>
+          </div>
+          <div style="padding:10px 14px;border-bottom:1px solid #EBEDF0">
+            <div class="btw"><span class="row" style="gap:6px"><span class="b" style="font-size:14px">云从科技</span><span class="tag t-gy mono">688327</span><span class="tag t-unk">暂无法判定</span></span><span class="t3">结束 11-11</span></div>
+            <div class="btw" style="margin-top:5px"><span class="t3">监控期 10-28 ~ 11-11 · 共 11 个交易日</span><span class="t3">科创板</span></div>
+            <div class="t3" style="margin-top:4px">缺失 11-04、11-05 指数数据，不按 0 补齐 · 数据 11-11 15:00</div>
+          </div>
+        </div>
+        <div style="padding:10px 0;text-align:center;font-size:11px;color:#9CA3AF;background:#F2F3F5">— 上拉加载更多 —</div>
+        <div class="fade"></div>
+      </div>
+      <div class="tb">
+        <div><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="#9CA3AF" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>单股计算</div>
+        <div class="on"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="#1A1A1A" stroke-width="2"><path d="M12 3l7 3v6c0 4-3 7-7 9-4-2-7-5-7-9V6l7-3z"/></svg>监控池</div>
+        <div><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="#9CA3AF" stroke-width="2"><path d="M13 2L4 14h6l-1 8 9-12h-6l1-8z"/></svg>异动预测</div>
+      </div>
+      <div class="hm"><i></i></div>
+    </div></div>
+  </figure>
+
+  <!-- ============ S6 ============ -->
+  <figure class="shot">
+    <div class="cap"><b>S6</b>异动预测 · 当日</div>
+    <p class="note">顶部扫描信息条常驻「扫描股票数 / 候选数 / 扫描完成时间 / 行情时间」，用户可区分「没有候选」与「尚未完成扫描」。刷新后如出现新触发，用一条可点击的变更条提示数量并定位，不重复提示已看过的。</p>
+    <div class="phonebox"><div class="phone">
+      <div class="sb"><span>9:41</span><span class="r">
+        <svg width="17" height="11"><rect x="0" y="7" width="3" height="4" rx="1" fill="#1A1A1A"/><rect x="4.5" y="5" width="3" height="6" rx="1" fill="#1A1A1A"/><rect x="9" y="2.5" width="3" height="8.5" rx="1" fill="#1A1A1A"/><rect x="13.5" y="0" width="3" height="11" rx="1" fill="#1A1A1A"/></svg>
+        <svg width="16" height="11"><rect x="0" y="2" width="13" height="7" rx="2" fill="none" stroke="#1A1A1A"/><rect x="1.5" y="3.5" width="9" height="4" rx="1" fill="#1A1A1A"/><rect x="14.5" y="4" width="1.5" height="3" rx=".5" fill="#1A1A1A"/></svg>
+      </span></div>
+      <div class="nb">异动预测<span class="rt">规则</span></div>
+      <div class="body">
+        <div style="background:#fff;padding:10px 14px;border-bottom:1px solid #EBEDF0">
+          <div class="seg"><span class="on">当日预测</span><span>次日预测</span></div>
+        </div>
+        <div style="background:#F7F8FA;padding:8px 14px;font-size:11px;color:#4B5563;border-bottom:1px solid #EBEDF0" class="btw">
+          <span>全市场上市A股，共 <b class="num">5,412</b> 只 · 候选 <b class="num">23</b></span>
+          <span class="btn" style="font-size:12px;padding:5px 12px">刷新</span>
+        </div>
+        <div style="background:#FDF3F2;border-bottom:1px solid #F3D6D3;padding:8px 14px;font-size:11px;color:#C0271E" class="btw">
+          <span>本次刷新新增 <b class="num">3</b> 只触发 · 比亚迪 / 中科曙光 / 通富微电</span>
+          <span style="font-weight:600">查看 ›</span>
+        </div>
+        <div style="background:#F7F8FA;padding:6px 14px;font-size:10px;color:#9CA3AF;border-bottom:1px solid #EBEDF0" class="btw">
+          <span>扫描完成 14:50:12 · 快照 sq_20261120_1450</span><span>行情 14:50 实时</span>
+        </div>
+        <div style="background:#fff">
+          <div style="padding:9px 14px;border-bottom:1px solid #EBEDF0">
+            <div class="btw"><span class="row" style="gap:6px"><span class="tag t-30">已触发</span><span class="b" style="font-size:14px">比亚迪</span><span class="tag t-gy mono">002594</span></span><span class="up b num" style="font-size:13px">+9.98%</span></div>
+            <div class="btw" style="margin-top:5px"><span class="t3">30日累计偏离 <b class="num">+203.11</b> / 阈值 +200%</span><span class="t3">深主板 · 14:50</span></div>
+          </div>
+          <div style="padding:9px 14px;border-bottom:1px solid #EBEDF0">
+            <div class="btw"><span class="row" style="gap:6px"><span class="tag t-10">已触发</span><span class="b" style="font-size:14px">宁德时代</span><span class="tag t-gy mono">300750</span></span><span class="up b num" style="font-size:13px">+7.82%</span></div>
+            <div class="btw" style="margin-top:5px"><span class="t3">10日累计偏离 <b class="num">+103.42</b> / 阈值 +100%</span><span class="t3">创业板 · 14:50</span></div>
+          </div>
+          <div style="padding:9px 14px;border-bottom:1px solid #EBEDF0">
+            <div class="btw"><span class="row" style="gap:6px"><span class="tag t-ord">临界</span><span class="b" style="font-size:14px">中科曙光</span><span class="tag t-gy mono">603019</span></span><span class="up b num" style="font-size:13px">+6.15%</span></div>
+            <div class="btw" style="margin-top:5px"><span class="t3">3日累计偏离 <b class="num">+18.90</b> / 阈值 ±20%</span><span class="t3">上主板 · 14:50</span></div>
+          </div>
+          <div style="padding:9px 14px;border-bottom:1px solid #EBEDF0">
+            <div class="btw"><span class="row" style="gap:6px"><span class="tag t-ord">临界</span><span class="b" style="font-size:14px">通富微电</span><span class="tag t-gy mono">002156</span></span><span class="up b num" style="font-size:13px">+5.88%</span></div>
+            <div class="btw" style="margin-top:5px"><span class="t3">3日累计偏离 <b class="num">+17.42</b> / 阈值 ±20%</span><span class="t3">深主板 · 14:50</span></div>
+          </div>
+          <div style="padding:9px 14px;border-bottom:1px solid #EBEDF0">
+            <div class="btw"><span class="row" style="gap:6px"><span class="tag t-same">临界</span><span class="b" style="font-size:14px">中际旭创</span><span class="tag t-gy mono">300308</span></span><span class="up b num" style="font-size:13px">+5.41%</span></div>
+            <div class="btw" style="margin-top:5px"><span class="t3">10日内同向 <b class="num">3</b> 次 / 要求 3 次</span><span class="t3">创业板 · 14:50</span></div>
+          </div>
+          <div style="padding:9px 14px;border-bottom:1px solid #EBEDF0">
+            <div class="btw"><span class="row" style="gap:6px"><span class="tag t-ord">临界</span><span class="b" style="font-size:14px">北方华创</span><span class="tag t-gy mono">002371</span></span><span class="down b num" style="font-size:13px">-2.11%</span></div>
+            <div class="btw" style="margin-top:5px"><span class="t3">3日均换手率比值 <b class="num">33.6</b> 倍 / 阈值 30 倍</span><span class="t3">深主板 · 14:50</span></div>
+          </div>
+          <div style="padding:9px 14px;border-bottom:1px solid #EBEDF0">
+            <div class="btw"><span class="row" style="gap:6px"><span class="tag t-unk">暂无法判定</span><span class="b" style="font-size:14px">云从科技</span><span class="tag t-gy mono">688327</span></span><span class="up b num" style="font-size:13px">+1.02%</span></div>
+            <div class="btw" style="margin-top:5px"><span class="t3">缺失 11-04、11-05 指数数据</span><span class="t3">科创板 · 14:50</span></div>
+          </div>
+        </div>
+        <div style="padding:10px 0;text-align:center;font-size:11px;color:#9CA3AF;background:#F2F3F5">— 上拉加载更多（共 23 条）—</div>
+        <div class="fade"></div>
+      </div>
+      <div class="tb">
+        <div><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="#9CA3AF" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>单股计算</div>
+        <div><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="#9CA3AF" stroke-width="2"><path d="M12 3l7 3v6c0 4-3 7-7 9-4-2-7-5-7-9V6l7-3z"/></svg>监控池</div>
+        <div class="on"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="#1A1A1A" stroke-width="2"><path d="M13 2L4 14h6l-1 8 9-12h-6l1-8z"/></svg>异动预测</div>
+      </div>
+      <div class="hm"><i></i></div>
+    </div></div>
+  </figure>
+
+  <!-- ============ S7 ============ -->
+  <figure class="shot">
+    <div class="cap"><b>S7</b>异动预测 · 次日</div>
+    <p class="note">次日预测使用最新收盘数据 + 指数涨幅假设；假设输入放在列表顶部并同步到全部候选行。默认打开当日预测，切换只由用户触发，不因交易时间自动切换；切换时保留滚动位置。</p>
+    <div class="phonebox"><div class="phone">
+      <div class="sb"><span>9:41</span><span class="r">
+        <svg width="17" height="11"><rect x="0" y="7" width="3" height="4" rx="1" fill="#1A1A1A"/><rect x="4.5" y="5" width="3" height="6" rx="1" fill="#1A1A1A"/><rect x="9" y="2.5" width="3" height="8.5" rx="1" fill="#1A1A1A"/><rect x="13.5" y="0" width="3" height="11" rx="1" fill="#1A1A1A"/></svg>
+        <svg width="16" height="11"><rect x="0" y="2" width="13" height="7" rx="2" fill="none" stroke="#1A1A1A"/><rect x="1.5" y="3.5" width="9" height="4" rx="1" fill="#1A1A1A"/><rect x="14.5" y="4" width="1.5" height="3" rx=".5" fill="#1A1A1A"/></svg>
+      </span></div>
+      <div class="nb">异动预测<span class="rt">规则</span></div>
+      <div class="body">
+        <div style="background:#fff;padding:10px 14px;border-bottom:1px solid #EBEDF0">
+          <div class="seg"><span>当日预测</span><span class="on">次日预测</span></div>
+        </div>
+        <div style="background:#fff;padding:10px 14px;border-bottom:1px solid #EBEDF0">
+          <div class="btw">
+            <span class="t2">下一交易日 <b class="mono">2026-11-21</b></span>
+            <span class="row" style="gap:6px"><span class="t3">指数涨幅%</span><input class="f" style="width:64px" value="0.3"></span>
+          </div>
+          <div class="t3" style="margin-top:6px">基于 11-20 收盘数据计算规则线距离 · 空值按 0%</div>
+        </div>
+        <div style="background:#F7F8FA;padding:8px 14px;font-size:11px;color:#4B5563;border-bottom:1px solid #EBEDF0" class="btw">
+          <span>全市场上市A股，共 <b class="num">5,412</b> 只 · 候选 <b class="num">16</b></span>
+          <span class="btn" style="font-size:12px;padding:5px 12px">刷新</span>
+        </div>
+        <div style="background:#F7F8FA;padding:6px 14px;font-size:10px;color:#9CA3AF;border-bottom:1px solid #EBEDF0" class="btw">
+          <span>扫描完成 14:50:12 · 快照 sq_20261120_1450</span><span>收盘 15:00</span>
+        </div>
+        <div style="background:#fff">
+          <div style="padding:9px 14px;border-bottom:1px solid #EBEDF0">
+            <div class="btw"><span class="row" style="gap:6px"><span class="tag t-30">次日临界</span><span class="b" style="font-size:14px">比亚迪</span><span class="tag t-gy mono">002594</span></span><span class="up b num" style="font-size:13px">+9.98%</span></div>
+            <div class="btw" style="margin-top:5px"><span class="t3">距 +200% 还差 <b class="num">3.21</b> · 触发价 <b class="num">376.40</b></span><span class="t3">深主板</span></div>
+          </div>
+          <div style="padding:9px 14px;border-bottom:1px solid #EBEDF0">
+            <div class="btw"><span class="row" style="gap:6px"><span class="tag t-10">次日临界</span><span class="b" style="font-size:14px">赛力斯</span><span class="tag t-gy mono">601127</span></span><span class="up b num" style="font-size:13px">+4.30%</span></div>
+            <div class="btw" style="margin-top:5px"><span class="t3">距 +100% 还差 <b class="num">6.85</b> · 触发价 <b class="num">142.90</b></span><span class="t3">上主板</span></div>
+          </div>
+          <div style="padding:9px 14px;border-bottom:1px solid #EBEDF0">
+            <div class="btw"><span class="row" style="gap:6px"><span class="tag t-ord">次日临界</span><span class="b" style="font-size:14px">中科曙光</span><span class="tag t-gy mono">603019</span></span><span class="up b num" style="font-size:13px">+6.15%</span></div>
+            <div class="btw" style="margin-top:5px"><span class="t3">距 ±20% 还差 <b class="num">1.10</b> · 触发价 <b class="num">58.12</b></span><span class="t3">上主板</span></div>
+          </div>
+          <div style="padding:9px 14px;border-bottom:1px solid #EBEDF0">
+            <div class="btw"><span class="row" style="gap:6px"><span class="tag t-ord">次日临界</span><span class="b" style="font-size:14px">通富微电</span><span class="tag t-gy mono">002156</span></span><span class="up b num" style="font-size:13px">+5.88%</span></div>
+            <div class="btw" style="margin-top:5px"><span class="t3">距 ±20% 还差 <b class="num">2.58</b> · 触发价 <b class="num">26.44</b></span><span class="t3">深主板</span></div>
+          </div>
+          <div style="padding:9px 14px;border-bottom:1px solid #EBEDF0">
+            <div class="btw"><span class="row" style="gap:6px"><span class="tag t-same">次日临界</span><span class="b" style="font-size:14px">中际旭创</span><span class="tag t-gy mono">300308</span></span><span class="up b num" style="font-size:13px">+5.41%</span></div>
+            <div class="btw" style="margin-top:5px"><span class="t3">再 1 次同向即达 3 次要求</span><span class="t3">创业板</span></div>
+          </div>
+          <div style="padding:9px 14px;border-bottom:1px solid #EBEDF0">
+            <div class="btw"><span class="row" style="gap:6px"><span class="tag t-safe">安全</span><span class="b" style="font-size:14px">贵州茅台</span><span class="tag t-gy mono">600519</span></span><span class="down b num" style="font-size:13px">-0.62%</span></div>
+            <div class="btw" style="margin-top:5px"><span class="t3">10日偏离 <b class="num">+12.30</b> · 剩余空间 <b class="num">87.70</b></span><span class="t3">上主板</span></div>
+          </div>
+          <div style="padding:9px 14px;border-bottom:1px solid #EBEDF0">
+            <div class="btw"><span class="row" style="gap:6px"><span class="tag t-unk">暂无法判定</span><span class="b" style="font-size:14px">云从科技</span><span class="tag t-gy mono">688327</span></span><span class="up b num" style="font-size:13px">+1.02%</span></div>
+            <div class="btw" style="margin-top:5px"><span class="t3">缺失 11-04、11-05 指数数据</span><span class="t3">科创板</span></div>
+          </div>
+        </div>
+        <div style="padding:10px 0;text-align:center;font-size:11px;color:#9CA3AF;background:#F2F3F5">— 上拉加载更多（共 16 条）—</div>
+        <div class="fade"></div>
+      </div>
+      <div class="tb">
+        <div><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="#9CA3AF" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>单股计算</div>
+        <div><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="#9CA3AF" stroke-width="2"><path d="M12 3l7 3v6c0 4-3 7-7 9-4-2-7-5-7-9V6l7-3z"/></svg>监控池</div>
+        <div class="on"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="#1A1A1A" stroke-width="2"><path d="M13 2L4 14h6l-1 8 9-12h-6l1-8z"/></svg>异动预测</div>
+      </div>
+      <div class="hm"><i></i></div>
+    </div></div>
+  </figure>
+
+  <!-- ============ S8 ============ -->
+  <figure class="shot">
+    <div class="cap"><b>S8</b>规则说明页</div>
+    <p class="note">阈值全部由后端返回、前端不写死；页面展示规则版本、生效日期、官方出处与「仅供参考，不构成投资建议」。A 方案用紧凑表格承载，与列表视觉一致。</p>
+    <div class="phonebox"><div class="phone">
+      <div class="sb"><span>9:41</span><span class="r">
+        <svg width="17" height="11"><rect x="0" y="7" width="3" height="4" rx="1" fill="#1A1A1A"/><rect x="4.5" y="5" width="3" height="6" rx="1" fill="#1A1A1A"/><rect x="9" y="2.5" width="3" height="8.5" rx="1" fill="#1A1A1A"/><rect x="13.5" y="0" width="3" height="11" rx="1" fill="#1A1A1A"/></svg>
+        <svg width="16" height="11"><rect x="0" y="2" width="13" height="7" rx="2" fill="none" stroke="#1A1A1A"/><rect x="1.5" y="3.5" width="9" height="4" rx="1" fill="#1A1A1A"/><rect x="14.5" y="4" width="1.5" height="3" rx=".5" fill="#1A1A1A"/></svg>
+      </span></div>
+      <div class="nb">规则说明<span class="bk" style="top:12px"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#1A1A1A" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg></span></div>
+      <div class="body">
+        <div class="pad">
+          <div class="card" style="padding:12px">
+            <div class="btw"><span class="b" style="font-size:13px">规则版本</span><span class="t3 mono">2026-07-06 生效</span></div>
+            <div class="hr" style="margin:9px 0"></div>
+            <div class="t2" style="line-height:1.7">数据源：Tushare · 上交所/深交所 2026 年修订交易规则。北交所使用独立规则配置，页面以「配置值」标注。</div>
+          </div>
+        </div>
+        <div class="pad" style="padding-top:0">
+          <div class="t2 b" style="margin-bottom:7px">普通异常（3 个交易日累计偏离）</div>
+          <div class="card">
+            <table style="width:100%;border-collapse:collapse;font-size:12px">
+              <tr style="background:#F7F8FA"><th style="padding:7px 10px;text-align:left;font-weight:500;color:#6B7280">板块</th><th style="padding:7px 10px;text-align:right;font-weight:500;color:#6B7280">3日阈值</th><th style="padding:7px 10px;text-align:right;font-weight:500;color:#6B7280">10日同向次数</th></tr>
+              <tr><td style="padding:7px 10px;border-top:1px solid #EBEDF0">上交所主板</td><td style="padding:7px 10px;text-align:right;border-top:1px solid #EBEDF0" class="num">±20%</td><td style="padding:7px 10px;text-align:right;border-top:1px solid #EBEDF0" class="num">4</td></tr>
+              <tr><td style="padding:7px 10px;border-top:1px solid #EBEDF0">深交所主板</td><td style="padding:7px 10px;text-align:right;border-top:1px solid #EBEDF0" class="num">±20%</td><td style="padding:7px 10px;text-align:right;border-top:1px solid #EBEDF0" class="num">4</td></tr>
+              <tr><td style="padding:7px 10px;border-top:1px solid #EBEDF0">创业板</td><td style="padding:7px 10px;text-align:right;border-top:1px solid #EBEDF0" class="num">±30%</td><td style="padding:7px 10px;text-align:right;border-top:1px solid #EBEDF0" class="num">3</td></tr>
+              <tr><td style="padding:7px 10px;border-top:1px solid #EBEDF0">科创板</td><td style="padding:7px 10px;text-align:right;border-top:1px solid #EBEDF0" class="num">±30%</td><td style="padding:7px 10px;text-align:right;border-top:1px solid #EBEDF0" class="num">3</td></tr>
+              <tr><td style="padding:7px 10px;border-top:1px solid #EBEDF0">北交所</td><td style="padding:7px 10px;text-align:right;border-top:1px solid #EBEDF0;color:#6B7280">配置值</td><td style="padding:7px 10px;text-align:right;border-top:1px solid #EBEDF0;color:#6B7280">配置值</td></tr>
+            </table>
+          </div>
+        </div>
+        <div class="pad" style="padding-top:0">
+          <div class="t2 b" style="margin-bottom:7px">严重异常（方向不对称）</div>
+          <div class="card" style="padding:12px">
+            <div class="btw" style="padding:5px 0"><span class="t1">10 个交易日</span><span class="b num up">+100%</span><span class="t3">/</span><span class="b num down">-50%</span></div>
+            <div class="hr"></div>
+            <div class="btw" style="padding:5px 0"><span class="t1">30 个交易日</span><span class="b num up">+200%</span><span class="t3">/</span><span class="b num down">-70%</span></div>
+            <div class="hr"></div>
+            <div class="btw" style="padding:5px 0"><span class="t1">同向普通异动</span><span class="t2">主板 4 次 · 创业板/科创板 3 次</span></div>
+            <div class="t3" style="margin-top:8px;line-height:1.7">任一条件满足即触发；无价格涨跌幅限制股票不纳入；交易所公布异常或复牌后从次一交易日起重新计算。</div>
+          </div>
+        </div>
+        <div class="pad" style="padding-top:0">
+          <div class="card" style="padding:12px;background:#F7F8FA">
+            <div class="t2 b" style="margin-bottom:6px">深交所主板换手率条件</div>
+            <div class="t2" style="line-height:1.7">3 日均换手率 / 前 5 日均换手率 ≥ 30 倍，且 3 日累计换手率 ≥ 20%。该条件无方向，不计入同向次数。</div>
+          </div>
+        </div>
+        <div class="disc" style="padding:10px 14px">计算口径、阈值与触发价均为规则理论值，不代表交易所最终认定。<br>仅供参考，不构成投资建议。</div>
+      </div>
+      <div class="tb">
+        <div class="on"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="#1A1A1A" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>单股计算</div>
+        <div><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="#9CA3AF" stroke-width="2"><path d="M12 3l7 3v6c0 4-3 7-7 9-4-2-7-5-7-9V6l7-3z"/></svg>监控池</div>
+        <div><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="#9CA3AF" stroke-width="2"><path d="M13 2L4 14h6l-1 8 9-12h-6l1-8z"/></svg>异动预测</div>
+      </div>
+      <div class="hm"><i></i></div>
+    </div></div>
+  </figure>
+
+  <!-- ============ S9 ============ -->
+  <figure class="shot">
+    <div class="cap"><b>S9</b>状态 · 骨架屏（首屏 1.5s）</div>
+    <p class="note">首次进入先渲染骨架与上次成功数据，绝不白屏。骨架用与实际内容同构的灰块，高度 1:1，避免加载完成后的跳动。</p>
+    <div class="phonebox"><div class="phone">
+      <div class="sb"><span>9:41</span><span class="r">
+        <svg width="17" height="11"><rect x="0" y="7" width="3" height="4" rx="1" fill="#1A1A1A"/><rect x="4.5" y="5" width="3" height="6" rx="1" fill="#1A1A1A"/><rect x="9" y="2.5" width="3" height="8.5" rx="1" fill="#1A1A1A"/><rect x="13.5" y="0" width="3" height="11" rx="1" fill="#1A1A1A"/></svg>
+        <svg width="16" height="11"><rect x="0" y="2" width="13" height="7" rx="2" fill="none" stroke="#1A1A1A"/><rect x="1.5" y="3.5" width="9" height="4" rx="1" fill="#1A1A1A"/><rect x="14.5" y="4" width="1.5" height="3" rx=".5" fill="#1A1A1A"/></svg>
+      </span></div>
+      <div class="nb">监控池</div>
+      <div class="body">
+        <div style="background:#fff;padding:10px 14px 8px;border-bottom:1px solid #EBEDF0"><div class="seg"><span class="on">当前监控</span><span>历史监控</span></div></div>
+        <div style="background:#fff;padding:8px 14px;border-bottom:1px solid #EBEDF0" class="row" style="gap:6px">
+          <span style="width:46px;height:22px;background:#F2F3F5;border-radius:3px"></span>
+          <span style="width:38px;height:22px;background:#F2F3F5;border-radius:3px"></span>
+          <span style="width:62px;height:22px;background:#F2F3F5;border-radius:3px"></span>
+          <span style="width:62px;height:22px;background:#F2F3F5;border-radius:3px"></span>
+        </div>
+        <div style="background:#fff;padding:8px 14px;border-bottom:1px solid #EBEDF0" class="btw">
+          <span style="width:112px;height:14px;background:#F2F3F5;border-radius:3px"></span>
+          <span style="width:56px;height:24px;background:#F2F3F5;border-radius:3px"></span>
+        </div>
+        <div style="background:#fff">
+          <div style="padding:10px 14px;border-bottom:1px solid #EBEDF0">
+            <div style="width:150px;height:15px;background:#F2F3F5;border-radius:3px"></div>
+            <div style="width:220px;height:11px;background:#F2F3F5;border-radius:3px;margin-top:8px"></div>
+            <div style="width:196px;height:11px;background:#F2F3F5;border-radius:3px;margin-top:6px"></div>
+          </div>
+          <div style="padding:10px 14px;border-bottom:1px solid #EBEDF0">
+            <div style="width:134px;height:15px;background:#F2F3F5;border-radius:3px"></div>
+            <div style="width:236px;height:11px;background:#F2F3F5;border-radius:3px;margin-top:8px"></div>
+            <div style="width:180px;height:11px;background:#F2F3F5;border-radius:3px;margin-top:6px"></div>
+          </div>
+          <div style="padding:10px 14px;border-bottom:1px solid #EBEDF0">
+            <div style="width:158px;height:15px;background:#F2F3F5;border-radius:3px"></div>
+            <div style="width:210px;height:11px;background:#F2F3F5;border-radius:3px;margin-top:8px"></div>
+            <div style="width:200px;height:11px;background:#F2F3F5;border-radius:3px;margin-top:6px"></div>
+          </div>
+          <div style="padding:10px 14px;border-bottom:1px solid #EBEDF0">
+            <div style="width:126px;height:15px;background:#F2F3F5;border-radius:3px"></div>
+            <div style="width:228px;height:11px;background:#F2F3F5;border-radius:3px;margin-top:8px"></div>
+            <div style="width:172px;height:11px;background:#F2F3F5;border-radius:3px;margin-top:6px"></div>
+          </div>
+          <div style="padding:10px 14px;border-bottom:1px solid #EBEDF0">
+            <div style="width:146px;height:15px;background:#F2F3F5;border-radius:3px"></div>
+            <div style="width:214px;height:11px;background:#F2F3F5;border-radius:3px;margin-top:8px"></div>
+            <div style="width:188px;height:11px;background:#F2F3F5;border-radius:3px;margin-top:6px"></div>
+          </div>
+        </div>
+        <div style="padding:14px 0;text-align:center;font-size:11px;color:#9CA3AF;background:#F2F3F5">正在加载监控池…</div>
+      </div>
+      <div class="tb">
+        <div><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="#9CA3AF" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>单股计算</div>
+        <div class="on"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="#1A1A1A" stroke-width="2"><path d="M12 3l7 3v6c0 4-3 7-7 9-4-2-7-5-7-9V6l7-3z"/></svg>监控池</div>
+        <div><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="#9CA3AF" stroke-width="2"><path d="M13 2L4 14h6l-1 8 9-12h-6l1-8z"/></svg>异动预测</div>
+      </div>
+      <div class="hm"><i></i></div>
+    </div></div>
+  </figure>
+
+  <!-- ============ S10 ============ -->
+  <figure class="shot">
+    <div class="cap"><b>S10</b>状态 · 空态（未搜索 / 无候选 / 筛选无结果）</div>
+    <p class="note">三种空态必须可区分：① 未选择股票；② 已扫描但没有候选（区分「尚未完成扫描」）；③ 筛选条件导致无结果（给出清除筛选入口）。空态不使用误导性图形。</p>
+    <div class="phonebox"><div class="phone">
+      <div class="sb"><span>9:41</span><span class="r">
+        <svg width="17" height="11"><rect x="0" y="7" width="3" height="4" rx="1" fill="#1A1A1A"/><rect x="4.5" y="5" width="3" height="6" rx="1" fill="#1A1A1A"/><rect x="9" y="2.5" width="3" height="8.5" rx="1" fill="#1A1A1A"/><rect x="13.5" y="0" width="3" height="11" rx="1" fill="#1A1A1A"/></svg>
+        <svg width="16" height="11"><rect x="0" y="2" width="13" height="7" rx="2" fill="none" stroke="#1A1A1A"/><rect x="1.5" y="3.5" width="9" height="4" rx="1" fill="#1A1A1A"/><rect x="14.5" y="4" width="1.5" height="3" rx=".5" fill="#1A1A1A"/></svg>
+      </span></div>
+      <div class="nb">异动预测<span class="rt">规则</span></div>
+      <div class="body">
+        <div style="background:#fff;padding:10px 14px;border-bottom:1px solid #EBEDF0"><div class="seg"><span class="on">当日预测</span><span>次日预测</span></div></div>
+        <div style="background:#F7F8FA;padding:8px 14px;font-size:11px;color:#4B5563;border-bottom:1px solid #EBEDF0" class="btw">
+          <span>全市场上市A股，共 <b class="num">5,412</b> 只 · 候选 <b class="num">0</b></span>
+          <span class="btn" style="font-size:12px;padding:5px 12px">刷新</span>
+        </div>
+        <div style="background:#fff;padding:14px" class="btw">
+          <span class="row" style="gap:6px;overflow:hidden">
+            <span class="chip">10日严重</span><span class="chip">30日严重</span><span class="chip">ST 关</span>
+          </span>
+          <span class="t3" style="color:#4B5563">清除筛选</span>
+        </div>
+        <div style="background:#fff;border-top:1px solid #EBEDF0;padding:56px 24px;text-align:center">
+          <svg width="52" height="52" viewBox="0 0 64 64" fill="none" stroke="#DCDFE5" stroke-width="3" style="margin-bottom:14px"><circle cx="28" cy="28" r="17"/><path d="M40 40l12 12"/><path d="M21 28h14"/></svg>
+          <div style="font-size:14px;font-weight:600;margin-bottom:6px">当前筛选条件下没有候选</div>
+          <div class="t3" style="line-height:1.7">已扫描 5,412 只，扫描完成 14:50:12。<br>可放宽筛选条件或点击「清除筛选」。</div>
+          <div style="margin-top:18px"><span class="btn gh" style="font-size:13px;padding:8px 18px">清除筛选</span></div>
+        </div>
+        <div class="pad" style="padding-top:0">
+          <div class="card" style="padding:12px">
+            <div class="t2 b" style="margin-bottom:6px">另两种空态文案</div>
+            <div class="t3" style="line-height:1.9">
+              <b>未选择股票</b>：搜索并选择一只 A 股，查看当前异动状态。<br>
+              <b>已扫描无候选</b>：本次扫描完成，市场暂无接近触发的股票。<br>
+              <b>尚未完成扫描</b>：扫描进行中（已完成 3,120 / 5,412），请稍候或下拉刷新。
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="tb">
+        <div><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="#9CA3AF" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>单股计算</div>
+        <div><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="#9CA3AF" stroke-width="2"><path d="M12 3l7 3v6c0 4-3 7-7 9-4-2-7-5-7-9V6l7-3z"/></svg>监控池</div>
+        <div class="on"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="#1A1A1A" stroke-width="2"><path d="M13 2L4 14h6l-1 8 9-12h-6l1-8z"/></svg>异动预测</div>
+      </div>
+      <div class="hm"><i></i></div>
+    </div></div>
+  </figure>
+
+  <!-- ============ S11 ============ -->
+  <figure class="shot">
+    <div class="cap"><b>S11</b>状态 · 刷新失败（保留上次成功数据）</div>
+    <p class="note">失败不清空旧数据：列表继续可浏览，顶部插入一条红色状态条说明失败原因与上次成功时间，并提供「重试」。刷新期间按钮进入 loading 且禁用，防重复点击。</p>
+    <div class="phonebox"><div class="phone">
+      <div class="sb"><span>9:41</span><span class="r">
+        <svg width="17" height="11"><rect x="0" y="7" width="3" height="4" rx="1" fill="#1A1A1A"/><rect x="4.5" y="5" width="3" height="6" rx="1" fill="#1A1A1A"/><rect x="9" y="2.5" width="3" height="8.5" rx="1" fill="#1A1A1A"/><rect x="13.5" y="0" width="3" height="11" rx="1" fill="#1A1A1A"/></svg>
+        <svg width="16" height="11"><rect x="0" y="2" width="13" height="7" rx="2" fill="none" stroke="#1A1A1A"/><rect x="1.5" y="3.5" width="9" height="4" rx="1" fill="#1A1A1A"/><rect x="14.5" y="4" width="1.5" height="3" rx=".5" fill="#1A1A1A"/></svg>
+      </span></div>
+      <div class="nb">异动预测<span class="rt">规则</span></div>
+      <div class="body">
+        <div style="background:#fff;padding:10px 14px;border-bottom:1px solid #EBEDF0"><div class="seg"><span class="on">当日预测</span><span>次日预测</span></div></div>
+        <div style="background:#F7F8FA;padding:8px 14px;font-size:11px;color:#4B5563;border-bottom:1px solid #EBEDF0" class="btw">
+          <span>全市场上市A股，共 <b class="num">5,412</b> 只 · 候选 <b class="num">23</b></span>
+          <span class="btn" style="font-size:12px;padding:5px 12px;opacity:.45">刷新中…</span>
+        </div>
+        <div style="background:#FDF3F2;border-bottom:1px solid #F3D6D3;padding:9px 14px">
+          <div class="btw">
+            <span class="row" style="gap:6px;color:#C0271E;font-size:12px;font-weight:600">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#C0271E" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v6M12 16.5v.5"/></svg>刷新失败，点击重试
+            </span>
+            <span style="font-size:12px;color:#C0271E;font-weight:600">重试</span>
+          </div>
+          <div class="t3" style="color:#8A5B57;margin-top:5px">数据源限流（HTTP 429）· 以下为 14:50 成功结果</div>
+        </div>
+        <div style="background:#F7F8FA;padding:6px 14px;font-size:10px;color:#9CA3AF;border-bottom:1px solid #EBEDF0" class="btw">
+          <span>上次成功 14:50:12</span><span class="tag t-gy">延迟</span>
+        </div>
+        <div style="background:#fff;opacity:.72">
+          <div style="padding:9px 14px;border-bottom:1px solid #EBEDF0">
+            <div class="btw"><span class="row" style="gap:6px"><span class="tag t-30">已触发</span><span class="b" style="font-size:14px">比亚迪</span><span class="tag t-gy mono">002594</span></span><span class="up b num" style="font-size:13px">+9.98%</span></div>
+            <div class="btw" style="margin-top:5px"><span class="t3">30日累计偏离 <b class="num">+203.11</b> / 阈值 +200%</span><span class="t3">深主板 · 14:50</span></div>
+          </div>
+          <div style="padding:9px 14px;border-bottom:1px solid #EBEDF0">
+            <div class="btw"><span class="row" style="gap:6px"><span class="tag t-10">已触发</span><span class="b" style="font-size:14px">宁德时代</span><span class="tag t-gy mono">300750</span></span><span class="up b num" style="font-size:13px">+7.82%</span></div>
+            <div class="btw" style="margin-top:5px"><span class="t3">10日累计偏离 <b class="num">+103.42</b> / 阈值 +100%</span><span class="t3">创业板 · 14:50</span></div>
+          </div>
+          <div style="padding:9px 14px;border-bottom:1px solid #EBEDF0">
+            <div class="btw"><span class="row" style="gap:6px"><span class="tag t-ord">临界</span><span class="b" style="font-size:14px">中科曙光</span><span class="tag t-gy mono">603019</span></span><span class="up b num" style="font-size:13px">+6.15%</span></div>
+            <div class="btw" style="margin-top:5px"><span class="t3">3日累计偏离 <b class="num">+18.90</b> / 阈值 ±20%</span><span class="t3">上主板 · 14:50</span></div>
+          </div>
+          <div style="padding:9px 14px;border-bottom:1px solid #EBEDF0">
+            <div class="btw"><span class="row" style="gap:6px"><span class="tag t-ord">临界</span><span class="b" style="font-size:14px">通富微电</span><span class="tag t-gy mono">002156</span></span><span class="up b num" style="font-size:13px">+5.88%</span></div>
+            <div class="btw" style="margin-top:5px"><span class="t3">3日累计偏离 <b class="num">+17.42</b> / 阈值 ±20%</span><span class="t3">深主板 · 14:50</span></div>
+          </div>
+        </div>
+        <div class="disc">小程序最多自动重试一次，之后由你手动重试</div>
+        <div class="fade"></div>
+      </div>
+      <div class="tb">
+        <div><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="#9CA3AF" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>单股计算</div>
+        <div><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="#9CA3AF" stroke-width="2"><path d="M12 3l7 3v6c0 4-3 7-7 9-4-2-7-5-7-9V6l7-3z"/></svg>监控池</div>
+        <div class="on"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="#1A1A1A" stroke-width="2"><path d="M13 2L4 14h6l-1 8 9-12h-6l1-8z"/></svg>异动预测</div>
+      </div>
+      <div class="hm"><i></i></div>
+    </div></div>
+  </figure>
+
+  <!-- ============ S12 ============ -->
+  <figure class="shot">
+    <div class="cap"><b>S12</b>状态 · 无网络与缓存降级</div>
+    <p class="note">无网时允许查看最近一次成功结果，但必须标记「缓存数据 + 缓存时间」，点击刷新明确提示「当前无网络，未更新」，绝不伪装成实时行情。</p>
+    <div class="phonebox"><div class="phone">
+      <div class="sb"><span>9:41</span><span class="r">
+        <svg width="17" height="11"><rect x="0" y="7" width="3" height="4" rx="1" fill="#9CA3AF"/><rect x="4.5" y="5" width="3" height="6" rx="1" fill="#DCDFE5"/><rect x="9" y="2.5" width="3" height="8.5" rx="1" fill="#DCDFE5"/><rect x="13.5" y="0" width="3" height="11" rx="1" fill="#DCDFE5"/></svg>
+        <svg width="16" height="11"><rect x="0" y="2" width="13" height="7" rx="2" fill="none" stroke="#1A1A1A"/><rect x="14.5" y="4" width="1.5" height="3" rx=".5" fill="#1A1A1A"/></svg>
+      </span></div>
+      <div class="nb">单股计算<span class="rt">规则</span></div>
+      <div class="body">
+        <div style="background:#F2F3F5;padding:8px 14px;font-size:11px;color:#6B7280;border-bottom:1px solid #EBEDF0" class="btw">
+          <span class="row" style="gap:5px">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#6B7280" stroke-width="2"><path d="M2 8.8A15 15 0 0122 8.8"/><path d="M5 12.5a11 11 0 0114 0"/><path d="M8.5 16a6 6 0 017 0"/><path d="M3 3l18 18" stroke="#C0271E"/></svg>
+            当前无网络，未更新
+          </span>
+          <span class="tag t-gy">缓存数据</span>
+        </div>
+        <div style="background:#fff;padding:10px 14px;border-bottom:1px solid #EBEDF0">
+          <div class="row" style="background:#F7F8FA;border:1px solid #DCDFE5;border-radius:4px;height:38px;padding:0 10px;gap:8px">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#9CA3AF" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>
+            <span style="font-size:14px" class="b">贵州茅台</span><span class="tag t-gy mono">600519</span>
+            <span style="flex:1"></span><span class="t3">×</span>
+          </div>
+        </div>
+        <div style="background:#fff;padding:12px 14px;border-bottom:1px solid #EBEDF0">
+          <div class="btw">
+            <div class="row" style="gap:8px"><span style="font-size:17px" class="b">贵州茅台</span><span class="tag t-gy mono">600519</span></div>
+            <div style="text-align:right"><div style="font-size:20px" class="b down num">1523.00</div><div style="font-size:12px" class="down num b">-0.62%</div></div>
+          </div>
+          <div class="btw" style="margin-top:6px"><span class="t3">上交所 · 主板</span><span class="t3">缓存于 11-20 15:00 <span class="tag t-unk" style="margin-left:4px">最近交易日</span></span></div>
+        </div>
+        <div style="background:#F7F8FA;border-left:4px solid #128A5F;padding:10px 14px">
+          <div class="btw"><span class="tag t-safe">安全</span><span class="t3">缓存 · 11-20 15:00</span></div>
+          <div style="font-size:12px;color:#4B5563;margin-top:6px;line-height:1.6">四项指标均未触发；10 日累计偏离 <b class="num">+12.30%</b>，剩余上涨空间 <b class="num">87.70</b>。</div>
+        </div>
+        <div class="pad">
+          <div class="card" style="padding:14px;text-align:center">
+            <div class="t2" style="margin-bottom:5px">缓存有效期说明</div>
+            <div class="t3" style="line-height:1.8">股票基础资料 1 个交易日 · 历史计算结果 5 分钟<br>预测快照仅在本次页面会话内复用</div>
+            <div style="margin-top:12px"><span class="btn" style="font-size:13px;padding:8px 18px;opacity:.45">刷新（不可用）</span></div>
+          </div>
+        </div>
+        <div class="disc">无网络时展示最近一次成功结果，不代表当前行情<br>仅供参考，不构成投资建议</div>
+      </div>
+      <div class="tb">
+        <div class="on"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="#1A1A1A" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>单股计算</div>
+        <div><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="#9CA3AF" stroke-width="2"><path d="M12 3l7 3v6c0 4-3 7-7 9-4-2-7-5-7-9V6l7-3z"/></svg>监控池</div>
+        <div><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="#9CA3AF" stroke-width="2"><path d="M13 2L4 14h6l-1 8 9-12h-6l1-8z"/></svg>异动预测</div>
+      </div>
+      <div class="hm"><i></i></div>
+    </div></div>
+  </figure>
+
+  </div>
+</div>
+</body>
+</html>
