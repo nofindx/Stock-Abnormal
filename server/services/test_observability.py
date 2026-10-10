@@ -75,6 +75,17 @@ class PredictionHealthTests(unittest.TestCase):
         keys = {item["key"] for item in alerts}
         self.assertEqual(keys, {"prediction_today", "shared_redis"})
 
+    def test_health_alerts_report_incomplete_stock_fields_and_legacy_rows(self):
+        alerts = collect_alerts({
+            "marketCalc": {
+                "stockBasicCoverage": {"complete": False},
+                "predictionMigration": {"compatReadEnabled": True, "predictionCacheRows": 2},
+            },
+            "prediction": {"today": {}, "next_day": {}},
+            "intradayState": {"backend": "redis", "shared": True},
+        })
+        self.assertEqual({item["key"] for item in alerts}, {"stock_basic_coverage", "prediction_cache_migration"})
+
 
 class DetailDataQualityTests(unittest.TestCase):
     def _service(self, quotes):

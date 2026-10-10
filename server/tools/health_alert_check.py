@@ -30,6 +30,12 @@ def collect_alerts(data: dict, require_shared_redis: bool = False) -> list[dict]
     market = data.get("marketCalc") or {}
     if market.get("lastErrorActive"):
         alerts.append({"severity": "critical", "key": "market_calc", "message": market.get("lastError") or "基础行情任务失败"})
+    coverage = market.get("stockBasicCoverage") or {}
+    if coverage and coverage.get("complete") is False:
+        alerts.append({"severity": "critical", "key": "stock_basic_coverage", "message": "活跃股票基础资料字段不完整"})
+    migration = market.get("predictionMigration") or {}
+    if migration.get("compatReadEnabled") and int(migration.get("predictionCacheRows") or 0) > 0:
+        alerts.append({"severity": "warning", "key": "prediction_cache_migration", "message": "旧预测表仍有记录，迁移兼容读取尚未关闭"})
     for scope in ("today", "next_day"):
         state = (data.get("prediction") or {}).get(scope) or {}
         if state.get("status") in {"failed", "missing", "incomplete"} or state.get("stale"):
