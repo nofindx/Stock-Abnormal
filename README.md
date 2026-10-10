@@ -47,6 +47,7 @@ python3 -m unittest discover -s server -p 'test_*.py'
 python3 server/tools/api_contract_check.py
 python3 server/tools/api_contract_check.py --require-data --require-shared-redis  # 生产验收
 python3 server/tools/prediction_migration_check.py --require-zero-legacy-reads --require-complete-stock-basic  # 迁移验收
+python3 server/tools/health_alert_check.py --base-url http://127.0.0.1:8787 --require-shared-redis  # 健康告警检查
 find miniprogram -name '*.js' -print0 | xargs -0 -n1 node --check
 python3 -m json.tool miniprogram/app.json >/dev/null
 git diff --check

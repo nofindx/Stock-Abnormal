@@ -6,6 +6,7 @@ from unittest.mock import Mock
 from server.services.market_service import MarketService, SHANGHAI_TZ
 from server.services.realtime_quote import RealtimeQuoteClient
 from server.services.tushare_client import TushareClient, TushareUnavailable
+from server.tools.health_alert_check import collect_alerts
 
 
 class TushareHealthTests(unittest.TestCase):
@@ -64,6 +65,15 @@ class PredictionHealthTests(unittest.TestCase):
             self.assertLess(result["today"]["ageSeconds"], 360)
         finally:
             service.close()
+
+    def test_health_alerts_cover_failed_dataset_and_shared_redis(self):
+        alerts = collect_alerts({
+            "marketCalc": {"lastErrorActive": False},
+            "prediction": {"today": {"status": "failed", "lastError": "任务失败", "available": True, "datasetQuoteComplete": True}, "next_day": {}},
+            "intradayState": {"backend": "local_fallback", "shared": False},
+        }, require_shared_redis=True)
+        keys = {item["key"] for item in alerts}
+        self.assertEqual(keys, {"prediction_today", "shared_redis"})
 
 
 class DetailDataQualityTests(unittest.TestCase):
