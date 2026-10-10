@@ -44,6 +44,11 @@ def main() -> int:
     base = args.base_url.rstrip("/")
     status, health = request_json(f"{base}/health")
     assert status == 200 and health.get("code") == 0, health
+    intraday_state = (health.get("data") or {}).get("intradayState") or {}
+    for field in ("backend", "shared", "ttlSeconds", "maxPayloadBytes"):
+        assert field in intraday_state, ("health.intradayState", field, health)
+    assert intraday_state["ttlSeconds"] == 120, intraday_state
+    assert intraday_state["maxPayloadBytes"] == 2 * 1024 * 1024, intraday_state
     for scope in ("today", "next_day"):
         status, payload = request_json(f"{base}/api/predictions?scope={scope}")
         if status in (503, 500) and payload.get("code") in (50301, 50302) and not args.require_data:
