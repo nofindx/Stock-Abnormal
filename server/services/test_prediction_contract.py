@@ -19,6 +19,21 @@ class IntradayStateStoreTests(unittest.TestCase):
             first.set("today", "20261012", {"items": ["x" * IntradayStateStore.MAX_PAYLOAD_BYTES]})
         first.delete("today", "20261012")
 
+    def test_health_stats_reports_capacity_and_hit_rate(self):
+        class FakeRedis:
+            def info(self, section):
+                return {
+                    "memory": {"used_memory": 80, "maxmemory": 100},
+                    "stats": {"keyspace_hits": 95, "keyspace_misses": 5, "evicted_keys": 2},
+                }[section]
+
+        stats = IntradayStateStore(redis_client=FakeRedis()).health_stats()
+        self.assertTrue(stats["shared"])
+        self.assertEqual(stats["usedMemoryBytes"], 80)
+        self.assertAlmostEqual(stats["memoryUsageRatio"], 0.8)
+        self.assertAlmostEqual(stats["hitRate"], 0.95)
+        self.assertEqual(stats["evictedKeys"], 2)
+
 
 class PredictionBoundaryTests(unittest.TestCase):
     def setUp(self):

@@ -46,6 +46,18 @@ def collect_alerts(data: dict, require_shared_redis: bool = False) -> list[dict]
     intraday = data.get("intradayState") or {}
     if require_shared_redis and not (intraday.get("backend") == "redis" and intraday.get("shared") is True):
         alerts.append({"severity": "critical", "key": "shared_redis", "message": "盘中状态未使用共享 Redis"})
+    redis_stats = intraday.get("redis") or {}
+    usage = redis_stats.get("memoryUsageRatio")
+    if isinstance(usage, (int, float)):
+        if usage >= 0.90:
+            alerts.append({"severity": "critical", "key": "redis_memory", "message": "Redis 内存使用率达到 90%"})
+        elif usage >= 0.85:
+            alerts.append({"severity": "warning", "key": "redis_memory", "message": "Redis 内存使用率达到 85%"})
+        elif usage >= 0.70:
+            alerts.append({"severity": "notice", "key": "redis_memory", "message": "Redis 内存使用率达到 70%"})
+    hit_rate = redis_stats.get("hitRate")
+    if isinstance(hit_rate, (int, float)) and hit_rate < 0.95:
+        alerts.append({"severity": "warning", "key": "redis_hit_rate", "message": "Redis 命中率低于 95%"})
     return alerts
 
 

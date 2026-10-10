@@ -446,6 +446,46 @@ class MarketCalcRepository:
                 """, (str(marker),))
             db.commit()
 
+    def upsert_stock_basic(self, stocks: Iterable[Dict[str, Any]]) -> int:
+        """只同步股票基础资料，不改变行情计算任务的成功日期。"""
+
+        if not self.available:
+            raise RuntimeError("MySQL 计算数据仓库未配置")
+        rows = list(stocks)
+        if not rows:
+            return 0
+        self.ensure_schema()
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        with self.connection() as db:
+            with db.cursor() as cursor:
+                for item in rows:
+                    cursor.execute("""
+                        INSERT INTO stock_basic
+                        (ts_code, symbol, name, name_initials, market, board, is_st, list_status, list_date, delist_date, price_limit_enabled, updated_at)
+                        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                        ON DUPLICATE KEY UPDATE
+                        symbol=VALUES(symbol), name=VALUES(name), name_initials=VALUES(name_initials),
+                        market=VALUES(market), board=VALUES(board), is_st=VALUES(is_st),
+                        list_status=VALUES(list_status), list_date=VALUES(list_date), delist_date=VALUES(delist_date),
+                        price_limit_enabled=COALESCE(VALUES(price_limit_enabled), price_limit_enabled), updated_at=VALUES(updated_at)
+                    """, (
+                        item["ts_code"], item["symbol"], item["name"], item["nameInitials"],
+                        item["market"], item["board"], int(item.get("isST", False)),
+                        item.get("list_status", "L"), str(item.get("list_date") or ""),
+                        str(item.get("delist_date") or ""),
+                        None if item.get("priceLimitEnabled") is None else int(bool(item.get("priceLimitEnabled"))),
+                        now,
+                    ))
+                active_codes = [str(item["ts_code"]) for item in rows if item.get("list_status", "L") == "L"]
+                if active_codes:
+                    placeholders = ",".join("%s" for _ in active_codes)
+                    cursor.execute(
+                        f"UPDATE stock_basic SET list_status = 'D', updated_at = %s WHERE list_status = 'L' AND ts_code NOT IN ({placeholders})",
+                        [now, *active_codes],
+                    )
+            db.commit()
+        return len(rows)
+
     def upsert_market(self, stocks: Iterable[Dict[str, Any]], calculations: Iterable[Dict[str, Any]], indexes: Iterable[Dict[str, Any]], trade_date: str, data_stage: str = "formal") -> None:
         """在一个事务内更新当前计算数据，不保留旧版本。"""
 

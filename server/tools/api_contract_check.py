@@ -50,6 +50,11 @@ def main() -> int:
         assert field in intraday_state, ("health.intradayState", field, health)
     assert intraday_state["ttlSeconds"] == 120, intraday_state
     assert intraday_state["maxPayloadBytes"] == 2 * 1024 * 1024, intraday_state
+    assert "redis" in intraday_state, intraday_state
+    if args.require_shared_redis:
+        redis_stats = intraday_state.get("redis") or {}
+        for field in ("usedMemoryBytes", "maxMemoryBytes", "memoryUsageRatio", "hitRate", "evictedKeys"):
+            assert field in redis_stats, ("health.intradayState.redis", field, health)
     market_calc = (health.get("data") or {}).get("marketCalc") or {}
     for field in ("stockBasicCoverage", "predictionMigration"):
         assert field in market_calc, ("health.marketCalc", field, health)

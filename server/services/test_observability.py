@@ -86,6 +86,18 @@ class PredictionHealthTests(unittest.TestCase):
         })
         self.assertEqual({item["key"] for item in alerts}, {"stock_basic_coverage", "prediction_cache_migration"})
 
+    def test_health_alerts_report_redis_capacity_and_hit_rate(self):
+        alerts = collect_alerts({
+            "marketCalc": {},
+            "prediction": {"today": {}, "next_day": {}},
+            "intradayState": {
+                "backend": "redis", "shared": True,
+                "redis": {"memoryUsageRatio": 0.91, "hitRate": 0.8},
+            },
+        }, require_shared_redis=True)
+        self.assertEqual({item["key"] for item in alerts}, {"redis_memory", "redis_hit_rate"})
+        self.assertEqual(next(item for item in alerts if item["key"] == "redis_memory")["severity"], "critical")
+
 
 
 class DetailDataQualityTests(unittest.TestCase):

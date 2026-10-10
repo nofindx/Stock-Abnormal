@@ -77,3 +77,30 @@ class IntradayStateStore:
             with self._local_lock:
                 self._local_values.pop(key, None)
                 self._local_expiry.pop(key, None)
+
+    def health_stats(self) -> Dict[str, Any]:
+        """返回共享 Redis 的容量和命中率指标；不返回连接串或敏感配置。"""
+
+        result: Dict[str, Any] = {"shared": self.shared}
+        if not self._redis:
+            return result
+        try:
+            memory = self._redis.info("memory") or {}
+            stats = self._redis.info("stats") or {}
+            used = int(memory.get("used_memory") or 0)
+            maximum = int(memory.get("maxmemory") or 0)
+            hits = int(stats.get("keyspace_hits") or 0)
+            misses = int(stats.get("keyspace_misses") or 0)
+            total = hits + misses
+            result.update({
+                "usedMemoryBytes": used,
+                "maxMemoryBytes": maximum,
+                "memoryUsageRatio": (used / maximum) if maximum > 0 else None,
+                "keyspaceHits": hits,
+                "keyspaceMisses": misses,
+                "hitRate": (hits / total) if total else None,
+                "evictedKeys": int(stats.get("evicted_keys") or 0),
+            })
+        except Exception as exc:  # noqa: BLE001 - 健康接口仍需可用
+            result["error"] = str(exc)[:160]
+        return result

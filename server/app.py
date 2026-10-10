@@ -122,6 +122,7 @@ class ApiHandler(BaseHTTPRequestHandler):
                         "shared": SERVICE._intraday_store.shared,
                         "ttlSeconds": SERVICE._intraday_store.TTL_SECONDS,
                         "maxPayloadBytes": SERVICE._intraday_store.MAX_PAYLOAD_BYTES,
+                        "redis": SERVICE._intraday_store.health_stats(),
                     },
                     "monitor": monitor_health,
                     # 保留旧字段，兼容旧版小程序健康检查。

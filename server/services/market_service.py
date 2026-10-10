@@ -144,6 +144,7 @@ class MarketService:
         self._realtime = RealtimeQuoteClient()
         self._market_scheduler_stop = Event()
         self._market_scheduler: Optional[Thread] = None
+        self._stock_basic_sync_thread: Optional[Thread] = None
         self._market_update_lock = Lock()
         self._market_last_formal_attempt = ""
         self._market_update_error = ""
@@ -178,9 +179,31 @@ class MarketService:
         self._market_scheduler_stop.clear()
         self._market_scheduler = Thread(target=self._market_scheduler_loop, name="market-calc", daemon=True)
         self._market_scheduler.start()
+        # 基础资料同步与行情计算解耦，服务重启即可补齐价格限制等字段，
+        # 且不会篡改 market_calc_job 的行情成功日期。
+        self._stock_basic_sync_thread = Thread(
+            target=self._sync_stock_basic_on_startup,
+            name="stock-basic-sync",
+            daemon=True,
+        )
+        self._stock_basic_sync_thread.start()
         # 规则代码发布后，持久化预测结果可能仍是旧口径。启动时只读取
         # MySQL 已有的基础向量重建结果集，不请求行情、不触发全市场采集。
         Thread(target=self._rebuild_predictions_if_rule_changed, name="prediction-rebuild", daemon=True).start()
+
+    def _sync_stock_basic_on_startup(self) -> None:
+        """启动时强制刷新完整 stock_basic，保证生产元数据可用于预测资格判断。"""
+
+        if not self._calc_repository.available:
+            return
+        try:
+            stocks = self._stock_rows(force=True)
+            if not stocks:
+                raise RuntimeError("Tushare stock_basic 返回空结果")
+            self._calc_repository.upsert_stock_basic(stocks)
+            self._stocks_cache = (datetime.now(SHANGHAI_TZ), stocks)
+        except Exception as exc:  # noqa: BLE001 - 元数据失败由健康接口暴露，不能阻止服务启动
+            self._market_update_error = f"stock_basic 启动同步失败：{exc}"
 
     def _rebuild_predictions_if_rule_changed(self) -> None:
         if not self._calc_repository.available:
