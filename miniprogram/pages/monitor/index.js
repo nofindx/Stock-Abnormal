@@ -1,4 +1,4 @@
-// 监控池页面：监控期、风险类型和剩余天数全部使用后端结果。
+// 重点监控页面：监控期、风险类型和剩余天数全部使用后端结果。
 const { getMonitor } = require('../../utils/api')
 const { openPdf } = require('../../utils/open-pdf')
 
@@ -98,7 +98,7 @@ Page({
   applyFilters(items) {
     let filtered = items.map(item => ({
       ...item,
-      // 监控池展示按自然日倒计时；结束日当天仍显示 0，次日由后端移出当前池。
+      // 重点监控展示按自然日倒计时；结束日当天仍显示 0，次日由后端移出当前池。
       days: formatRemainingDays(naturalDaysRemaining(item.monitorEndDate, item.days)),
       // 所有标的都保留；仅非关键标的和 ST 股票弱化名称、代码。
       // 监管日期、风险标签和剩余天数仍使用正常风险配色。

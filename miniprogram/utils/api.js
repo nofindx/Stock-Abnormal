@@ -14,11 +14,11 @@ function getMonitor(options = {}) {
 }
 
 function getPredictions(scope) {
-  return request({ url: '/api/predictions', data: { scope }, timeout: 8000 }).then((response) => response.data || { items: [], updatedAt: '' })
+  return request({ url: '/api/predictions', data: { scope }, timeout: 8000 }).then((response) => response.data || { items: [], quoteUpdatedAt: '' })
 }
 
 function refreshPredictions(scope) {
-  return request({ url: '/api/predictions/refresh', method: 'POST', data: { scope }, timeout: 10000, retry: 0 }).then((response) => response.data || { items: [], updatedAt: '' })
+  return request({ url: '/api/predictions/refresh', method: 'POST', data: { scope }, timeout: 10000, retry: 0 }).then((response) => response.data || { items: [], quoteUpdatedAt: '' })
 }
 
 module.exports = { searchStocks, getStockDetail, getMonitor, getPredictions, refreshPredictions }

@@ -7,7 +7,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-COPY server/requirements.txt ./requirements.txt
+COPY server/requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY server ./server

@@ -1,124 +1,78 @@
-# wxcloudrun-flask
-[![GitHub license](https://img.shields.io/github/license/WeixinCloud/wxcloudrun-express)](https://github.com/WeixinCloud/wxcloudrun-express)
-![GitHub package.json dependency version (prod)](https://img.shields.io/badge/python-3.7.3-green)
+# Stock-Abnormal
 
-微信云托管 python Flask 框架模版，实现简单的计数器读写接口，使用云托管 MySQL 读写、记录计数值。
+异动查查是由微信小程序前端和 Python 行情服务组成的股票异动计算工具。
 
-![](https://qcloudimg.tencent-cloud.cn/raw/be22992d297d1b9a1a5365e606276781.png)
+## 当前文档
 
+- [产品需求 PRD](docs/异动查查小程序PRD.md)：产品范围、页面需求、数据源、规则和验收基线。
+- [设计与工程说明](docs/异动查查-最新设计与工程说明.md)：数据库、任务、接口参数、状态机、失败处理和部署约束。
+- [测试规范与用例](docs/测试规范与用例.md)：需求映射、测试案例、API 脚本和微信开发者工具验收。
+- [待办清单](docs/待办.md)：部署迁移和最终验收事项。
+- `docs/archive/`：历史方案和评审记录，不作为当前实现依据。
+- `docs/UI/`：历史 UI 设计稿，不参与运行时构建。
 
-## 快速开始
-前往 [微信云托管快速开始页面](https://developers.weixin.qq.com/miniprogram/dev/wxcloudrun/src/basic/guide.html)，选择相应语言的模板，根据引导完成部署。
+## 目录结构
 
-## 本地调试
-下载代码在本地调试，请参考[微信云托管本地调试指南](https://developers.weixin.qq.com/miniprogram/dev/wxcloudrun/src/guide/debug/)
-
-## 实时开发
-代码变动时，不需要重新构建和启动容器，即可查看变动后的效果。请参考[微信云托管实时开发指南](https://developers.weixin.qq.com/miniprogram/dev/wxcloudrun/src/guide/debug/dev.html)
-
-## Dockerfile最佳实践
-请参考[如何提高项目构建效率](https://developers.weixin.qq.com/miniprogram/dev/wxcloudrun/src/scene/build/speed.html)
-
-## 目录结构说明
-
-~~~
+```text
 .
-├── Dockerfile dockerfile       dockerfile
-├── README.md README.md         README.md文件
-├── container.config.json       模板部署「服务设置」初始化配置（二开请忽略）
-├── requirements.txt            依赖包文件
-├── config.py                   项目的总配置文件  里面包含数据库 web应用 日志等各种配置
-├── run.py                      flask项目管理文件 与项目进行交互的命令行工具集的入口
-└── wxcloudrun                  app目录
-    ├── __init__.py             python项目必带  模块化思想
-    ├── dao.py                  数据库访问模块
-    ├── model.py                数据库对应的模型
-    ├── response.py             响应结构构造
-    ├── templates               模版目录,包含主页index.html文件
-    └── views.py                执行响应的代码所在模块  代码逻辑处理主要地点  项目大部分代码在此编写
-~~~
-
-
-
-## 服务 API 文档
-
-### `GET /api/count`
-
-获取当前计数
-
-#### 请求参数
-
-无
-
-#### 响应结果
-
-- `code`：错误码
-- `data`：当前计数值
-
-##### 响应结果示例
-
-```json
-{
-  "code": 0,
-  "data": 42
-}
+├── docs/                 # PRD、工程说明、测试规范和历史设计
+├── miniprogram/          # 微信原生小程序，开发者工具打开此目录
+├── server/               # Python HTTP 服务、规则和测试
+├── container.config.json # 微信云托管配置
+└── README.md             # 项目统一入口
 ```
 
-#### 调用示例
+## 启动后端
 
-```
-curl https://<云托管服务域名>/api/count
-```
-
-
-
-### `POST /api/count`
-
-更新计数，自增或者清零
-
-#### 请求参数
-
-- `action`：`string` 类型，枚举值
-  - 等于 `"inc"` 时，表示计数加一
-  - 等于 `"clear"` 时，表示计数重置（清零）
-
-##### 请求参数示例
-
-```
-{
-  "action": "inc"
-}
+```bash
+TUSHARE_TOKEN=你的token \\
+MYSQL_HOST=127.0.0.1 \\
+MYSQL_PORT=3306 \\
+MYSQL_USER=... \\
+MYSQL_PASSWORD=... \\
+MYSQL_DATABASE=stock_abnormal \\
+python3 -m server.app
 ```
 
-#### 响应结果
+默认监听 `http://127.0.0.1:8787`。Token 和数据库凭证只能通过环境变量注入，不进入小程序包、接口响应或日志。
 
-- `code`：错误码
-- `data`：当前计数值
+## 微信开发者工具
 
-##### 响应结果示例
+使用微信开发者工具导入 `miniprogram/`。生产环境通过 `wx.cloud.callContainer` 调用云托管服务；本地联调时可在 `app.js` 配置开发环境 API 地址。真实页面编译、刷新和截图验收按测试文档执行。
 
-```json
-{
-  "code": 0,
-  "data": 42
-}
+## 测试
+
+```bash
+python3 -m unittest discover -s server -p 'test_*.py'
+python3 server/tools/api_contract_check.py
+find miniprogram -name '*.js' -print0 | xargs -0 -n1 node --check
+python3 -m json.tool miniprogram/app.json >/dev/null
+git diff --check
 ```
 
-#### 调用示例
+## 接口速查
 
+```text
+GET  /health
+GET  /api/stocks/search?q=...
+GET  /api/stocks/detail?ts_code=...
+GET  /api/monitor?status=current&type=all|risk|severe
+GET  /api/predictions?scope=today|next_day
+POST /api/predictions/refresh
 ```
-curl -X POST -H 'content-type: application/json' -d '{"action": "inc"}' https://<云托管服务域名>/api/count
-```
 
-## 使用注意
-如果不是通过微信云托管控制台部署模板代码，而是自行复制/下载模板代码后，手动新建一个服务并部署，需要在「服务设置」中补全以下环境变量，才可正常使用，否则会引发无法连接数据库，进而导致部署失败。
-- MYSQL_ADDRESS
-- MYSQL_PASSWORD
-- MYSQL_USERNAME
-以上三个变量的值请按实际情况填写。如果使用云托管内MySQL，可以在控制台MySQL页面获取相关信息。
+接口完整字段和阶段规则见工程说明；不要依据旧方案文档或旧字段实现新功能。
 
+## 微信云托管部署
 
+服务：`flask-9a5y`。代码源选择 GitHub，仓库 `nofindx/Stock-Abnormal`，分支
+`Stock-Abnormal`。控制台构建配置固定为：
 
-## License
+- 目标目录：留空（仓库根目录）
+- Dockerfile：有
+- Dockerfile 名称：`Dockerfile`
+- 端口：`80`
 
-[MIT](./LICENSE)
+根目录 `Dockerfile` 负责安装 `server/requirements.txt` 并启动
+`python -m server.app`；`server/Dockerfile` 仅用于目标目录设为 `server` 的兼容场景。
+发布后先检查 `/health`，再按测试文档执行 API 和小程序验收。生产发布使用微信云托管控制台，不使用 CloudBase CLI。

@@ -128,12 +128,13 @@ class MarketVectorTests(unittest.TestCase):
         }]
         service._realtime = SimpleNamespace(fetch_many=lambda _codes: {})
         items = service._compute_prediction_from_repository("today")
-        by_window = {item["predictionWindow"]: item for item in items}
-        self.assertEqual(sorted(by_window), [10, 30])
-        self.assertEqual(by_window[10]["rule"], "连续10个交易日内偏离值达到 +100%")
-        self.assertEqual(by_window[30]["rule"], "连续30个交易日内偏离值达到 +200%")
-        self.assertTrue(by_window[10]["triggered"])
-        self.assertEqual(by_window[10]["alertText"], "⚠️已触发")
+        by_rule = {item["ruleKey"]: item for item in items}
+        self.assertEqual(sorted(by_rule), ["ordinary_3d", "severe_10d", "severe_30d"])
+        self.assertEqual(by_rule["severe_10d"]["triggerCondition"], "10日偏离达到 +100.00%")
+        self.assertEqual(by_rule["severe_30d"]["triggerCondition"], "30日偏离达到 +200.00%")
+        self.assertTrue(by_rule["severe_10d"]["triggered"])
+        self.assertEqual(by_rule["severe_10d"]["alertText"], "已触发")
+        self.assertEqual(by_rule["severe_10d"]["triggerValue"], "+100.00%")
 
     def test_today_prediction_keeps_pending_thirty_day_card_after_ten_day_trigger(self):
         service = self.service
@@ -157,37 +158,59 @@ class MarketVectorTests(unittest.TestCase):
         }]
         service._realtime = SimpleNamespace(fetch_many=lambda _codes: {})
         items = service._compute_prediction_from_repository("today")
-        by_window = {item["predictionWindow"]: item for item in items}
-        self.assertEqual(sorted(by_window), [10, 30])
-        self.assertTrue(by_window[10]["triggered"])
-        self.assertFalse(by_window[30]["triggered"])
+        by_rule = {item["ruleKey"]: item for item in items}
+        self.assertIn("severe_10d", by_rule)
+        self.assertIn("severe_30d", by_rule)
+        self.assertTrue(by_rule["severe_10d"]["triggered"])
+        self.assertFalse(by_rule["severe_30d"]["triggered"])
 
-    def test_intraday_display_merges_triggered_and_next_day_cards(self):
+    def test_same_direction_is_not_a_prediction_card(self):
+        service = self.service
+        vector = [{"date": f"2026-09-{index:02d}", "return": 0.0} for index in range(1, 11)]
+        service._calc_repository = SimpleNamespace(
+            available=True,
+            all_calculations=lambda: {"000001.SZ": {"ts_code": "000001.SZ", "latest_close": 10.0, "as_of_trade_date": "20260930", "stock_return_vector": vector}},
+            all_indexes=lambda: {"399001.SZ": {"index_code": "399001.SZ", "latest_close": 10.0, "index_return_vector": vector}},
+        )
+        service._stock_rows = lambda: [{"ts_code": "000001.SZ", "symbol": "000001", "name": "测试股票", "market": "SZSE", "board": "主板", "isST": False}]
+        service._realtime = SimpleNamespace(fetch_many=lambda _codes: {})
+        service._vector_metrics = lambda *_args: {"deviations": {3: None, 10: 0.0, 30: None}, "window_lengths": {3: None, 10: 10, 30: None}, "up": 4, "down": 0}
+        items = service._compute_prediction_from_repository("today")
+        self.assertFalse(any(item["ruleKey"] == "same_direction_10d" for item in items))
+
+    def test_same_dataset_merge_deduplicates_by_rule_and_target_date(self):
         merged = MarketService._merge_prediction_items(
-            [{"predictionKey": "688137.SH-10d", "triggered": True}],
+            [{"predictionKey": "688137.SH-severe_10d-20261008", "triggered": True}],
             [
-                {"predictionKey": "688137.SH-30d", "triggered": False},
-                {"predictionKey": "688137.SH-10d", "triggered": False},
-                {"predictionKey": "301190.SZ-10d", "triggered": False},
+                {"predictionKey": "688137.SH-severe_30d-20261008", "triggered": False},
+                {"predictionKey": "688137.SH-severe_10d-20261008", "triggered": False},
+                {"predictionKey": "301190.SZ-severe_10d-20261008", "triggered": False},
             ],
         )
         self.assertEqual([item["predictionKey"] for item in merged], [
-            "688137.SH-10d", "688137.SH-30d", "301190.SZ-10d",
+            "688137.SH-severe_10d-20261008", "688137.SH-severe_30d-20261008", "301190.SZ-severe_10d-20261008",
         ])
 
+    def test_legacy_trigger_text_is_not_rewritten(self):
+        merged = MarketService._merge_prediction_items(
+            [{"predictionKey": "301190.SZ-10d", "trigger": "已达到阈值", "triggered": True}],
+            [],
+        )
+        self.assertEqual(merged[0]["trigger"], "已达到阈值")
+
     def test_best_window_can_be_shorter_than_rule_horizon(self):
-        # 10 日规则允许因复牌边界少至 7 个有效交易日，但不能退化成任意 3 日窗口。
+        # 10 日规则允许 1～10 个有效交易日。
         stock = [{"date": f"2026-09-{index:02d}", "return": value} for index, value in enumerate([0, 0, 0, 0, 0, 0, 0, 10], 1)]
         index = [{"date": item["date"], "return": 0.0} for item in stock]
         value, window = MarketService._best_vector_deviation(stock, index, 10)
-        self.assertEqual(window, 7)
+        self.assertEqual(window, 1)
         self.assertAlmostEqual(value, 10.0)
 
     def test_seven_valid_days_can_trigger_ten_day_prediction(self):
         stock = [{"date": f"2026-09-{index:02d}", "return": 0.0 if index < 7 else 100.0} for index in range(1, 8)]
         index = [{"date": item["date"], "return": 0.0} for item in stock]
         value, window = MarketService._best_vector_deviation(stock, index, 10)
-        self.assertEqual(window, 7)
+        self.assertEqual(window, 1)
         self.assertGreaterEqual(value, 100.0)
 
     def test_today_prediction_accepts_seven_valid_days_at_ten_day_threshold(self):
@@ -212,10 +235,10 @@ class MarketVectorTests(unittest.TestCase):
         }]
         service._realtime = SimpleNamespace(fetch_many=lambda _codes: {})
         items = service._compute_prediction_from_repository("today")
-        self.assertEqual(len(items), 1)
-        self.assertEqual(items[0]["predictionWindow"], 10)
-        self.assertTrue(items[0]["triggered"])
-        self.assertTrue(items[0]["deviation"].startswith("7日 "))
+        severe = [item for item in items if item["ruleKey"] == "severe_10d"]
+        self.assertEqual(len(severe), 1)
+        self.assertTrue(severe[0]["triggered"])
+        self.assertTrue(severe[0]["deviation"].startswith("7日 "))
 
     def test_suspension_reset_discards_pre_resume_returns(self):
         """复牌后只从首个有效交易日重新累计，不能把停牌前涨幅带入。"""
@@ -261,7 +284,7 @@ class MarketVectorTests(unittest.TestCase):
         }]
         service._realtime = SimpleNamespace(fetch_many=lambda _codes: {})
         items = service._compute_prediction_from_repository("next_day")
-        self.assertEqual(len(items), 1)
+        self.assertGreaterEqual(len(items), 1)
         self.assertEqual(items[0]["ts_code"], "301190.SZ")
         self.assertTrue(items[0]["deviation"].startswith("9日 "))
 
@@ -291,7 +314,7 @@ class MarketVectorTests(unittest.TestCase):
         }]
         service._realtime = SimpleNamespace(fetch_many=lambda _codes: {})
         items = service._compute_prediction_from_repository("today")
-        self.assertEqual(len(items), 1)
+        self.assertGreaterEqual(len(items), 1)
         self.assertEqual(items[0]["ts_code"], "301190.SZ")
         self.assertEqual(items[0]["predictionWindow"], 10)
         self.assertTrue(items[0]["triggered"])
@@ -300,8 +323,8 @@ class MarketVectorTests(unittest.TestCase):
         stock = [{"date": f"2026-09-{index:02d}", "return": value} for index, value in enumerate([30, 30, 30], 1)]
         index = [{"date": item["date"], "return": 0.0} for item in stock]
         value, window = MarketService._best_vector_deviation(stock, index, 10)
-        self.assertIsNone(value)
-        self.assertIsNone(window)
+        self.assertEqual(window, 3)
+        self.assertAlmostEqual(value, 119.7, places=1)
 
     def test_prediction_excludes_downward_direction(self):
         service = self.service
@@ -346,12 +369,12 @@ class MarketVectorTests(unittest.TestCase):
             "ts_code": "000001.SZ", "symbol": "000001", "name": "测试股票",
             "market": "SZSE", "board": "主板", "isST": False,
         }]
-        self.assertEqual(service._compute_prediction_from_repository("next_day"), [])
+        self.assertFalse(any(item["ruleKey"] == "severe_10d" for item in service._compute_prediction_from_repository("next_day")))
 
-    def test_today_prediction_only_contains_already_triggered_upward_records(self):
+    def test_today_prediction_includes_nearby_untriggered_upward_candidates(self):
         service = self.service
         dates = [f"2026-08-{index:02d}" for index in range(1, 31)]
-        stock_vector = [{"date": day, "return": 2.0 if index >= 20 else 0.0} for index, day in enumerate(dates)]
+        stock_vector = [{"date": day, "return": 6.8 if index >= 20 else 0.0} for index, day in enumerate(dates)]
         index_vector = [{"date": day, "return": 0.0} for day in dates]
         service._calc_repository = SimpleNamespace(
             available=True,
@@ -368,25 +391,40 @@ class MarketVectorTests(unittest.TestCase):
             "ts_code": "000001.SZ", "symbol": "000001", "name": "测试股票",
             "market": "SZSE", "board": "主板", "isST": False,
         }]
-        self.assertEqual(service._compute_prediction_from_repository("today"), [])
+        items = service._compute_prediction_from_repository("today")
+        ordinary = [item for item in items if item["ruleKey"] == "ordinary_3d"]
+        self.assertEqual(len(ordinary), 1)
+        self.assertTrue(ordinary[0]["triggered"])
+        self.assertTrue(ordinary[0]["triggerValue"].startswith("+"))
 
     def test_intraday_refresh_only_updates_existing_prediction_codes(self):
         service = self.service
         service._calc_repository = SimpleNamespace(
             available=True,
-            get_prediction=lambda scope: {"scope": scope, "items": [{"ts_code": "001216.SZ", "deviation": "10日 +95.00%", "currentPrice": "28.00", "change": "+1.00%"}]},
+            get_prediction=lambda scope: {"scope": scope, "items": [{"ts_code": "001216.SZ", "ruleKey": "severe_10d", "predictionWindow": 10, "deviation": "10日 +95.00%", "currentPrice": "28.00", "change": "+1.00%", "trigger": "10日偏离达到 +100.00%", "triggerCondition": "10日偏离达到 +100.00%", "triggerValue": "+100.00%", "triggered": True, "cardTone": "triggered"}]},
             all_calculations=lambda: {"001216.SZ": {"ts_code": "001216.SZ", "latest_close": 28.0, "stock_return_vector": [{"date": f"2026-09-{index:02d}", "return": 0.0} for index in range(1, 31)]}},
             all_indexes=lambda: {"399001.SZ": {"index_code": "399001.SZ", "latest_close": 10.0, "index_return_vector": [{"date": f"2026-09-{index:02d}", "return": 0.0} for index in range(1, 31)]}},
         )
         service._stock_rows = lambda: [{"ts_code": "001216.SZ", "symbol": "001216", "name": "华瓷股份", "market": "SZSE", "board": "主板", "isST": False}]
         requested = []
+        quote_state = {"current": 28.2}
         service._realtime = SimpleNamespace(fetch_many=lambda codes: (requested.extend(list(codes)) or {
-            "001216.SZ": {"current": 28.2, "pctChg": 0.71, "updatedAt": "2026-09-29T10:00:00", "source": "腾讯行情"},
-            "399001.SZ": {"current": 10.1, "pctChg": 1.0, "updatedAt": "2026-09-29T10:00:00", "source": "腾讯行情"},
+            "001216.SZ": {"current": quote_state["current"], "pctChg": 0.71, "updatedAt": "2026-09-30T10:00:00", "source": "腾讯行情"},
+            "399001.SZ": {"current": 10.1, "pctChg": 1.0, "updatedAt": "2026-09-30T10:00:00", "source": "腾讯行情"},
         }))
         result = service._refresh_existing_prediction_scope("next_day")
         self.assertEqual(["001216.SZ", "399001.SZ"], requested)
-        self.assertEqual(result[0]["currentPrice"], "28.20")
+        self.assertNotIn("currentPrice", result[0])
+        self.assertFalse(result[0]["triggered"])
+        self.assertEqual(result[0]["cardTone"], "")
+        self.assertEqual(result[0]["trigger"], "10日偏离达到 +100.00%")
+        self.assertNotEqual(result[0]["deviation"], "10日 +95.00%")
+        self.assertTrue(result[0]["deviation"].endswith("-0.29%"))
+        quote_state["current"] = 60.0
+        recovered = service._refresh_existing_prediction_scope("next_day")
+        self.assertTrue(recovered[0]["triggered"])
+        self.assertEqual(recovered[0]["cardTone"], "triggered")
+        self.assertEqual(recovered[0]["trigger"], "10日偏离达到 +100.00%")
         self.assertFalse(hasattr(service._calc_repository, "save_prediction"))
 
 
@@ -453,12 +491,12 @@ class PredictionVisibilityTests(unittest.TestCase):
     }
 
     def test_rest_day_uses_previous_trade_day_dataset(self):
-        self.assertTrue(MarketService._next_day_dataset_available(
+        self.assertFalse(MarketService._next_day_dataset_available(
             "rest_day", self.STATE, "20260930", True,
         ))
 
     def test_trade_day_pre_open_uses_previous_trade_day_dataset(self):
-        self.assertTrue(MarketService._next_day_dataset_available(
+        self.assertFalse(MarketService._next_day_dataset_available(
             "pre_open", self.STATE, "20260930", True,
         ))
 

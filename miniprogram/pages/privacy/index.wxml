@@ -7,7 +7,7 @@
   <view class="legal-section">
     <view class="legal-heading">二、功能所需数据</view>
     <view class="legal-copy">　　你主动输入或选择的股票代码仅用于搜索和计算当前页面结果。模拟计算数据只保留在当前页面，不上传到后台。</view>
-    <view class="legal-copy">　　单股计算、监控池和异动预测使用公开行情及公告数据。服务端保存实现计算所需的股票基础资料和滚动计算数据，不保存你的身份信息。</view>
+    <view class="legal-copy">　　单股计算、重点监控和异动预测使用公开行情及公告数据。服务端保存实现计算所需的股票基础资料和滚动计算数据，不保存你的身份信息。</view>
   </view>
   <view class="legal-section">
     <view class="legal-heading">三、数据安全与第三方服务</view>

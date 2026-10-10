@@ -15,7 +15,7 @@ from .abnormal_rules import Board, Direction, RiskLevel
 
 
 class MonitorType(str, Enum):
-    """监控池的三类业务类型。"""
+    """重点监控的三类业务类型。"""
 
     ORDINARY = "ordinary"  # 普通交易所风险提示。
     SEVERE_10D = "severe_10d"  # 10 个交易日严重异常。
@@ -93,7 +93,7 @@ class AbnormalMonitorRecord:
     direction: Direction  # 上涨方向或下跌方向。
     source: str  # 记录来源，例如交易所公告、Tushare。
     source_url: Optional[str] = None  # 公告原文链接，允许为空。
-    monitor_type: MonitorType = MonitorType.ORDINARY  # 监控池三类中的一种。
+    monitor_type: MonitorType = MonitorType.ORDINARY  # 重点监控三类中的一种。
     rule_text: str = ""  # 页面展示的完整中文规则说明。
     remaining_days: Optional[int] = None  # 剩余监控交易日。
     risk_warning: str = ""  # 面向用户的风险提示文本。

@@ -5,15 +5,23 @@ function normalizeItems(items = []) {
   return items.map((item, index) => {
     const rawChange = item.change == null || item.change === '' ? '' : String(item.change)
     const change = /^[-+]?0\.00%$/.test(rawChange) && !item.changeSource ? '--' : (rawChange || '--')
-    const window = item.predictionWindow || ((String(item.deviation || '').match(/^(\d+)日/) || [])[1] || '')
-    const rule = String(item.rule || '').replace(/^连续(\d+)个交易日/, '连续 $1 个交易日')
     const triggered = Boolean(item.triggered || item.cardTone === 'triggered')
-    return { ...item, currentPrice: item.currentPrice == null || item.currentPrice === '' ? '--' : String(item.currentPrice), rule, triggered, alertText: triggered ? (item.alertText || '⚠️已触发') : '', cardTone: triggered ? 'triggered' : '', predictionKey: item.predictionKey || `${item.ts_code || index}-${window || index}`, change, changeClass: change === '--' ? 'neutral' : (change[0] === '-' ? 'down' : 'up') }
+    const deviationLabel = item.deviationLabel || item.deviation || '--'
+    const triggerValue = item.triggerValue || '--'
+    const window = item.predictionWindow || item.deviationWindow || ''
+    return { ...item, deviationLabel, triggerValue, triggered, alertText: triggered ? (item.alertText || '已触发') : '', cardTone: triggered ? 'triggered' : '', predictionKey: item.predictionKey || `${item.ts_code || index}-${item.ruleKey || window || index}`, change, changeClass: change === '--' ? 'neutral' : (change[0] === '-' ? 'down' : 'up') }
   })
 }
 
+function preserveItemOrder(currentItems, nextItems) {
+  const nextByKey = new Map(nextItems.map(item => [item.predictionKey, item]))
+  const ordered = currentItems.map(item => nextByKey.get(item.predictionKey)).filter(Boolean)
+  const existingKeys = new Set(currentItems.map(item => item.predictionKey))
+  return ordered.concat(nextItems.filter(item => !existingKeys.has(item.predictionKey)))
+}
+
 Page({
-  data: { scope: 'today', items: [], refreshing: false, buttonRefreshing: false, loading: false, error: '', updatedAt: '', dataQuality: {}, nextDayAvailable: true, nextDayReason: '' },
+  data: { scope: 'today', items: [], refreshing: false, buttonRefreshing: false, loading: false, error: '', quoteUpdatedAt: '', dataQuality: {}, dataUnavailable: false, nextDayAvailable: true, nextDayReason: '' },
   onLoad() { this.loadData() },
   onShow() {
     const tabBar = this.getTabBar && this.getTabBar()
@@ -35,8 +43,8 @@ Page({
     this.setData({ loading: true, error: '' })
     return getPredictions(this.data.scope).then((result) => {
       const refreshing = Boolean(result.refreshing)
-      this.setData({ items: normalizeItems(result.items), updatedAt: result.updatedAt || '', dataQuality: result.dataQuality || {}, loading: false, refreshing, error: result.error || '', nextDayAvailable: result.nextDayAvailable !== false, nextDayReason: result.nextDayReason || '' })
-      getApp().globalData.lastPredictionRefresh = result.updatedAt || null
+      this.setData({ items: normalizeItems(result.items), quoteUpdatedAt: result.quoteUpdatedAt || '', dataQuality: result.dataQuality || {}, dataUnavailable: Boolean(result.dataUnavailable), loading: false, refreshing, error: result.error || '', nextDayAvailable: result.nextDayAvailable !== false, nextDayReason: result.nextDayReason || '' })
+      getApp().globalData.lastPredictionRefresh = result.quoteUpdatedAt || null
       if (refreshing) this.schedulePoll()
     }).catch(() => {
       this.setData({ loading: false, error: '预测数据暂时不可用，请稍后重试' })
@@ -52,7 +60,8 @@ Page({
     this.pollTimer = setTimeout(() => {
       getPredictions(this.data.scope).then((result) => {
         const refreshing = Boolean(result.refreshing)
-        this.setData({ items: normalizeItems(result.items), updatedAt: result.updatedAt || '', dataQuality: result.dataQuality || {}, refreshing, error: result.error || '', nextDayAvailable: result.nextDayAvailable !== false, nextDayReason: result.nextDayReason || '' })
+        const items = preserveItemOrder(this.data.items, normalizeItems(result.items))
+        this.setData({ items, quoteUpdatedAt: result.quoteUpdatedAt || '', dataQuality: result.dataQuality || {}, dataUnavailable: Boolean(result.dataUnavailable), refreshing, error: result.error || '', nextDayAvailable: result.nextDayAvailable !== false, nextDayReason: result.nextDayReason || '' })
         if (refreshing) this.schedulePoll()
         else this.pollAttempts = 0
       }).catch(() => this.schedulePoll())
@@ -65,10 +74,10 @@ Page({
     this.setData({ buttonRefreshing: showButtonLoading, error: '' })
     return refreshPredictions(this.data.scope).then((result) => {
       const refreshing = Boolean(result.refreshing)
-      this.setData({ buttonRefreshing: false, refreshing, items: normalizeItems(result.items), updatedAt: result.updatedAt || '', dataQuality: result.dataQuality || {}, error: result.error || '', nextDayAvailable: result.nextDayAvailable !== false, nextDayReason: result.nextDayReason || '' })
-      getApp().globalData.lastPredictionRefresh = result.updatedAt || null
+      const items = preserveItemOrder(this.data.items, normalizeItems(result.items))
+      this.setData({ buttonRefreshing: false, refreshing, items, quoteUpdatedAt: result.quoteUpdatedAt || '', dataQuality: result.dataQuality || {}, dataUnavailable: Boolean(result.dataUnavailable), error: result.error || '', nextDayAvailable: result.nextDayAvailable !== false, nextDayReason: result.nextDayReason || '' })
+      getApp().globalData.lastPredictionRefresh = result.quoteUpdatedAt || null
       if (refreshing) this.schedulePoll()
-      wx.vibrateShort({ type: 'light' })
     }).catch(() => {
       this.setData({ buttonRefreshing: false, refreshing: false, error: '刷新失败，请稍后重试' })
     })

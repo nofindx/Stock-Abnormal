@@ -178,7 +178,7 @@ class MonitorWindowTests(unittest.TestCase):
         }
         announcements.query_market.return_value = {
             "available": True, "partial": False, "items": [{
-                "title": "股票交易严重异常波动公告", "date": "2026-09-27", "stockCode": "000993",
+                "title": "股票交易严重异常波动公告", "date": "2026-10-09", "stockCode": "000993",
                 "stockName": "闽东电力", "url": "https://static.cninfo.com.cn/a.PDF",
                 "source": "巨潮资讯",
             }]

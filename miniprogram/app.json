@@ -22,7 +22,7 @@
     "borderStyle": "white",
     "list": [
       {"pagePath": "pages/stock/index", "text": "单股计算", "iconPath": "assets/query.png", "selectedIconPath": "assets/query-active.png"},
-      {"pagePath": "pages/monitor/index", "text": "监控池", "iconPath": "assets/monitor.png", "selectedIconPath": "assets/monitor-active.png"},
+      {"pagePath": "pages/monitor/index", "text": "重点监控", "iconPath": "assets/monitor.png", "selectedIconPath": "assets/monitor-active.png"},
       {"pagePath": "pages/prediction/index", "text": "异动预测", "iconPath": "assets/prediction.png", "selectedIconPath": "assets/prediction-active.png"}
     ]
   },

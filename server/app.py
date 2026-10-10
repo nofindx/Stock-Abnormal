@@ -22,12 +22,20 @@ from .services.tushare_client import TushareUnavailable
 
 SERVICE = MarketService()
 ANNOUNCEMENTS = AnnouncementService()
-# 监管池是独立的公告快照链路，不再从全市场预测结果推导。
+# 重点监控是独立的公告快照链路，不再从全市场预测结果推导。
 OFFICIAL_MONITOR = OfficialMonitorService(SERVICE.client, ANNOUNCEMENTS)
+SERVICE.set_monitor_provider(OFFICIAL_MONITOR.repository.active_snapshot)
 
 
 def _json_bytes(value):
     return json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+
+
+class ApiError(Exception):
+    def __init__(self, code: int, message: str, status: int) -> None:
+        super().__init__(message)
+        self.code = code
+        self.status = status
 
 
 class ApiHandler(BaseHTTPRequestHandler):
@@ -109,9 +117,15 @@ class ApiHandler(BaseHTTPRequestHandler):
                 latest = SERVICE.client.latest_trade_date()
                 data = {"latestTradeDate": latest, "source": "tushare", "intraday": False}
             elif parsed.path == "/api/stocks/search":
-                data = SERVICE.search(query.get("q", [""])[0])
+                value = query.get("q", [""])[0]
+                if not value:
+                    raise ApiError(40001, "缺少 q 参数", 400)
+                data = SERVICE.search(value)
             elif parsed.path == "/api/stocks/detail":
-                data = SERVICE.detail(query.get("ts_code", [""])[0])
+                ts_code = query.get("ts_code", [""])[0]
+                if not ts_code:
+                    raise ApiError(40001, "缺少 ts_code 参数", 400)
+                data = SERVICE.detail(ts_code)
             elif parsed.path == "/api/stocks/announcements":
                 stock = SERVICE._stock(query.get("ts_code", [""])[0])
                 data = ANNOUNCEMENTS.query(stock["symbol"], stock["name"])
@@ -119,13 +133,16 @@ class ApiHandler(BaseHTTPRequestHandler):
                 ts_code = parsed.path[len("/api/stocks/"):-len("/abnormal")].strip("/")
                 data = SERVICE.detail(ts_code)
             elif parsed.path == "/api/predictions":
-                data = SERVICE.predictions(query.get("scope", ["today"])[0])
+                scope = query.get("scope", ["today"])[0]
+                if scope not in ("today", "next_day"):
+                    raise ApiError(40001, "scope 必须是 today 或 next_day", 400)
+                data = SERVICE.predictions(scope)
             elif parsed.path == "/api/monitor/announcement":
                 # 严重异动期内的 PDF 由后端缓存并以内联方式返回；出监管后路径立即失效。
                 monitor_key = query.get("key", [""])[0]
                 file_path = OFFICIAL_MONITOR.announcement_pdf_path(monitor_key)
                 if not file_path:
-                    self._respond({"code": 404, "data": None, "message": "公告文件不可用"}, status=404)
+                    self._respond({"code": 40401, "data": None, "message": "公告文件不可用"}, status=404)
                     return
                 payload = file_path.read_bytes()
                 self.send_response(200)
@@ -140,7 +157,7 @@ class ApiHandler(BaseHTTPRequestHandler):
                 # GET 只读最近一次成功快照，不启动公告采集或行情扫描。
                 status = query.get("status", ["current"])[0]
                 if status != "current":
-                    self._respond({"code": 404, "data": None, "message": "接口不存在"}, status=404)
+                    self._respond({"code": 40401, "data": None, "message": "接口不存在"}, status=404)
                     return
                 data = OFFICIAL_MONITOR.read(status, query.get("type", ["all"])[0])
                 # 小程序生产环境通过 callContainer 访问，统一返回可直接打开的公网代理地址。
@@ -150,21 +167,26 @@ class ApiHandler(BaseHTTPRequestHandler):
                         key = quote(str(item.get("monitorKey") or ""), safe="")
                         item["sourceUrl"] = f"{public_base}/api/monitor/announcement?key={key}"
             else:
-                self._respond({"code": 404, "data": None, "message": "接口不存在"}, status=404)
+                self._respond({"code": 40401, "data": None, "message": "接口不存在"}, status=404)
                 return
             self._respond({"code": 0, "data": data, "message": "ok"})
-        except (ValueError, TushareUnavailable) as exc:
-            self._respond({"code": 503, "data": None, "message": str(exc)}, status=503)
+        except ApiError as exc:
+            self._respond({"code": exc.code, "data": None, "message": str(exc)}, status=exc.status)
+        except TushareUnavailable as exc:
+            self._respond({"code": 50301, "data": None, "message": str(exc)}, status=503)
+        except ValueError as exc:
+            code, status = (40401, 404) if "未找到" in str(exc) else (40001, 400)
+            self._respond({"code": code, "data": None, "message": str(exc)}, status=status)
         except Exception:
             # 不把上游响应、token 或堆栈泄漏给小程序。
-            self._respond({"code": 500, "data": None, "message": "服务暂时不可用，请稍后重试"}, status=500)
+            self._respond({"code": 50001, "data": None, "message": "服务暂时不可用，请稍后重试"}, status=500)
 
     def do_POST(self):
         """预测刷新只处理已有池的盘中临时行情，不触发全市场后台计算。"""
 
         parsed = urlparse(self.path)
         if parsed.path != "/api/predictions/refresh":
-            self._respond({"code": 404, "data": None, "message": "接口不存在"}, status=404)
+            self._respond({"code": 40401, "data": None, "message": "接口不存在"}, status=404)
             return
         query = parse_qs(parsed.query)
         try:
@@ -179,12 +201,19 @@ class ApiHandler(BaseHTTPRequestHandler):
             return
         try:
             scope = query.get("scope", ["today"])[0]
+            if scope not in ("today", "next_day"):
+                raise ApiError(40001, "scope 必须是 today 或 next_day", 400)
             data = SERVICE.refresh_predictions(scope)
+            data["refreshStatus"] = "applied" if data.get("phase") == "intraday" else "not_allowed"
             self._respond({"code": 0, "data": data, "message": "ok"})
-        except (ValueError, TushareUnavailable) as exc:
-            self._respond({"code": 503, "data": None, "message": str(exc)}, status=503)
+        except ApiError as exc:
+            self._respond({"code": exc.code, "data": None, "message": str(exc)}, status=exc.status)
+        except TushareUnavailable as exc:
+            self._respond({"code": 50301, "data": None, "message": str(exc)}, status=503)
+        except ValueError as exc:
+            self._respond({"code": 40001, "data": None, "message": str(exc)}, status=400)
         except Exception:
-            self._respond({"code": 500, "data": None, "message": "服务暂时不可用，请稍后重试"}, status=500)
+            self._respond({"code": 50001, "data": None, "message": "服务暂时不可用，请稍后重试"}, status=500)
 
     def log_message(self, _format, *_args):
         # 默认不记录 query，避免把股票搜索内容写入日志；需要排障时由进程管理器记录。

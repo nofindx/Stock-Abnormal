@@ -15,7 +15,7 @@ from urllib.request import Request, urlopen
 class AnnouncementService:
     endpoint = "https://www.cninfo.com.cn/new/hisAnnouncement/query"
     detail_prefix = "https://static.cninfo.com.cn/"
-    # 只检索交易异动公告，避免把业绩、诉讼等普通风险公告误放入监管池。
+    # 只检索交易异动公告，避免把业绩、诉讼等普通风险公告误放入重点监控。
     keywords = ("股票交易异常波动", "股票交易严重异常波动", "股票交易风险提示", "停牌核查")
     broker_alert_list = "https://wap.18.cn/article/zygg"
     broker_alert_root = "https://wap.18.cn"

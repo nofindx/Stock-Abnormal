@@ -1,4 +1,4 @@
-"""公开公告驱动的监管池服务。
+"""公开公告驱动的重点监控服务。
 
 前端查询只读取 SQLite 中最近一次成功快照。公告采集、正文识别和快照替换只由后台任务执行，
 不会因为用户打开页面或点击刷新而启动。
@@ -27,7 +27,7 @@ except ImportError:
 
 
 SHANGHAI_TZ = ZoneInfo("Asia/Shanghai") if ZoneInfo else timezone(timedelta(hours=8))
-# 监管池的实际监管期按触发后的重点监控安排计算，三类记录均为 10 个交易日。
+# 重点监控记录的实际监控期按触发类型计算，三类记录均为 10 个交易日。
 # 注意：30 日严重异动中的“30 个交易日”是规则判定的回看窗口，
 # 不是公告触发后的监管期长度。规则计算窗口由 server/core/abnormal_rules.py 负责。
 MONITOR_PERIOD_TRADING_DAYS = {
@@ -38,7 +38,7 @@ MONITOR_PERIOD_TRADING_DAYS = {
 # 兼容外部测试/旧调用方；业务代码统一使用 MONITOR_PERIOD_TRADING_DAYS。
 MONITOR_WINDOW_TRADING_DAYS = MONITOR_PERIOD_TRADING_DAYS
 # 公告分类口径变化时，启动任务主动重采一次当前快照；避免必须等到次日
-# 00:00 才让修复后的北交所严重异动进入监控池。
+# 00:00 才让修复后的北交所严重异动进入重点监控。
 MONITOR_RULE_VERSION = "2026-10-bse-severe-deviation-v3"
 
 
@@ -150,7 +150,7 @@ class MonitorRepository:
 
 
 class OfficialMonitorService:
-    """采集公开披露公告并生成监管池快照，不读取全市场交易行情。"""
+    """采集公开披露公告并生成重点监控快照，不读取全市场交易行情。"""
 
     def __init__(self, client: TushareClient, announcements: Optional[AnnouncementService] = None) -> None:
         self.client = client
@@ -525,7 +525,7 @@ class OfficialMonitorService:
                     "monitorPeriod": f"起始日起共 {MONITOR_PERIOD_TRADING_DAYS.get(risk_tone, 10)} 个交易日（起点计第1日）",
                 })
             for alert in broker_result.get("items", []) if broker_available else []:
-                # 18.cn 是主源；只有正文满足风险提示或 10/30 日阈值语义才进入监控池。
+                # 18.cn 是主源；只有正文满足风险提示或 10/30 日阈值语义才进入重点监控。
                 if not self._is_accepted_broker_alert(alert["title"], alert.get("body", "")):
                     continue
                 monitor_type, risk_tone = self._broker_monitor_type(alert["title"], alert.get("body", ""))
@@ -584,7 +584,7 @@ class OfficialMonitorService:
                     },
                     "activeSource": active_source,
                     "isOfficialMonitorPeriod": False,
-                    "periodCalculation": "监管期按交易日计算并将起点计为第1日；3日普通异动不进入监控池，10日和30日严重异动触发后均监管10个交易日；30日仅是判定回看窗口",
+                    "periodCalculation": "监管期按交易日计算并将起点计为第1日；3日普通异动不进入重点监控，10日和30日严重异动触发后均监管10个交易日；30日仅是判定回看窗口",
                     "coverage": "18.cn 正常时为主源；18.cn 不可用时由巨潮资讯接替；同源记录按股票和风险类型取最新",
                 },
             }
@@ -601,7 +601,7 @@ class OfficialMonitorService:
 
     def read(self, status: str, monitor_type: str) -> Dict[str, Any]:
         if status != "current":
-            raise ValueError("监控池仅支持 current 当前监控")
+            raise ValueError("重点监控仅支持 current 当前监控")
         snapshot = self.repository.active_snapshot()
         if not snapshot:
             return {

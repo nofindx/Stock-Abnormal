@@ -3,6 +3,7 @@ key/
 .env
 __pycache__/
 *.py[cod]
+.DS_Store
 
 # 本地缓存和日志
 server/.cache/

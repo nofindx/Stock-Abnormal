@@ -1,0 +1,25 @@
+{
+  "three_rules_same_stock": {
+    "items": [
+      {"ts_code": "600825.SH", "ruleKey": "ordinary_3d", "predictionKey": "600825.SH-ordinary_3d-20261012", "triggered": false},
+      {"ts_code": "600825.SH", "ruleKey": "severe_10d", "predictionKey": "600825.SH-severe_10d-20261012", "triggered": true},
+      {"ts_code": "600825.SH", "ruleKey": "severe_30d", "predictionKey": "600825.SH-severe_30d-20261012", "triggered": false}
+    ],
+    "forbiddenRuleKeys": ["same_direction_10d"]
+  },
+  "next_day_same_rule_exclusion": {
+    "todayTriggered": [{"ts_code": "600825.SH", "ruleKey": "severe_10d"}],
+    "nextDay": [{"ts_code": "600825.SH", "ruleKey": "severe_30d"}],
+    "excluded": [{"ts_code": "600825.SH", "ruleKey": "severe_10d"}]
+  },
+  "special_stock_exclusion": [
+    {"ts_code": "600001.SH", "isST": true},
+    {"ts_code": "600002.SH", "name": "退市示例", "list_status": "L"},
+    {"ts_code": "600003.SH", "priceLimitEnabled": false}
+  ],
+  "intraday_transition": {
+    "stable": {"triggered": false, "cardTone": "", "triggerValue": "+100.00%"},
+    "triggered": {"triggered": true, "cardTone": "triggered", "alertText": "已触发", "triggerValue": "+100.00%"},
+    "recovered": {"triggered": false, "cardTone": "", "alertText": "", "triggerValue": "+100.00%"}
+  }
+}
