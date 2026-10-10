@@ -27,9 +27,13 @@ def check_prediction(payload: dict, scope: str) -> None:
         assert field in data, (scope, field)
     for item in data["items"]:
         assert item.get("ruleKey") in {"ordinary_3d", "severe_10d", "severe_30d"}, item
+        for field in ("predictionKey", "ts_code", "deviationLabel", "triggerCondition", "triggerValue", "triggered", "cardTone", "quoteUpdatedAt"):
+            assert field in item, (scope, field, item)
         assert item.get("triggerValue", "") and "上涨" not in item.get("triggerValue", ""), item
         assert "已达到阈值" not in str(item), item
         assert "same_direction_10d" != item.get("ruleKey"), item
+        assert "currentPrice" not in item and "price" not in item, item
+        assert bool(item.get("triggered")) == (item.get("cardTone") == "triggered"), item
 
 
 def main() -> int:
@@ -49,6 +53,8 @@ def main() -> int:
         check_prediction(payload, scope)
     status, invalid = request_json(f"{base}/api/predictions?scope=invalid")
     assert status == 400 and invalid.get("code") == 40001, invalid
+    status, malformed = request_json(f"{base}/api/predictions/refresh", "POST", "malformed")
+    assert status == 400 and malformed.get("code") == 40001, malformed
     status, refreshed = request_json(f"{base}/api/predictions/refresh", "POST", {"scope": "today"})
     if status in (503, 500) and refreshed.get("code") in (50301, 50302) and not args.require_data:
         print("refresh: upstream data unavailable, refresh assertions skipped")

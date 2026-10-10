@@ -107,6 +107,12 @@ class ApiHandler(BaseHTTPRequestHandler):
                         "realtime": SERVICE._realtime.health_stats(),
                     },
                     "prediction": prediction_health,
+                    "intradayState": {
+                        "backend": "redis" if SERVICE._intraday_store.shared else "local_fallback",
+                        "shared": SERVICE._intraday_store.shared,
+                        "ttlSeconds": SERVICE._intraday_store.TTL_SECONDS,
+                        "maxPayloadBytes": SERVICE._intraday_store.MAX_PAYLOAD_BYTES,
+                    },
                     "monitor": monitor_health,
                     # 保留旧字段，兼容旧版小程序健康检查。
                     "monitorSnapshot": monitor_health["available"],
@@ -194,10 +200,12 @@ class ApiHandler(BaseHTTPRequestHandler):
             body = self.rfile.read(length) if length else b""
             if body:
                 payload = json.loads(body.decode("utf-8"))
+                if not isinstance(payload, dict):
+                    raise ValueError("请求参数格式错误")
                 for key, value in payload.items():
                     query[key] = [str(value)]
         except (ValueError, UnicodeDecodeError, json.JSONDecodeError):
-            self._respond({"code": 400, "data": None, "message": "请求参数格式错误"}, status=400)
+            self._respond({"code": 40001, "data": None, "message": "请求参数格式错误"}, status=400)
             return
         try:
             scope = query.get("scope", ["today"])[0]
