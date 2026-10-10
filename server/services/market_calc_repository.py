@@ -509,7 +509,7 @@ class MarketCalcRepository:
                     (dataset_role, target_trade_date, base_trade_date, updated_at, items, data_stage, data_quality,
                      dataset_quote_updated_at, dataset_quote_as_of, dataset_quote_source, dataset_quote_complete,
                      item_count, exclusion_stats, status, last_error, rule_version)
-                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'',%s)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'',%s)
                     ON DUPLICATE KEY UPDATE base_trade_date=VALUES(base_trade_date), updated_at=VALUES(updated_at),
                     items=VALUES(items), data_stage=VALUES(data_stage), data_quality=VALUES(data_quality),
                     dataset_quote_updated_at=VALUES(dataset_quote_updated_at), dataset_quote_as_of=VALUES(dataset_quote_as_of),
