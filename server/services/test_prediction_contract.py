@@ -66,3 +66,46 @@ class FixtureContractTests(unittest.TestCase):
         self.assertFalse(MarketService._prediction_stock_eligible({"priceLimitEnabled": False}, "20261012"))
         self.assertFalse(MarketService._prediction_stock_eligible({"list_date": "20261012"}, "20261012"))
         self.assertTrue(MarketService._prediction_stock_eligible({"name": "正常股票", "list_date": "20200101"}, "20261012"))
+
+
+class PredictionFailurePropagationTests(unittest.TestCase):
+    class FailedRepository:
+        available = True
+
+        def get_prediction(self, scope, target_trade_date=None):
+            return {
+                "scope": scope,
+                "target_trade_date": target_trade_date or "20261009",
+                "base_trade_date": "20261009",
+                "updated_at": datetime(2026, 10, 9, 15, 0, 0),
+                "dataset_quote_updated_at": datetime(2026, 10, 9, 15, 0, 0),
+                "items": [{"predictionKey": "600000.SH-ordinary_3d-20261009"}],
+                "status": "ready",
+                "data_stage": "formal",
+                "data_quality": "confirmed",
+                "dataset_quote_complete": True,
+                "exclusion_stats": {},
+            }
+
+        def prediction_job_status(self, scope):
+            return {"status": "failed", "last_error": f"{scope} 任务失败"}
+
+    def test_failed_job_keeps_last_items_but_marks_dataset_unavailable(self):
+        service = MarketService()
+        service._calc_repository = self.FailedRepository()
+        service._prediction_state = lambda: {
+            "todaySourceScope": "today",
+            "targetTradeDate": "20261009",
+            "previousTradeDate": "20261008",
+            "nextTradeDate": "20261012",
+            "phase": "rest_day",
+            "realtimeRefreshAllowed": False,
+        }
+        try:
+            payload = service.predictions("today")
+            self.assertTrue(payload["dataUnavailable"])
+            self.assertEqual(payload["datasetStatus"], "failed")
+            self.assertEqual(payload["error"], "today 任务失败")
+            self.assertEqual(len(payload["items"]), 1)
+        finally:
+            service.close()

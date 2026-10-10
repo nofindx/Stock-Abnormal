@@ -1213,36 +1213,41 @@ class MarketService:
             next_trade_date = ""
         for scope in ("today", "next_day"):
             target_trade_date = base_trade_date if scope == "today" else next_trade_date
-            items = self._compute_prediction_from_repository(scope, use_realtime=False, target_trade_date=target_trade_date) or []
-            for item in items:
-                item["targetTradeDate"] = target_trade_date
-                item["scope"] = "当日" if scope == "today" else "次日"
-                item["predictionKey"] = f"{item.get('ts_code', '')}-{item.get('ruleKey', '')}-{target_trade_date}"
-            updated_at = self._now()
-            self._prediction_cache[scope] = (updated_at, items)
-            self._prediction_trade_date[scope] = target_trade_date
-            if self._calc_repository.available:
-                calculations = self._calc_repository.all_calculations() or {}
-                indexes = self._calc_repository.all_indexes() or {}
-                quote_times = [str(row.get("quote_updated_at") or "") for row in list(calculations.values()) + list(indexes.values()) if row.get("quote_updated_at")]
-                dataset_quote_updated_at = max(quote_times, default="")
-                self._calc_repository.save_prediction(
-                    scope,
-                    base_trade_date,
-                    items,
-                    updated_at,
-                    data_stage=data_stage,
-                    data_quality="provisional" if data_stage == "initial" else "confirmed",
-                    rule_version=PREDICTION_RULE_VERSION,
-                    target_trade_date=target_trade_date,
-                    base_trade_date=base_trade_date,
-                    dataset_quote_updated_at=dataset_quote_updated_at,
-                    dataset_quote_as_of=base_trade_date,
-                    dataset_quote_source="tushare" if data_stage == "formal" else "intraday-initial",
-                    dataset_quote_complete=bool(calculations and indexes),
-                    exclusion_stats=self._prediction_generation_stats.get(scope, {}),
-                    status="ready" if calculations and indexes else "incomplete",
-                )
+            try:
+                items = self._compute_prediction_from_repository(scope, use_realtime=False, target_trade_date=target_trade_date) or []
+                for item in items:
+                    item["targetTradeDate"] = target_trade_date
+                    item["scope"] = "当日" if scope == "today" else "次日"
+                    item["predictionKey"] = f"{item.get('ts_code', '')}-{item.get('ruleKey', '')}-{target_trade_date}"
+                updated_at = self._now()
+                self._prediction_cache[scope] = (updated_at, items)
+                self._prediction_trade_date[scope] = target_trade_date
+                if self._calc_repository.available:
+                    calculations = self._calc_repository.all_calculations() or {}
+                    indexes = self._calc_repository.all_indexes() or {}
+                    quote_times = [str(row.get("quote_updated_at") or "") for row in list(calculations.values()) + list(indexes.values()) if row.get("quote_updated_at")]
+                    dataset_quote_updated_at = max(quote_times, default="")
+                    self._calc_repository.save_prediction(
+                        scope,
+                        base_trade_date,
+                        items,
+                        updated_at,
+                        data_stage=data_stage,
+                        data_quality="provisional" if data_stage == "initial" else "confirmed",
+                        rule_version=PREDICTION_RULE_VERSION,
+                        target_trade_date=target_trade_date,
+                        base_trade_date=base_trade_date,
+                        dataset_quote_updated_at=dataset_quote_updated_at,
+                        dataset_quote_as_of=base_trade_date,
+                        dataset_quote_source="tushare" if data_stage == "formal" else "intraday-initial",
+                        dataset_quote_complete=bool(calculations and indexes),
+                        exclusion_stats=self._prediction_generation_stats.get(scope, {}),
+                        status="ready" if calculations and indexes else "incomplete",
+                    )
+            except Exception as exc:  # noqa: BLE001 - 保留上一份成功数据并记录任务失败
+                self._prediction_last_error[scope] = str(exc)
+                if self._calc_repository.available:
+                    self._calc_repository.fail_prediction(scope, str(exc))
 
     def detail(self, ts_code: str) -> Dict[str, Any]:
         """返回单股当前状态、四项预警和模拟计算基础数据。"""
@@ -1754,9 +1759,13 @@ class MarketService:
         result: Dict[str, Any] = {}
         for scope in ("today", "next_day"):
             record: Optional[Dict[str, Any]] = None
+            job: Optional[Dict[str, Any]] = None
             if self._calc_repository.available:
                 try:
                     record = self._prediction_record(scope)
+                    status_reader = getattr(self._calc_repository, "prediction_job_status", None)
+                    if status_reader:
+                        job = status_reader(scope)
                 except Exception as exc:  # noqa: BLE001 - 健康接口不能影响业务接口
                     result[scope] = {"available": False, "error": str(exc)[:160]}
                     continue
@@ -1778,11 +1787,18 @@ class MarketService:
                 "datasetQuoteUpdatedAt": self._format_prediction_datetime((record or {}).get("dataset_quote_updated_at")),
                 "datasetQuoteComplete": bool((record or {}).get("dataset_quote_complete", False)),
                 "exclusionStats": (record or {}).get("exclusion_stats") or self._prediction_generation_stats.get(scope, {}),
-                "status": str((record or {}).get("status") or ("ready" if record else "missing")),
+                "status": str(
+                    "failed" if (job or {}).get("status") == "failed" else
+                    (record or {}).get("status") or ("ready" if record else "missing")
+                ),
                 "dataStage": str((record or {}).get("data_stage") or "formal"),
                 "dataQuality": str((record or {}).get("data_quality") or "confirmed"),
                 "ruleVersion": str((record or {}).get("rule_version") or PREDICTION_RULE_VERSION),
-                "lastError": str((record or {}).get("last_error") or self._prediction_last_error.get(scope, ""))[:160],
+                "lastError": str(
+                    (job or {}).get("last_error")
+                    or (record or {}).get("last_error")
+                    or self._prediction_last_error.get(scope, "")
+                )[:160],
             }
         return result
 
@@ -1798,9 +1814,13 @@ class MarketService:
         if source_scope == "today" and state.get("phase") in ("rest_day", "pre_open"):
             lookup_date = str(state.get("previousTradeDate") or lookup_date)
         persistent = None
+        prediction_job: Optional[Dict[str, Any]] = None
         if self._calc_repository.available:
             try:
                 persistent = self._prediction_record(source_scope, lookup_date)
+                status_reader = getattr(self._calc_repository, "prediction_job_status", None)
+                if status_reader:
+                    prediction_job = status_reader(source_scope)
             except Exception as exc:
                 self._prediction_last_error[source_scope] = str(exc)
         if persistent:
@@ -1848,6 +1868,13 @@ class MarketService:
         has_realtime = ephemeral_active
         stored_stage = str((persistent or {}).get("data_stage") or "formal")
         quality = "realtime" if ephemeral_active else str((persistent or {}).get("data_quality") or ("provisional" if stored_stage == "initial" else "confirmed"))
+        job_failed = str((prediction_job or {}).get("status") or "") == "failed"
+        dataset_status = "failed" if job_failed else str((persistent or {}).get("status") or ("ready" if persistent else "missing"))
+        dataset_error = str(
+            (prediction_job or {}).get("last_error")
+            or (persistent or {}).get("last_error")
+            or self._prediction_last_error.get(source_scope, "")
+        )
         return {
             "scope": scope,
             "items": items,
@@ -1869,13 +1896,14 @@ class MarketService:
             "datasetQuoteUpdatedAt": self._format_prediction_datetime((persistent or {}).get("dataset_quote_updated_at")) or dataset_updated,
             "datasetQuoteComplete": bool((persistent or {}).get("dataset_quote_complete", True)),
             "exclusionStats": (persistent or {}).get("exclusion_stats") or self._prediction_generation_stats.get(source_scope, {}),
-            "dataUnavailable": bool((persistent or {}).get("status") == "failed" or ((persistent is None) and not items)),
-            "datasetStatus": str((persistent or {}).get("status") or ("ready" if persistent else "missing")),
+            # 任务失败时保留上一份 items，但明确告诉前端更新时间位置显示不可用。
+            "dataUnavailable": bool(job_failed or (persistent or {}).get("status") == "failed" or ((persistent is None) and not items)),
+            "datasetStatus": dataset_status,
             "updatedAt": dataset_updated,
             "dataStage": "realtime" if ephemeral_active else stored_stage,
             "refreshStatus": "applied" if ephemeral_active else "not_allowed",
             "refreshing": refreshing,
-            "error": self._prediction_last_error.get(source_scope, ""),
+            "error": dataset_error,
             "dataQuality": {
                 "source": "腾讯/新浪/东方财富" if has_realtime else ("Tushare" if stored_stage == "formal" else "腾讯/新浪/东方财富"),
                 "intraday": ephemeral_active,

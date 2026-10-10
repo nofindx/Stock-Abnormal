@@ -80,6 +80,14 @@ class ApiHandler(BaseHTTPRequestHandler):
                 last_failure_date = str((market_job or {}).get("last_failure_date") or "")
                 last_error = market_calc_error or (market_job or {}).get("last_error", "")
                 latest_data_date, latest_data_stage = SERVICE._latest_data_stage_date() if market_calc_available else ("", "")
+                stock_coverage = None
+                prediction_migration = None
+                if market_calc_available:
+                    try:
+                        stock_coverage = SERVICE._calc_repository.stock_basic_coverage()
+                        prediction_migration = SERVICE._calc_repository.prediction_migration_status()
+                    except Exception as exc:
+                        market_calc_error = market_calc_error or str(exc)[:160]
                 monitor_health = OFFICIAL_MONITOR.health_stats(today_is_trade_day)
                 prediction_health = SERVICE.prediction_health(today_is_trade_day)
                 self._respond({"code": 0, "data": {
@@ -101,6 +109,8 @@ class ApiHandler(BaseHTTPRequestHandler):
                         "lastError": last_error,
                         "lastFailureDate": last_failure_date,
                         "lastErrorActive": bool(last_error) and (last_failure_date == today or bool(market_calc_error)),
+                        "stockBasicCoverage": stock_coverage,
+                        "predictionMigration": prediction_migration,
                     },
                     "dataSources": {
                         "tushare": SERVICE.client.health_stats(),

@@ -50,6 +50,9 @@ def main() -> int:
         assert field in intraday_state, ("health.intradayState", field, health)
     assert intraday_state["ttlSeconds"] == 120, intraday_state
     assert intraday_state["maxPayloadBytes"] == 2 * 1024 * 1024, intraday_state
+    market_calc = (health.get("data") or {}).get("marketCalc") or {}
+    for field in ("stockBasicCoverage", "predictionMigration"):
+        assert field in market_calc, ("health.marketCalc", field, health)
     if args.require_shared_redis:
         assert intraday_state.get("backend") == "redis" and intraday_state.get("shared") is True, intraday_state
     for scope in ("today", "next_day"):

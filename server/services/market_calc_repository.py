@@ -21,6 +21,11 @@ class MarketCalcRepository:
         self.config = config or self._config_from_env()
         self._pymysql = None
         self._initialised = False
+        # 迁移窗口内允许双读；读取旧表的次数只用于迁移观测，不改变业务结果。
+        self.prediction_cache_compat_read = str(
+            os.getenv("PREDICTION_CACHE_COMPAT_READ", "1")
+        ).strip().lower() not in {"0", "false", "no", "off"}
+        self._prediction_cache_fallback_reads = 0
 
     @staticmethod
     def _config_from_env() -> Dict[str, Any]:
@@ -330,6 +335,74 @@ class MarketCalcRepository:
                 row = cursor.fetchone()
         return dict(row) if row else None
 
+    def prediction_job_status(self, job_name: str) -> Optional[Dict[str, Any]]:
+        """读取预测任务状态，用于把失败传递到读取接口和健康检查。"""
+
+        if not self.available:
+            return None
+        self.ensure_schema()
+        with self.connection() as db:
+            with db.cursor(self._driver().cursors.DictCursor) as cursor:
+                cursor.execute("SELECT * FROM prediction_job WHERE job_name = %s", (job_name,))
+                row = cursor.fetchone()
+        return dict(row) if row else None
+
+    def stock_basic_coverage(self) -> Optional[Dict[str, Any]]:
+        """统计活跃股票基础资料完整性，避免缺字段股票静默进入预测。"""
+
+        if not self.available:
+            return None
+        self.ensure_schema()
+        with self.connection() as db:
+            with db.cursor(self._driver().cursors.DictCursor) as cursor:
+                cursor.execute("""
+                    SELECT
+                      COUNT(*) AS total,
+                      SUM(CASE WHEN list_status = 'L' THEN 1 ELSE 0 END) AS active,
+                      SUM(CASE WHEN list_status = 'L' AND list_date <> '' THEN 1 ELSE 0 END) AS activeWithListDate,
+                      SUM(CASE WHEN list_status = 'L' AND price_limit_enabled IS NOT NULL THEN 1 ELSE 0 END) AS activeWithPriceLimit,
+                      SUM(CASE WHEN list_status = 'L' AND is_st IS NOT NULL THEN 1 ELSE 0 END) AS activeWithStFlag
+                    FROM stock_basic
+                """)
+                row = cursor.fetchone() or {}
+        total = int(row.get("total") or 0)
+        active = int(row.get("active") or 0)
+        return {
+            "total": total,
+            "active": active,
+            "activeWithListDate": int(row.get("activeWithListDate") or 0),
+            "activeWithPriceLimit": int(row.get("activeWithPriceLimit") or 0),
+            "activeWithStFlag": int(row.get("activeWithStFlag") or 0),
+            "complete": bool(
+                active == 0
+                or (
+                    int(row.get("activeWithListDate") or 0) == active
+                    and int(row.get("activeWithPriceLimit") or 0) == active
+                    and int(row.get("activeWithStFlag") or 0) == active
+                )
+            ),
+        }
+
+    def prediction_migration_status(self) -> Optional[Dict[str, Any]]:
+        """返回 prediction_dataset/prediction_cache 迁移核验结果。"""
+
+        if not self.available:
+            return None
+        self.ensure_schema()
+        with self.connection() as db:
+            with db.cursor(self._driver().cursors.DictCursor) as cursor:
+                cursor.execute("SELECT COUNT(*) AS count FROM prediction_dataset")
+                dataset_rows = int((cursor.fetchone() or {}).get("count") or 0)
+                cursor.execute("SELECT COUNT(*) AS count FROM prediction_cache")
+                legacy_rows = int((cursor.fetchone() or {}).get("count") or 0)
+        return {
+            "compatReadEnabled": self.prediction_cache_compat_read,
+            "fallbackReadsSinceProcessStart": self._prediction_cache_fallback_reads,
+            "predictionDatasetRows": dataset_rows,
+            "predictionCacheRows": legacy_rows,
+            "legacyReadFree": self._prediction_cache_fallback_reads == 0,
+        }
+
     def mark_retry(self, marker: str) -> None:
         if not self.available:
             return
@@ -453,7 +526,7 @@ class MarketCalcRepository:
                     tuple(params),
                 )
                 row = cursor.fetchone()
-                if not row and not target_trade_date:
+                if not row and not target_trade_date and self.prediction_cache_compat_read:
                     # 迁移窗口内允许读取旧表，写入和任务锁只使用 prediction_job。
                     cursor.execute(
                         "SELECT scope, trade_date AS target_trade_date, trade_date AS base_trade_date, updated_at, items, "
@@ -461,6 +534,8 @@ class MarketCalcRepository:
                         (scope,),
                     )
                     row = cursor.fetchone()
+                    if row:
+                        self._prediction_cache_fallback_reads += 1
         if not row:
             return None
         result = dict(row)
