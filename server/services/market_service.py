@@ -94,6 +94,24 @@ def _board_label(market: Any, symbol: str) -> str:
     return "主板"
 
 
+def _price_limit_enabled(item: Dict[str, Any], board: str, exchange: str) -> Optional[bool]:
+    """归一化价格限制标记。
+
+    Tushare ``stock_basic`` 没有稳定的静态 price-limit 字段；对已上市的四个
+    A 股板块按交易所板块规则填充 ``True``，首日资格仍由 list_date 单独判断。
+    显式上游值优先，未知交易所保持 None 并按保守策略排除。
+    """
+
+    explicit = item.get("priceLimitEnabled", item.get("price_limit_enabled"))
+    if explicit is not None:
+        return bool(explicit)
+    if str(item.get("list_status") or "L") != "L":
+        return False
+    if str(exchange or "") in {"SSE", "SZSE", "BSE"} and board in BOARD_BY_MARKET:
+        return True
+    return None
+
+
 def _index_code_for_stock(stock: Dict[str, Any]) -> str:
     """按股票板块选择对应指数；主板再区分沪深市场。"""
 
@@ -228,14 +246,16 @@ class MarketService:
     def _normalise_stock_row(item: Dict[str, Any]) -> Dict[str, Any]:
         name = str(item.get("name") or "")
         symbol = str(item.get("symbol") or "")
-        price_limit = item.get("priceLimitEnabled", item.get("price_limit_enabled"))
+        exchange = str(item.get("exchange") or item.get("market") or "")
+        board = str(item.get("board") or _board_label(item.get("market") or item.get("exchange"), symbol))
+        price_limit = _price_limit_enabled(item, board, exchange)
         computed_initials = _name_initials(name)
         return {
             "ts_code": str(item.get("ts_code") or ""),
             "symbol": symbol,
             "name": name,
-            "market": str(item.get("exchange") or item.get("market") or ""),
-            "board": str(item.get("board") or _board_label(item.get("market") or item.get("exchange"), symbol)),
+            "market": exchange,
+            "board": board,
             "isST": bool(item.get("isST", name.upper().startswith("ST") or name.startswith("*ST"))),
             "nameInitials": computed_initials or str(item.get("nameInitials") or item.get("name_initials") or ""),
             "list_date": item.get("list_date"),

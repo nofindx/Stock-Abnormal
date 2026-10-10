@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import argparse
+from datetime import datetime
 import json
 from pathlib import Path
 import sys
@@ -23,7 +24,7 @@ def main() -> int:
     parser.add_argument(
         "--require-zero-legacy-reads",
         action="store_true",
-        help="要求当前进程没有从 prediction_cache 回退读取",
+        help="要求当前进程和今天的持久化审计都没有从 prediction_cache 回退读取",
     )
     parser.add_argument(
         "--require-complete-stock-basic",
@@ -49,8 +50,14 @@ def main() -> int:
     print(json.dumps(result, ensure_ascii=False, indent=2, default=str))
     migration = result["predictionMigration"] or {}
     coverage = result["stockBasicCoverage"] or {}
-    if args.require_zero_legacy_reads and not migration.get("legacyReadFree", False):
-        return 1
+    if args.require_zero_legacy_reads:
+        today = datetime.now().strftime("%Y%m%d")
+        today_audit = next(
+            (row for row in migration.get("legacyReadAudit", []) if str(row.get("audit_date")) == today),
+            None,
+        )
+        if not migration.get("legacyReadFree", False) or int((today_audit or {}).get("read_count") or 0) > 0:
+            return 1
     if args.require_complete_stock_basic and not coverage.get("complete", False):
         return 1
     return 0

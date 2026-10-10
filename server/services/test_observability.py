@@ -87,6 +87,7 @@ class PredictionHealthTests(unittest.TestCase):
         self.assertEqual({item["key"] for item in alerts}, {"stock_basic_coverage", "prediction_cache_migration"})
 
 
+
 class DetailDataQualityTests(unittest.TestCase):
     def _service(self, quotes):
         service = MarketService()

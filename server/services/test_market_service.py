@@ -79,6 +79,20 @@ class MarketVectorTests(unittest.TestCase):
         })
         self.assertEqual(row["nameInitials"], "BJGF")
 
+    def test_normalise_stock_derives_price_limit_for_known_active_board(self):
+        row = MarketService._normalise_stock_row({
+            "ts_code": "000001.SZ", "symbol": "000001", "name": "平安银行",
+            "market": "主板", "exchange": "SZSE", "list_status": "L",
+        })
+        self.assertTrue(row["priceLimitEnabled"])
+
+    def test_normalise_stock_keeps_unknown_exchange_conservative(self):
+        row = MarketService._normalise_stock_row({
+            "ts_code": "X00001", "symbol": "000001", "name": "未知股票",
+            "market": "OTHER", "exchange": "OTHER", "list_status": "L",
+        })
+        self.assertIsNone(row["priceLimitEnabled"])
+
     def test_prediction_checks_ten_day_line_for_next_day_scope(self):
         """次日预测不能只检查 30 日线，10 日接近 +100% 也必须入选。"""
         service = self.service

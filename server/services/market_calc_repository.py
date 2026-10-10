@@ -132,19 +132,21 @@ class MarketCalcRepository:
                         retry_marker VARCHAR(32) NOT NULL DEFAULT ''
                     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
                 """)
-                cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS prediction_cache (
-                        scope VARCHAR(16) PRIMARY KEY,
-                        trade_date CHAR(8) NOT NULL DEFAULT '',
-                        updated_at DATETIME NULL,
-                        items JSON NOT NULL,
-                        data_stage VARCHAR(16) NOT NULL DEFAULT 'formal',
-                        data_quality VARCHAR(32) NOT NULL DEFAULT 'confirmed',
-                        refreshing_until BIGINT NOT NULL DEFAULT 0,
-                        last_error TEXT NOT NULL,
-                        rule_version VARCHAR(40) NOT NULL DEFAULT ''
-                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
-                """)
+                # 兼容读取关闭后不再自动重建旧表，避免 DROP TABLE 后重启又创建空表。
+                if self.prediction_cache_compat_read:
+                    cursor.execute("""
+                        CREATE TABLE IF NOT EXISTS prediction_cache (
+                            scope VARCHAR(16) PRIMARY KEY,
+                            trade_date CHAR(8) NOT NULL DEFAULT '',
+                            updated_at DATETIME NULL,
+                            items JSON NOT NULL,
+                            data_stage VARCHAR(16) NOT NULL DEFAULT 'formal',
+                            data_quality VARCHAR(32) NOT NULL DEFAULT 'confirmed',
+                            refreshing_until BIGINT NOT NULL DEFAULT 0,
+                            last_error TEXT NOT NULL,
+                            rule_version VARCHAR(40) NOT NULL DEFAULT ''
+                        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+                    """)
                 cursor.execute("""
                     CREATE TABLE IF NOT EXISTS prediction_dataset (
                         dataset_role VARCHAR(16) NOT NULL,
@@ -181,6 +183,13 @@ class MarketCalcRepository:
                         last_error TEXT NOT NULL
                     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
                 """)
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS prediction_cache_read_audit (
+                        audit_date CHAR(8) PRIMARY KEY,
+                        read_count INT NOT NULL DEFAULT 0,
+                        last_read_at DATETIME NOT NULL
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+                """)
                 # 兼容先前已经创建的本地表；新增字段只保存调度状态，不保存行情明细。
                 for statement in (
                     "ALTER TABLE market_calc_job ADD COLUMN last_failure_date CHAR(10) NOT NULL DEFAULT ''",
@@ -189,9 +198,6 @@ class MarketCalcRepository:
                     "ALTER TABLE index_calc_base ADD COLUMN data_stage VARCHAR(16) NOT NULL DEFAULT 'formal'",
                     "ALTER TABLE stock_calc_base ADD COLUMN quote_updated_at DATETIME NULL",
                     "ALTER TABLE index_calc_base ADD COLUMN quote_updated_at DATETIME NULL",
-                    "ALTER TABLE prediction_cache ADD COLUMN data_stage VARCHAR(16) NOT NULL DEFAULT 'formal'",
-                    "ALTER TABLE prediction_cache ADD COLUMN data_quality VARCHAR(32) NOT NULL DEFAULT 'confirmed'",
-                    "ALTER TABLE prediction_cache ADD COLUMN rule_version VARCHAR(40) NOT NULL DEFAULT ''",
                     "ALTER TABLE prediction_dataset ADD COLUMN dataset_quote_updated_at DATETIME NULL",
                     "ALTER TABLE prediction_dataset ADD COLUMN dataset_quote_as_of CHAR(8) NOT NULL DEFAULT ''",
                     "ALTER TABLE prediction_dataset ADD COLUMN dataset_quote_source VARCHAR(64) NOT NULL DEFAULT ''",
@@ -207,6 +213,16 @@ class MarketCalcRepository:
                         cursor.execute(statement)
                     except Exception:
                         pass
+                if self.prediction_cache_compat_read:
+                    for statement in (
+                        "ALTER TABLE prediction_cache ADD COLUMN data_stage VARCHAR(16) NOT NULL DEFAULT 'formal'",
+                        "ALTER TABLE prediction_cache ADD COLUMN data_quality VARCHAR(32) NOT NULL DEFAULT 'confirmed'",
+                        "ALTER TABLE prediction_cache ADD COLUMN rule_version VARCHAR(40) NOT NULL DEFAULT ''",
+                    ):
+                        try:
+                            cursor.execute(statement)
+                        except Exception:
+                            pass
             db.commit()
         self._initialised = True
 
@@ -393,14 +409,28 @@ class MarketCalcRepository:
             with db.cursor(self._driver().cursors.DictCursor) as cursor:
                 cursor.execute("SELECT COUNT(*) AS count FROM prediction_dataset")
                 dataset_rows = int((cursor.fetchone() or {}).get("count") or 0)
-                cursor.execute("SELECT COUNT(*) AS count FROM prediction_cache")
-                legacy_rows = int((cursor.fetchone() or {}).get("count") or 0)
+                legacy_table_exists = True
+                try:
+                    cursor.execute("SELECT COUNT(*) AS count FROM prediction_cache")
+                    legacy_rows = int((cursor.fetchone() or {}).get("count") or 0)
+                except Exception:
+                    legacy_table_exists = False
+                    legacy_rows = 0
+                cursor.execute("""
+                    SELECT audit_date, read_count, last_read_at
+                    FROM prediction_cache_read_audit
+                    ORDER BY audit_date DESC
+                    LIMIT 30
+                """)
+                audit_rows = [dict(row) for row in cursor.fetchall()]
         return {
             "compatReadEnabled": self.prediction_cache_compat_read,
             "fallbackReadsSinceProcessStart": self._prediction_cache_fallback_reads,
             "predictionDatasetRows": dataset_rows,
             "predictionCacheRows": legacy_rows,
+            "predictionCacheTableExists": legacy_table_exists,
             "legacyReadFree": self._prediction_cache_fallback_reads == 0,
+            "legacyReadAudit": audit_rows,
         }
 
     def mark_retry(self, marker: str) -> None:
@@ -434,7 +464,7 @@ class MarketCalcRepository:
                         symbol=VALUES(symbol), name=VALUES(name), name_initials=VALUES(name_initials),
                         market=VALUES(market), board=VALUES(board), is_st=VALUES(is_st),
                         list_status=VALUES(list_status), list_date=VALUES(list_date), delist_date=VALUES(delist_date),
-                        price_limit_enabled=VALUES(price_limit_enabled), updated_at=VALUES(updated_at)
+                        price_limit_enabled=COALESCE(VALUES(price_limit_enabled), price_limit_enabled), updated_at=VALUES(updated_at)
                     """, (item["ts_code"], item["symbol"], item["name"], item["nameInitials"], item["market"], item["board"], int(item.get("isST", False)), item.get("list_status", "L"), str(item.get("list_date") or ""), str(item.get("delist_date") or ""), None if item.get("priceLimitEnabled") is None else int(bool(item.get("priceLimitEnabled"))), now))
                 active_codes = [str(item["ts_code"]) for item in stocks if item.get("list_status", "L") == "L"]
                 if active_codes:
@@ -536,6 +566,13 @@ class MarketCalcRepository:
                     row = cursor.fetchone()
                     if row:
                         self._prediction_cache_fallback_reads += 1
+                        audit_date = datetime.now().strftime("%Y%m%d")
+                        cursor.execute("""
+                            INSERT INTO prediction_cache_read_audit (audit_date, read_count, last_read_at)
+                            VALUES (%s, 1, NOW())
+                            ON DUPLICATE KEY UPDATE read_count=read_count+1, last_read_at=NOW()
+                        """, (audit_date,))
+                        db.commit()
         if not row:
             return None
         result = dict(row)
