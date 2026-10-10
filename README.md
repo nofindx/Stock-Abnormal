@@ -45,6 +45,7 @@ python3 -m server.app
 ```bash
 python3 -m unittest discover -s server -p 'test_*.py'
 python3 server/tools/api_contract_check.py
+python3 server/tools/api_contract_check.py --require-data --require-shared-redis  # 生产验收
 find miniprogram -name '*.js' -print0 | xargs -0 -n1 node --check
 python3 -m json.tool miniprogram/app.json >/dev/null
 git diff --check
@@ -75,4 +76,4 @@ POST /api/predictions/refresh
 
 根目录 `Dockerfile` 负责安装 `server/requirements.txt` 并启动
 `python -m server.app`；`server/Dockerfile` 可在把 `server` 设为独立构建上下文时使用。
-发布后先检查 `/health`，再按测试文档执行 API 和小程序验收。生产发布使用微信云托管控制台，不使用 CloudBase CLI。
+云托管生产环境还必须配置 `REDIS_URL`，服务重启后 `/health.data.intradayState.shared` 必须为 `true`、`backend` 必须为 `redis`。发布后先检查 `/health`，再按测试文档执行 API 和小程序验收。生产发布使用微信云托管控制台，不使用 CloudBase CLI。
