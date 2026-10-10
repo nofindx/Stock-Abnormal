@@ -488,16 +488,22 @@ class PredictionVisibilityTests(unittest.TestCase):
     STATE = {
         "previousTradeDate": "20260930",
         "targetTradeDate": "20261008",
+        "nextTradeDate": "20261009",
     }
 
     def test_rest_day_uses_previous_trade_day_dataset(self):
-        self.assertFalse(MarketService._next_day_dataset_available(
-            "rest_day", self.STATE, "20260930", True,
+        self.assertTrue(MarketService._next_day_dataset_available(
+            "rest_day", self.STATE, "20261008", True,
         ))
 
     def test_trade_day_pre_open_uses_previous_trade_day_dataset(self):
+        self.assertTrue(MarketService._next_day_dataset_available(
+            "pre_open", self.STATE, "20261008", True,
+        ))
+
+    def test_dataset_open_pending_hides_dataset_after_today_switch(self):
         self.assertFalse(MarketService._next_day_dataset_available(
-            "pre_open", self.STATE, "20260930", True,
+            "dataset_open_pending", self.STATE, "20261008", True,
         ))
 
     def test_intraday_hides_next_day_dataset(self):
@@ -507,7 +513,7 @@ class PredictionVisibilityTests(unittest.TestCase):
 
     def test_post_close_pending_shows_current_initial_dataset(self):
         self.assertTrue(MarketService._next_day_dataset_available(
-            "post_close_pending", self.STATE, "20261008", True, "initial",
+            "post_close_pending", self.STATE, "20261009", True, "initial",
         ))
 
     def test_post_close_pending_hides_previous_dataset(self):
@@ -520,7 +526,7 @@ class PredictionVisibilityTests(unittest.TestCase):
             "post_close_confirmed", self.STATE, "20260930", True, "formal",
         ))
         self.assertTrue(MarketService._next_day_dataset_available(
-            "post_close_confirmed", self.STATE, "20261008", True, "formal",
+            "post_close_confirmed", self.STATE, "20261009", True, "formal",
         ))
 
     def test_missing_dataset_is_never_available(self):

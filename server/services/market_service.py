@@ -1637,19 +1637,22 @@ class MarketService:
     ) -> bool:
         """判断次日页是否可见，不把“有数据”与“当前阶段”混为一谈。
 
-        休息日和交易日盘前展示上一交易日生成的次日预测；交易时间隐藏；
-        收盘待确认期间若已有当天初态数据则开放；正式收盘确认后必须
-        使用当天正式数据集。
+        下一交易日 09:00 前展示已生成的下一个交易日数据集；09:00
+        切换后该数据集成为 today，交易时间内不显示尚未生成的新次日集。
+        收盘待确认期间若已有下一交易日初态数据则开放；正式收盘确认后
+        必须使用下一交易日正式数据集。
         """
 
         if not has_dataset or not dataset_date:
             return False
-        if phase in ("rest_day", "pre_open", "dataset_open_pending", "intraday"):
+        if phase in ("rest_day", "pre_open"):
+            return data_stage in ("initial", "formal") and dataset_date == str(state.get("targetTradeDate") or "")
+        if phase in ("dataset_open_pending", "intraday"):
             return False
         if phase == "post_close_pending":
-            return data_stage == "initial" and dataset_date == str(state.get("targetTradeDate") or "")
+            return data_stage == "initial" and dataset_date == str(state.get("nextTradeDate") or "")
         if phase == "post_close_confirmed":
-            return data_stage == "formal" and dataset_date == str(state.get("targetTradeDate") or "")
+            return data_stage == "formal" and dataset_date == str(state.get("nextTradeDate") or "")
         return False
 
     def _confirmed_market_trade_date(self) -> str:
@@ -1790,6 +1793,8 @@ class MarketService:
         state = self._prediction_state()
         source_scope = state["todaySourceScope"] if scope == "today" else "next_day"
         lookup_date = str(state.get("targetTradeDate") or "")
+        if scope == "next_day" and state["phase"] in ("post_close_pending", "post_close_confirmed"):
+            lookup_date = str(state.get("nextTradeDate") or "")
         if source_scope == "today" and state.get("phase") in ("rest_day", "pre_open"):
             lookup_date = str(state.get("previousTradeDate") or lookup_date)
         persistent = None
@@ -1815,10 +1820,23 @@ class MarketService:
         target_date = str(state.get("targetTradeDate") or "")
         dataset_matches_target = dataset_date == target_date
         next_data_stage = str((persistent or {}).get("data_stage") or "formal")
+        next_record = persistent if scope == "next_day" else None
+        next_dataset_date = lookup_date if scope == "next_day" else str(state.get("targetTradeDate") or "")
+        if scope != "next_day" and state["phase"] in ("post_close_pending", "post_close_confirmed"):
+            next_dataset_date = str(state.get("nextTradeDate") or "")
+        if scope != "next_day" and self._calc_repository.available and next_dataset_date:
+            try:
+                next_record = self._prediction_record("next_day", next_dataset_date)
+            except Exception as exc:
+                self._prediction_last_error["next_day"] = str(exc)
         next_trade_available = bool(
-            scope == "next_day" and state["phase"] in ("post_close_pending", "post_close_confirmed")
-            and dataset_date == str(state.get("nextTradeDate") or "")
-            and persistent
+            next_record
+            and self._next_day_dataset_available(
+                state["phase"], state,
+                str(next_record.get("target_trade_date") or ""),
+                True,
+                str(next_record.get("data_stage") or "formal"),
+            )
         )
         if scope == "next_day" and not next_trade_available:
             items = []
@@ -1843,7 +1861,7 @@ class MarketService:
             "realtimeRefreshAllowed": state["realtimeRefreshAllowed"],
             "nextDayAvailable": next_trade_available,
             "nextDayReason": (
-                "交易时间内暂不开放次日预测" if state["phase"] in ("intraday", "pre_open", "dataset_open_pending", "rest_day") else
+                "交易时间内暂不开放次日预测" if state["phase"] in ("intraday", "dataset_open_pending") else
                 "等待当日初态数据" if state["phase"] == "post_close_pending" else
                 "次日预测数据暂不可用"
             ) if not next_trade_available else "",
