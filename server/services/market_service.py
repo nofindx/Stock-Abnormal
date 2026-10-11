@@ -1875,6 +1875,9 @@ class MarketService:
             if persistent.get("last_error"):
                 self._prediction_last_error[source_scope] = str(persistent.get("last_error"))
         dataset_date = str((persistent or {}).get("target_trade_date") or self._prediction_trade_date.get(source_scope, ""))
+        # 接口顶层日期必须对应本次实际展示的数据集。休息日/盘前的 today
+        # 展示上一交易日，不能把阶段状态里的下一交易日误报给前端。
+        display_target_date = dataset_date or lookup_date
         ephemeral = self._intraday_store.get(source_scope, dataset_date) if dataset_date else None
         ephemeral_at = self._parse_prediction_datetime((ephemeral or {}).get("updatedAt")) if ephemeral else None
         ephemeral_active = bool(ephemeral and ephemeral_at and (now - ephemeral_at).total_seconds() <= IntradayStateStore.TTL_SECONDS and state["realtimeRefreshAllowed"] and scope == "today")
@@ -1923,7 +1926,7 @@ class MarketService:
             "items": items,
             "tradeDate": str((persistent or {}).get("base_trade_date") or (persistent or {}).get("trade_date") or self._prediction_trade_date.get(source_scope, "")),
             "baseTradeDate": str((persistent or {}).get("base_trade_date") or (persistent or {}).get("trade_date") or ""),
-            "targetTradeDate": state["targetTradeDate"],
+            "targetTradeDate": display_target_date,
             "previousTradeDate": state["previousTradeDate"],
             "nextTradeDate": state["nextTradeDate"],
             "phase": state["phase"],

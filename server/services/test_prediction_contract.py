@@ -124,3 +124,41 @@ class PredictionFailurePropagationTests(unittest.TestCase):
             self.assertEqual(len(payload["items"]), 1)
         finally:
             service.close()
+
+    def test_today_target_date_matches_previous_dataset_on_rest_day(self):
+        class ReadyRepository:
+            available = True
+
+            def get_prediction(self, scope, target_trade_date=None):
+                return {
+                    "scope": scope,
+                    "target_trade_date": target_trade_date or "20261009",
+                    "base_trade_date": "20261009",
+                    "updated_at": datetime(2026, 10, 9, 15, 0, 0),
+                    "dataset_quote_updated_at": datetime(2026, 10, 9, 15, 0, 0),
+                    "items": [{"predictionKey": "600000.SH-ordinary_3d-20261009"}],
+                    "status": "ready",
+                    "data_stage": "formal",
+                    "data_quality": "confirmed",
+                    "dataset_quote_complete": True,
+                    "exclusion_stats": {},
+                }
+
+            def prediction_job_status(self, _scope):
+                return {"status": "ready", "last_error": ""}
+
+        service = MarketService()
+        service._calc_repository = ReadyRepository()
+        service._prediction_state = lambda: {
+            "todaySourceScope": "today",
+            "targetTradeDate": "20261012",
+            "previousTradeDate": "20261009",
+            "nextTradeDate": "20261013",
+            "phase": "rest_day",
+            "realtimeRefreshAllowed": False,
+        }
+        try:
+            payload = service.predictions("today")
+            self.assertEqual(payload["targetTradeDate"], "20261009")
+        finally:
+            service.close()
