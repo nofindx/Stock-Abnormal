@@ -200,9 +200,12 @@ class MarketService:
         try:
             result = self.rebuild_formal_history()
             if not result.get("updated"):
-                self._market_update_error = str(result.get("reason") or "历史行情重算未完成")
+                reason = str(result.get("reason") or "历史行情重算未完成")
+                self._market_update_error = reason
+                self._calc_repository.record_failure(f"历史行情重算：{reason}")
         except Exception as exc:  # noqa: BLE001 - 失败状态通过健康接口暴露
             self._market_update_error = f"历史行情重算失败：{exc}"
+            self._calc_repository.record_failure(self._market_update_error)
 
     def rebuild_formal_history(self) -> Dict[str, Any]:
         """重抓最近 31 个有效收盘点并重建正式预测数据集。"""
@@ -1112,13 +1115,22 @@ class MarketService:
                         return {"updated": False, "tradeDate": data_trade_date, "stockCount": len(stocks)}
                 daily_frames = {trade_date: self.client.daily(trade_date=trade_date) for trade_date in needed_dates}
                 if bootstrap:
+                    rows_by_date: Dict[str, Dict[str, Dict[str, Any]]] = {}
+                    for trade_date, frame in daily_frames.items():
+                        if frame is None or frame.empty:
+                            rows_by_date[trade_date] = {}
+                            continue
+                        rows_by_date[trade_date] = {
+                            str(row.get("ts_code") or ""): row
+                            for row in frame.to_dict("records")
+                            if row.get("ts_code") and row.get("close") is not None and float(row.get("close") or 0) > 0
+                        }
                     for item in stocks:
-                        rows = []
-                        for trade_date in needed_dates:
-                            frame = daily_frames.get(trade_date)
-                            if frame is None or frame.empty:
-                                continue
-                            rows.extend(row for row in frame.to_dict("records") if str(row.get("ts_code")) == item["ts_code"] and row.get("close") is not None)
+                        rows = [
+                            rows_by_date[trade_date][item["ts_code"]]
+                            for trade_date in needed_dates
+                            if item["ts_code"] in rows_by_date.get(trade_date, {})
+                        ]
                         rows.sort(key=lambda row: str(row.get("trade_date")))
                         vector = []
                         for previous, current in zip(rows, rows[1:]):
