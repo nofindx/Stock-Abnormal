@@ -68,12 +68,12 @@ class PredictionBoundaryTests(unittest.TestCase):
 
 
 class FixtureContractTests(unittest.TestCase):
-    def test_fixture_contains_only_two_severe_prediction_rules(self):
+    def test_fixture_contains_supported_prediction_rules(self):
         path = Path(__file__).parents[1] / "fixtures" / "prediction_cases.json"
         payload = json.loads(path.read_text(encoding="utf-8"))
         keys = {item["ruleKey"] for item in payload["two_severe_rules_same_stock"]["items"]}
         self.assertEqual(keys, {"severe_10d", "severe_30d"})
-        self.assertNotIn("same_direction_10d", keys)
+        self.assertEqual(set(payload["two_severe_rules_same_stock"]["supportedRuleKeys"]), {"ordinary_3d", "same_direction_10d", "severe_10d", "severe_30d"})
 
     def test_special_stock_eligibility_is_excluded_from_prediction(self):
         self.assertFalse(MarketService._prediction_stock_eligible({"isST": True}, "20261012"))
@@ -84,7 +84,7 @@ class FixtureContractTests(unittest.TestCase):
 
 
 class PredictionFailurePropagationTests(unittest.TestCase):
-    def test_prediction_read_filters_legacy_ordinary_cards(self):
+    def test_prediction_read_keeps_supported_ordinary_cards(self):
         class LegacyRepository:
             available = True
 
@@ -120,7 +120,7 @@ class PredictionFailurePropagationTests(unittest.TestCase):
         }
         try:
             payload = service.predictions("today")
-            self.assertEqual([item["ruleKey"] for item in payload["items"]], ["severe_10d"])
+            self.assertEqual([item["ruleKey"] for item in payload["items"]], ["ordinary_3d", "severe_10d"])
         finally:
             service.close()
 

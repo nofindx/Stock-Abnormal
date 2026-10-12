@@ -30,7 +30,7 @@ BOARD_BY_MARKET = {"主板": Board.MAIN, "创业板": Board.CHINEXT, "科创板"
 SHANGHAI_TZ = ZoneInfo("Asia/Shanghai") if ZoneInfo else timezone(timedelta(hours=8))
 # 停牌/复牌重置、上涨同向计数和预测阶段切换属于同一套规则口径。
 # 版本变化会触发服务启动时用现有基础数据重建预测数据集。
-PREDICTION_RULE_VERSION = "2026-10-upward-only-rule-cards-v19"
+PREDICTION_RULE_VERSION = "2026-10-upward-only-rule-cards-v20"
 
 # GBK 区位表不依赖第三方拼音包，适合云托管的轻量搜索场景。
 _PINYIN_RANGES = (
@@ -165,8 +165,12 @@ class MarketService:
             result: Dict[str, set] = {}
             for item in snapshot.get("items", []):
                 tone = str(item.get("riskTone") or "")
-                rule_key = {"ordinary": "ordinary_3d", "severe-10d": "severe_10d", "severe-30d": "severe_30d"}.get(tone)
-                if rule_key:
+                rule_keys = {
+                    "ordinary": {"ordinary_3d", "same_direction_10d"},
+                    "severe-10d": {"severe_10d"},
+                    "severe-30d": {"severe_30d"},
+                }.get(tone, set())
+                for rule_key in rule_keys:
                     result.setdefault(rule_key, set()).add(str(item.get("symbol") or ""))
             return result
         except Exception:
@@ -1437,7 +1441,7 @@ class MarketService:
         }
 
     def _compute_prediction_from_repository(self, scope: str, use_realtime: bool = False, target_trade_date: str = "") -> Optional[List[Dict[str, Any]]]:
-        """从股票/指数收益率数据集计算两类严重异动预测卡。"""
+        """从统一行情规则计算普通、同向和严重异动预测卡。"""
 
         calculations = self._calc_repository.all_calculations()
         indexes = self._calc_repository.all_indexes()
@@ -1471,12 +1475,21 @@ class MarketService:
                 continue
             metrics = self._vector_metrics(stock_vector, index_vector, board_rule)
             limit = float(board_rule.limit_price_ratio or 10.0)
+            # 同股同快照最多一张 3 日类卡：达到同向条件时用同向卡替代普通卡。
+            same_direction_count = int(metrics.get("same", 0) or 0)
+            same_direction_ready = same_direction_count >= max(1, board_rule.severe_same_direction_count - 1)
             rules = (
+                ("ordinary_3d", 3, board_rule.ordinary_deviation, "deviation", board_rule.ordinary_deviation),
+                ("same_direction_10d", 3, board_rule.ordinary_deviation, "same_direction", board_rule.ordinary_deviation),
                 ("severe_10d", 10, board_rule.severe_10d_threshold.up, "deviation", board_rule.severe_10d_threshold.up),
                 ("severe_30d", 30, board_rule.severe_30d_threshold.up, "deviation", board_rule.severe_30d_threshold.up),
             )
             rule_options: List[Dict[str, Any]] = []
             for rule_key, rule_window, threshold, kind, target in rules:
+                if rule_key == "ordinary_3d" and same_direction_ready:
+                    continue
+                if rule_key == "same_direction_10d" and not same_direction_ready:
+                    continue
                 if scope == "next_day" and (stock.get("symbol") in monitored_codes.get(rule_key, set()) or ts_code.split(".")[0] in monitored_codes.get(rule_key, set())):
                     stats["excludedByMonitor"] += 1
                     continue
@@ -1489,7 +1502,7 @@ class MarketService:
                 if distance is None:
                     stats["excludedByDataQuality"] += 1
                     continue
-                triggered = deviation >= threshold
+                triggered = (same_direction_count >= board_rule.severe_same_direction_count) if kind == "same_direction" else deviation >= threshold
                 if scope == "next_day" and triggered:
                     stats["excludedByTriggered"] += 1
                     continue
@@ -1503,9 +1516,18 @@ class MarketService:
                 kind = option["kind"]
                 deviation = option.get("deviation")
                 deviation_label = f"{option['actualWindow']}日 {_pct(deviation)}"
-                # 触发条件始终展示规则阈值，盘中状态只改变 triggered/cardTone。
-                trigger_value = f"+{option['threshold']:.2f}%"
-                trigger_condition = f"{option['ruleWindow']}日偏离达到 +{option['threshold']:.2f}%"
+                # 卡片展示下一交易日达到规则所需的上涨距离；规则阈值保留在 rule 文案。
+                display_distance = float(option["threshold"]) if triggered else max(0.0, float(option["distance"]))
+                trigger_value = f"+{display_distance:.2f}%"
+                trigger_condition = f"涨幅达 {display_distance:.2f}%"
+                if option["ruleKey"] == "ordinary_3d":
+                    rule_text = f"连续3个交易日内收盘价涨幅偏离值累计达到 +{option['threshold']:.0f}%"
+                elif option["ruleKey"] == "same_direction_10d":
+                    rule_text = "连续10个交易日内多次出现同向异常波动"
+                elif option["ruleKey"] == "severe_30d":
+                    rule_text = f"连续30个交易日内收盘价涨幅偏离值累计达到 +{option['threshold']:.0f}%"
+                else:
+                    rule_text = f"连续10个交易日内收盘价涨幅偏离值累计达到 +{option['threshold']:.0f}%"
                 candidate = {
                     **stock,
                     "predictionKey": f"{ts_code}-{option['ruleKey']}-{str(calc.get('as_of_trade_date') or '')}",
@@ -1523,7 +1545,7 @@ class MarketService:
                     "trigger": trigger_condition,
                     "triggerCondition": trigger_condition,
                     "triggerValue": trigger_value,
-                    "rule": trigger_condition,
+                    "rule": rule_text,
                     "tradeDate": str(calc.get("as_of_trade_date") or ""),
                     "quoteUpdatedAt": self._format_prediction_datetime(calc.get("quote_updated_at")) or (
                         f"{str(calc.get('as_of_trade_date') or '')[:4]}-{str(calc.get('as_of_trade_date') or '')[4:6]}-{str(calc.get('as_of_trade_date') or '')[6:]} 15:00"
@@ -1966,8 +1988,8 @@ class MarketService:
             items = []
         if scope == "today" and source_scope == "next_day" and not dataset_matches_target:
             items = []
-        # 预测产品范围只保留 10/30 日严重异动；旧数据集中的普通异动卡不得继续对外暴露。
-        items = [item for item in items if item.get("ruleKey") in {"severe_10d", "severe_30d"}]
+        # 预测产品范围包含普通、同向和严重上涨异动；未知历史规则不得继续暴露。
+        items = [item for item in items if item.get("ruleKey") in {"ordinary_3d", "same_direction_10d", "severe_10d", "severe_30d"}]
         items = self._normalize_prediction_items(items)
         refreshing = False
         dataset_updated = self._format_prediction_datetime((persistent or {}).get("dataset_quote_updated_at")) or self._format_prediction_datetime((persistent or {}).get("updated_at") or (cached[0] if cached else None))
@@ -2028,8 +2050,8 @@ class MarketService:
             (persistent or {}).get("items") or [],
             self._prediction_cache.get(source_scope, (self._now(), []))[1],
         ))
-        # 旧数据集可能残留普通异动或同向卡，读取/盘中刷新时一并屏蔽。
-        base_items = [item for item in base_items if item.get("ruleKey") in {"severe_10d", "severe_30d"}]
+        # 旧数据集可能残留未知规则，读取/盘中刷新时只放行当前四类预测卡。
+        base_items = [item for item in base_items if item.get("ruleKey") in {"ordinary_3d", "same_direction_10d", "severe_10d", "severe_30d"}]
         if not base_items:
             return []
         calculations = self._calc_repository.all_calculations() if self._calc_repository.available else {}
@@ -2066,18 +2088,21 @@ class MarketService:
                 rule = BOARD_RULES[BOARD_BY_MARKET.get(stock.get("board"), Board.MAIN)]
                 metrics = self._vector_metrics(stock_vector, index_vector, rule)
                 rule_key = str(item.get("ruleKey") or "")
-                rule_window = {"severe_10d": 10, "severe_30d": 30}.get(rule_key, int(item.get("predictionWindow") or 10))
+                rule_window = {"ordinary_3d": 3, "same_direction_10d": 3, "severe_10d": 10, "severe_30d": 30}.get(rule_key, int(item.get("predictionWindow") or 10))
                 deviation = metrics.get("deviations", {}).get(rule_window)
                 actual_window = metrics.get("window_lengths", {}).get(rule_window) or rule_window
                 # 盘中只修正已经生成的候选，不重新扫描全市场；但修正必须使用
                 # 与后台生成、单股详情相同的有效窗口和复牌重置逻辑。
                 if deviation is not None:
-                    threshold = rule.severe_30d_threshold.up if rule_key == "severe_30d" else rule.severe_10d_threshold.up
+                    threshold = rule.ordinary_deviation if rule_key in {"ordinary_3d", "same_direction_10d"} else (rule.severe_30d_threshold.up if rule_key == "severe_30d" else rule.severe_10d_threshold.up)
+                    distance = self._required_up_percent(stock_vector, index_vector, actual_window, threshold)
                     item["deviation"] = f"{actual_window}日 {_pct(deviation)}"
                     item["deviationLabel"] = item["deviation"]
                     item["deviationPercent"] = float(deviation)
-                    item["triggered"] = deviation >= threshold
-                    item["triggerValue"] = f"+{threshold:.2f}%"
+                    item["triggered"] = (int(metrics.get("same", 0) or 0) >= rule.severe_same_direction_count) if rule_key == "same_direction_10d" else deviation >= threshold
+                    if distance is not None:
+                        item["triggerValue"] = f"+{max(0.0, float(distance)):.2f}%"
+                        item["triggerCondition"] = f"涨幅达 {max(0.0, float(distance)):.2f}%"
                 if deviation is not None:
                     item["alertText"] = "已触发" if item["triggered"] else ""
                     item["cardTone"] = "triggered" if item["triggered"] else ""

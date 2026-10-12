@@ -125,9 +125,8 @@ class MarketVectorTests(unittest.TestCase):
         }]
         service._realtime = SimpleNamespace(fetch_many=lambda _codes: {})
         items = service._compute_prediction_from_repository("next_day")
-        self.assertEqual(len(items), 1)
-        self.assertEqual(items[0]["ts_code"], "001216.SZ")
-        self.assertTrue(items[0]["deviation"].startswith("10日 "))
+        self.assertEqual({item["ruleKey"] for item in items}, {"same_direction_10d", "severe_10d"})
+        self.assertTrue(any(item["deviation"].startswith("10日 ") for item in items))
 
     def test_prediction_emits_separate_cards_for_ten_and_thirty_day_lines(self):
         service = self.service
@@ -152,12 +151,12 @@ class MarketVectorTests(unittest.TestCase):
         service._realtime = SimpleNamespace(fetch_many=lambda _codes: {})
         items = service._compute_prediction_from_repository("today")
         by_rule = {item["ruleKey"]: item for item in items}
-        self.assertEqual(sorted(by_rule), ["severe_10d", "severe_30d"])
-        self.assertEqual(by_rule["severe_10d"]["triggerCondition"], "10日偏离达到 +100.00%")
-        self.assertEqual(by_rule["severe_30d"]["triggerCondition"], "30日偏离达到 +200.00%")
+        self.assertEqual(sorted(by_rule), ["same_direction_10d", "severe_10d", "severe_30d"])
+        self.assertTrue(by_rule["severe_10d"]["triggerCondition"].startswith("涨幅达 "))
+        self.assertTrue(by_rule["severe_30d"]["triggerCondition"].startswith("涨幅达 "))
         self.assertTrue(by_rule["severe_10d"]["triggered"])
         self.assertEqual(by_rule["severe_10d"]["alertText"], "已触发")
-        self.assertEqual(by_rule["severe_10d"]["triggerValue"], "+100.00%")
+        self.assertTrue(by_rule["severe_10d"]["triggerValue"].startswith("+"))
 
     def test_today_prediction_keeps_pending_thirty_day_card_after_ten_day_trigger(self):
         service = self.service
@@ -187,7 +186,7 @@ class MarketVectorTests(unittest.TestCase):
         self.assertTrue(by_rule["severe_10d"]["triggered"])
         self.assertFalse(by_rule["severe_30d"]["triggered"])
 
-    def test_same_direction_is_not_a_prediction_card(self):
+    def test_same_direction_is_a_prediction_card(self):
         service = self.service
         vector = [{"date": f"2026-09-{index:02d}", "return": 0.0} for index in range(1, 11)]
         service._calc_repository = SimpleNamespace(

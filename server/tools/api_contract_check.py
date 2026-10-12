@@ -26,12 +26,11 @@ def check_prediction(payload: dict, scope: str) -> None:
     for field in ("targetTradeDate", "quoteUpdatedAt", "items", "dataUnavailable", "datasetQuoteComplete"):
         assert field in data, (scope, field)
     for item in data["items"]:
-        assert item.get("ruleKey") in {"severe_10d", "severe_30d"}, item
+        assert item.get("ruleKey") in {"ordinary_3d", "same_direction_10d", "severe_10d", "severe_30d"}, item
         for field in ("predictionKey", "ts_code", "deviationLabel", "triggerCondition", "triggerValue", "triggered", "cardTone", "quoteUpdatedAt"):
             assert field in item, (scope, field, item)
         assert item.get("triggerValue", "") and "上涨" not in item.get("triggerValue", ""), item
         assert "已达到阈值" not in str(item), item
-        assert "same_direction_10d" != item.get("ruleKey"), item
         assert "currentPrice" not in item and "price" not in item, item
         assert bool(item.get("triggered")) == (item.get("cardTone") == "triggered"), item
 
