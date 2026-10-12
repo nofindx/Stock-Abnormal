@@ -207,14 +207,38 @@ class MarketService:
     def rebuild_formal_history(self) -> Dict[str, Any]:
         """重抓最近 31 个有效收盘点并重建正式预测数据集。"""
 
+        completed_trade_date = self._latest_completed_trade_date()
         result = self.update_market_data(
             data_stage="formal",
             allow_non_trade_day=True,
             force_history=True,
+            history_end_date=completed_trade_date,
         )
-        if result.get("updated") and result.get("tradeDate") == self.client.latest_trade_date():
+        if result.get("updated") and result.get("tradeDate") == completed_trade_date:
             self._generate_prediction_datasets("formal")
         return result
+
+    def _latest_completed_trade_date(self) -> str:
+        """返回最近一个已返回全市场日线的交易日，避免盘中交易日被当作收盘日。"""
+
+        latest_calendar_date = self.client.latest_trade_date()
+        calendar = self.client.trade_cal(
+            (datetime.strptime(latest_calendar_date, "%Y%m%d") - timedelta(days=20)).strftime("%Y%m%d"),
+            latest_calendar_date,
+        )
+        opened = sorted(
+            str(row.get("cal_date") or "")
+            for row in calendar.to_dict("records")
+            if int(row.get("is_open", 0)) == 1
+        )
+        for trade_date in reversed(opened):
+            frame = self.client.daily(trade_date=trade_date)
+            if frame is not None and not frame.empty and any(
+                str(row.get("trade_date") or "") == trade_date
+                for row in frame.to_dict("records")
+            ):
+                return trade_date
+        raise RuntimeError("没有找到已完成收盘数据的交易日")
 
     def _sync_stock_basic_on_startup(self) -> None:
         """启动时强制刷新完整 stock_basic，保证生产元数据可用于预测资格判断。"""
@@ -1039,7 +1063,7 @@ class MarketService:
                 item["as_of_trade_date"] = row_date
                 item["quote_updated_at"] = f"{row_date[:4]}-{row_date[4:6]}-{row_date[6:]} 15:00:00"
 
-    def update_market_data(self, data_stage: str = "formal", allow_non_trade_day: bool = False, force_history: bool = False) -> Dict[str, Any]:
+    def update_market_data(self, data_stage: str = "formal", allow_non_trade_day: bool = False, force_history: bool = False, history_end_date: str = "") -> Dict[str, Any]:
         """生成或增量更新最小计算数据，不保存原始日线。"""
 
         if not self._calc_repository.available:
@@ -1050,7 +1074,7 @@ class MarketService:
                 today = datetime.now(SHANGHAI_TZ).strftime("%Y%m%d")
                 if not self._market_update_allowed(self._is_trade_day(today), allow_non_trade_day):
                     return {"updated": False, "reason": "今天不是交易日", "tradeDate": ""}
-                latest = self.client.latest_trade_date()
+                latest = str(history_end_date or self.client.latest_trade_date()) if force_history else self.client.latest_trade_date()
                 try:
                     stock_frame = self.client.stock_basic(force=True)
                 except TypeError:

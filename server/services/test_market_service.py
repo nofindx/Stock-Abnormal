@@ -22,10 +22,11 @@ class MarketVectorTests(unittest.TestCase):
     def test_force_history_rebuild_is_explicitly_supported(self):
         service = self.service
         calls = []
+        service._latest_completed_trade_date = lambda: "20261009"
         service.update_market_data = lambda **kwargs: calls.append(kwargs) or {"updated": False, "reason": "test"}
         result = service.rebuild_formal_history()
         self.assertFalse(result["updated"])
-        self.assertEqual(calls, [{"data_stage": "formal", "allow_non_trade_day": True, "force_history": True}])
+        self.assertEqual(calls, [{"data_stage": "formal", "allow_non_trade_day": True, "force_history": True, "history_end_date": "20261009"}])
 
     def test_deviation_aligns_same_trade_dates(self):
         stock = [
