@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta, timezone
+import os
 import re
 from concurrent.futures import ThreadPoolExecutor
 from threading import Event, Lock, Thread
@@ -190,6 +191,30 @@ class MarketService:
         # 规则代码发布后，持久化预测结果可能仍是旧口径。启动时只读取
         # MySQL 已有的基础向量重建结果集，不请求行情、不触发全市场采集。
         Thread(target=self._rebuild_predictions_if_rule_changed, name="prediction-rebuild", daemon=True).start()
+        if str(os.getenv("FORCE_MARKET_HISTORY_REBUILD", "")).strip().lower() in {"1", "true", "yes", "on"}:
+            Thread(target=self._rebuild_formal_history_once, name="history-rebuild", daemon=True).start()
+
+    def _rebuild_formal_history_once(self) -> None:
+        """执行一次 31 个正式收盘点的全量重算；任务由部署环境变量显式开启。"""
+
+        try:
+            result = self.rebuild_formal_history()
+            if not result.get("updated"):
+                self._market_update_error = str(result.get("reason") or "历史行情重算未完成")
+        except Exception as exc:  # noqa: BLE001 - 失败状态通过健康接口暴露
+            self._market_update_error = f"历史行情重算失败：{exc}"
+
+    def rebuild_formal_history(self) -> Dict[str, Any]:
+        """重抓最近 31 个有效收盘点并重建正式预测数据集。"""
+
+        result = self.update_market_data(
+            data_stage="formal",
+            allow_non_trade_day=True,
+            force_history=True,
+        )
+        if result.get("updated") and result.get("tradeDate") == self.client.latest_trade_date():
+            self._generate_prediction_datasets("formal")
+        return result
 
     def _sync_stock_basic_on_startup(self) -> None:
         """启动时强制刷新完整 stock_basic，保证生产元数据可用于预测资格判断。"""
@@ -1014,7 +1039,7 @@ class MarketService:
                 item["as_of_trade_date"] = row_date
                 item["quote_updated_at"] = f"{row_date[:4]}-{row_date[4:6]}-{row_date[6:]} 15:00:00"
 
-    def update_market_data(self, data_stage: str = "formal", allow_non_trade_day: bool = False) -> Dict[str, Any]:
+    def update_market_data(self, data_stage: str = "formal", allow_non_trade_day: bool = False, force_history: bool = False) -> Dict[str, Any]:
         """生成或增量更新最小计算数据，不保存原始日线。"""
 
         if not self._calc_repository.available:
@@ -1038,7 +1063,12 @@ class MarketService:
                     (datetime.strptime(latest, "%Y%m%d") - timedelta(days=70)).strftime("%Y%m%d"), latest,
                 )
                 open_dates = sorted(str(row["cal_date"]) for row in calendar.to_dict("records") if int(row.get("is_open", 0)) == 1)
-                bootstrap = not existing
+                rebuild_history = bool(force_history)
+                if rebuild_history:
+                    # 丢弃旧向量，只保留最新 stock_basic；后续用 31 个正式收盘点重建。
+                    existing = {}
+                    indexes_existing = {}
+                bootstrap = not existing or rebuild_history
                 if bootstrap:
                     needed_dates = open_dates[-31:]
                 else:
@@ -1158,7 +1188,7 @@ class MarketService:
                     self._calc_repository.record_failure("Tushare 当日收盘数据尚未入盘")
                 self._stocks_cache = (datetime.now(SHANGHAI_TZ), stocks)
                 self._market_update_error = "" if data_trade_date == latest else "Tushare 当日收盘数据尚未入盘"
-                return {"updated": True, "tradeDate": data_trade_date, "stockCount": len(stocks), "calculationCount": len(calculations)}
+                return {"updated": True, "tradeDate": data_trade_date, "stockCount": len(stocks), "calculationCount": len(calculations), "historyRebuilt": rebuild_history, "historyWindow": len(needed_dates) if rebuild_history else None}
             except Exception as exc:  # noqa: BLE001
                 self._market_update_error = str(exc)
                 self._calc_repository.record_failure(str(exc))

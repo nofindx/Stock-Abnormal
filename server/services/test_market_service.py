@@ -19,6 +19,14 @@ class MarketVectorTests(unittest.TestCase):
     def test_compound_return_uses_composite_formula(self):
         self.assertAlmostEqual(MarketService._compound([10.0, 10.0]), 21.0)
 
+    def test_force_history_rebuild_is_explicitly_supported(self):
+        service = self.service
+        calls = []
+        service.update_market_data = lambda **kwargs: calls.append(kwargs) or {"updated": False, "reason": "test"}
+        result = service.rebuild_formal_history()
+        self.assertFalse(result["updated"])
+        self.assertEqual(calls, [{"data_stage": "formal", "allow_non_trade_day": True, "force_history": True}])
+
     def test_deviation_aligns_same_trade_dates(self):
         stock = [
             {"date": "2026-09-25", "return": 10.0},
