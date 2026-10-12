@@ -48,9 +48,10 @@ function buildMatrixGroups(rows) {
   return groups
 }
 
-function numberValue(value) {
+function parsePercent(value) {
+  if (value == null || String(value).trim() === '') return null
   const parsed = Number.parseFloat(String(value).replace('%', ''))
-  return Number.isFinite(parsed) ? parsed : 0
+  return Number.isFinite(parsed) ? parsed : null
 }
 
 function changeClass(value) {
@@ -60,7 +61,7 @@ function changeClass(value) {
 }
 
 function cumulativeReturn(values) {
-  return values.reduce((total, value) => (1 + total / 100) * (1 + numberValue(value) / 100) * 100 - 100, 0)
+  return values.reduce((total, value) => (1 + total / 100) * (1 + value / 100) * 100 - 100, 0)
 }
 
 function calculateSimulationRows(rows, detail) {
@@ -68,9 +69,16 @@ function calculateSimulationRows(rows, detail) {
   const thresholds = (detail && detail.simulationThresholds) || { '10': { up: 100 } }
   const stockBase = Array.isArray(base.stock) ? base.stock : []
   const indexBase = Array.isArray(base.index) ? base.index : []
+  let complete = true
   return rows.map((row, rowIndex) => {
-    const stockSeries = stockBase.concat(rows.slice(0, rowIndex + 1).map(item => numberValue(item.stock)))
-    const indexSeries = indexBase.concat(rows.slice(0, rowIndex + 1).map(item => numberValue(item.index)))
+    const stockValue = parsePercent(row.stock)
+    const indexValue = parsePercent(row.index)
+    if (stockValue == null || indexValue == null) complete = false
+    if (!complete) {
+      return { ...row, deviation3: '--', deviation10: '--', deviation30: '--', space: '--', deviationClass: '' }
+    }
+    const stockSeries = stockBase.concat(rows.slice(0, rowIndex + 1).map(item => parsePercent(item.stock)))
+    const indexSeries = indexBase.concat(rows.slice(0, rowIndex + 1).map(item => parsePercent(item.index)))
     const metric = (window) => {
       const stockWindow = stockSeries.slice(-window)
       const indexWindow = indexSeries.slice(-window)
@@ -122,106 +130,16 @@ function presentWarnings(warnings = []) {
     const value = Number.parseFloat(rawValue)
     if (!Number.isFinite(value)) return { ...item, currentText: '数据不足', remainingText: '暂不可判定', ringText: '--', progress: 0, tone: 'unknown', toneColor: colors.unknown }
     const thresholds = String(item.target || '').match(/[+-]?\d+(?:\.\d+)?/g) || []
-    const up = Number(thresholds[0] || 0)
-    const down = Number(thresholds[1] || (up ? -up : 0))
-    const target = value >= 0 ? Math.abs(up) : Math.abs(down)
-    const progress = target > 0 ? Math.min(100, Math.abs(value) / target * 100) : 0
+    const up = Math.abs(Number(thresholds[0] || 0))
+    // 负向偏离仅作为原始值展示，不参与上涨规则的进度、触发或剩余距离。
+    const progress = up > 0 ? Math.min(100, Math.max(0, value) / up * 100) : 0
     // 黄色仅用于 3 日偏离；10/30 日偏离只有达到严重线才变红，避免把严重指标的接近值误报成警戒。
     const tone = item.title === '3 日偏离'
       ? (progress >= 100 ? 'triggered' : progress >= 66.6667 ? 'warning' : 'safe')
       : (progress >= 100 ? 'triggered' : 'safe')
-    const remaining = Math.max(0, target - Math.abs(value))
+    const remaining = Math.max(0, up - Math.max(0, value))
     return { ...item, currentText: `${value >= 0 ? '+' : ''}${value.toFixed(2)}%`, remainingText: tone === 'triggered' ? '已触及' : `还差 ${remaining.toFixed(2)}%`, ringText: tone === 'triggered' ? '已触及' : `${remaining.toFixed(2)}%`, progress: Number(progress.toFixed(2)), tone, toneColor: colors[tone] }
   })
-}
-
-// 单股页只接收后端给出的收益率向量和规则参数，状态、偏离及四项圆环在本地完成。
-function clientCompound(values) {
-  return values.reduce((total, value) => (1 + total / 100) * (1 + Number(value) / 100) * 100 - 100, 0)
-}
-
-function clientDeviation(stock, index, window) {
-  const stockMap = Object.fromEntries((stock || []).filter(item => item.date).map(item => [item.date, Number(item.return)]))
-  const indexMap = Object.fromEntries((index || []).filter(item => item.date).map(item => [item.date, Number(item.return)]))
-  const dates = Object.keys(stockMap).filter(date => Object.prototype.hasOwnProperty.call(indexMap, date)).sort().slice(-window)
-  if (dates.length < window) return null
-  return clientCompound(dates.map(date => stockMap[date])) - clientCompound(dates.map(date => indexMap[date]))
-}
-
-function clientBestDeviation(stock, index, maxWindow) {
-  const stockMap = Object.fromEntries((stock || []).filter(item => item.date).map(item => [item.date, Number(item.return)]))
-  const indexMap = Object.fromEntries((index || []).filter(item => item.date).map(item => [item.date, Number(item.return)]))
-  const dates = Object.keys(stockMap).filter(date => Object.prototype.hasOwnProperty.call(indexMap, date)).sort()
-  const upper = Math.min(maxWindow, dates.length)
-  const lower = maxWindow === 30 ? 27 : Math.max(3, maxWindow - 2)
-  if (upper < lower) return { value: null, window: null }
-  const candidates = []
-  for (let window = lower; window <= upper; window += 1) {
-    const range = dates.slice(-window)
-    candidates.push({ value: clientCompound(range.map(date => stockMap[date])) - clientCompound(range.map(date => indexMap[date])), window })
-  }
-  const positive = candidates.filter(item => item.value > 0)
-  return (positive.length ? positive : candidates).sort((a, b) => b.value - a.value || a.window - b.window)[0]
-}
-
-function clientTrimAfterSuspension(stock, index) {
-  const stockEntries = (stock || []).filter(item => item.date).slice().sort((a, b) => String(a.date).localeCompare(String(b.date)))
-  const indexEntries = (index || []).filter(item => item.date).slice().sort((a, b) => String(a.date).localeCompare(String(b.date)))
-  if (!stockEntries.length || !indexEntries.length) return { stock: stockEntries, index: indexEntries, suspended: false }
-  const stockDates = new Set(stockEntries.map(item => String(item.date)))
-  const indexDates = indexEntries.map(item => String(item.date))
-  const latestStock = String(stockEntries[stockEntries.length - 1].date)
-  const latestIndex = String(indexEntries[indexEntries.length - 1].date)
-  const gaps = indexDates.filter(day => day < latestStock && !stockDates.has(day))
-  const resetDate = gaps.length ? stockEntries.find(item => String(item.date) > gaps[gaps.length - 1])?.date : ''
-  if (resetDate) {
-    return {
-      stock: stockEntries.filter(item => String(item.date) >= String(resetDate)).slice(-30),
-      index: indexEntries.filter(item => String(item.date) >= String(resetDate)).slice(-30),
-      suspended: latestStock < latestIndex,
-    }
-  }
-  return { stock: stockEntries.slice(-30), index: indexEntries.slice(-30), suspended: latestStock < latestIndex }
-}
-
-function clientMetrics(detail) {
-  const input = detail && detail.calculationInput
-  if (!input) return detail
-  const trimmed = clientTrimAfterSuspension(Array.isArray(input.stock) ? input.stock : [], Array.isArray(input.index) ? input.index : [])
-  const stock = trimmed.stock
-  const index = trimmed.index
-  const ordinary = Number(input.ordinaryDeviation || 20)
-  const severe10 = input.severe10 || { up: 100, down: -50 }
-  const severe30 = input.severe30 || { up: 200, down: -70 }
-  const sameLimit = Number(input.sameDirectionThreshold || 4)
-  const best10 = clientBestDeviation(stock, index, 10)
-  const best30 = clientBestDeviation(stock, index, 30)
-  const deviations = { 3: clientDeviation(stock, index, 3), 10: best10.value, 30: best30.value }
-  const stockMap = Object.fromEntries(stock.filter(item => item.date).map(item => [item.date, Number(item.return)]))
-  const indexMap = Object.fromEntries(index.filter(item => item.date).map(item => [item.date, Number(item.return)]))
-  const dates = Object.keys(stockMap).filter(date => Object.prototype.hasOwnProperty.call(indexMap, date)).sort().slice(-10)
-  let up = 0; let down = 0
-  for (let end = 2; end < dates.length;) {
-    const range = dates.slice(end - 2, end + 1)
-    const deviation = clientCompound(range.map(date => stockMap[date])) - clientCompound(range.map(date => indexMap[date]))
-    if (deviation >= ordinary) { up += 1; end += 3 }
-    else if (deviation <= -ordinary) { down += 1; end += 3 }
-    else end += 1
-  }
-  const same = up
-  const severeTriggered = (deviations[30] != null && (deviations[30] >= severe30.up || deviations[30] <= severe30.down)) ||
-    (deviations[10] != null && (deviations[10] >= severe10.up || deviations[10] <= severe10.down)) || same >= sameLimit
-  let status = '正常'; let statusClass = 'safe'
-  if (severeTriggered) { status = '触及'; statusClass = 'severe' }
-  else if (deviations[3] != null && Math.abs(deviations[3]) >= ordinary) { status = '警示'; statusClass = 'risk' }
-  const thresholdText = (value, threshold) => value == null ? `数据不足（需 ${threshold} 个交易日）` : `阈值 +${threshold === 3 ? ordinary : threshold === 10 ? severe10.up : severe30.up}% / ${threshold === 3 ? -ordinary : threshold === 10 ? severe10.down : severe30.down}%`
-  const warning = [
-    { title: '3 日偏离', value: deviations[3] == null ? '--' : `${deviations[3] >= 0 ? '+' : ''}${deviations[3].toFixed(2)}%`, target: thresholdText(deviations[3], 3), className: deviations[3] == null ? 'neutral' : Math.abs(deviations[3]) >= ordinary ? 'risk' : 'safe' },
-    { title: '10 日偏离', value: deviations[10] == null ? '--' : `${deviations[10] >= 0 ? '+' : ''}${deviations[10].toFixed(2)}%`, target: thresholdText(deviations[10], 10), className: deviations[10] == null ? 'neutral' : (deviations[10] >= severe10.up || deviations[10] <= severe10.down) ? 'risk' : 'safe', window: best10.window },
-    { title: '30 日偏离', value: deviations[30] == null ? '--' : `${deviations[30] >= 0 ? '+' : ''}${deviations[30].toFixed(2)}%`, target: thresholdText(deviations[30], 30), className: deviations[30] == null ? 'neutral' : (deviations[30] >= severe30.up || deviations[30] <= severe30.down) ? 'risk' : 'safe', window: best30.window },
-    { title: '10 日同向', value: '', up: String(up), down: String(down), target: `阈值 ${sameLimit} 次`, className: same >= sameLimit ? 'risk' : 'safe' }
-  ]
-  return { ...detail, status, statusClass, statusDisplay: status === '正常' ? '状态安全' : '状态异常', statusIcon: statusClass === 'safe' ? '✓' : '!', warnings: presentWarnings(warning) }
 }
 
 Page({
@@ -284,7 +202,7 @@ Page({
       if (requestId !== this.detailRequestId) return
       const futureTradeDates = detail.futureTradeDates || []
       const rows = calculateSimulationRows(createInputRows(2, futureTradeDates), detail)
-      const displayDetail = clientMetrics({
+      const displayDetail = {
         ...detail,
         statusDisplay: detail.status === '正常' ? '状态安全' : '状态异常',
         change: detail.change == null || detail.change === '' ? '--' : String(detail.change),
@@ -292,7 +210,7 @@ Page({
         dataQuality: detail.dataQuality || {},
         warnings: presentWarnings(detail.warnings),
         alerts: presentAlerts(detail.alerts)
-      })
+      }
       this.setData({ selected: { ...stock, ...detail }, detail: displayDetail, detailLoading: false, detailError: '', futureTradeDates, inputRows: rows, matrixGroups: buildMatrixGroups(rows), query: `${detail.name} ${detail.symbol}` })
     }).catch(() => {
       if (requestId !== this.detailRequestId) return

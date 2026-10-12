@@ -137,6 +137,8 @@ class ApiHandler(BaseHTTPRequestHandler):
                 value = query.get("q", [""])[0]
                 if not value:
                     raise ApiError(40001, "缺少 q 参数", 400)
+                if len(value.strip()) < 1 or len(value.strip()) > 40:
+                    raise ApiError(40001, "q 长度必须为 1～40 个字符", 400)
                 data = SERVICE.search(value)
             elif parsed.path == "/api/stocks/detail":
                 ts_code = query.get("ts_code", [""])[0]
@@ -176,7 +178,10 @@ class ApiHandler(BaseHTTPRequestHandler):
                 if status != "current":
                     self._respond({"code": 40401, "data": None, "message": "接口不存在"}, status=404)
                     return
-                data = OFFICIAL_MONITOR.read(status, query.get("type", ["all"])[0])
+                monitor_type = query.get("type", ["all"])[0]
+                if monitor_type not in ("all", "risk", "severe"):
+                    raise ApiError(40001, "type 必须是 all、risk 或 severe", 400)
+                data = OFFICIAL_MONITOR.read(status, monitor_type)
                 # 小程序生产环境通过 callContainer 访问，统一返回可直接打开的公网代理地址。
                 public_base = os.getenv("MONITOR_PUBLIC_BASE_URL", "https://flask-9a5y-319926-10-1496305218.sh.run.tcloudbase.com").rstrip("/")
                 for item in data.get("items", []):

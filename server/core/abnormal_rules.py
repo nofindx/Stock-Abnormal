@@ -52,9 +52,9 @@ class SevereThreshold:
     down: float  # 下跌方向阈值，例如 -50 表示 -50%。
 
     def triggered(self, deviation: float) -> bool:
-        """判断偏离值是否达到对应方向的监管线。"""
+        """判断上涨偏离值是否达到监管线；下跌方向不触发。"""
 
-        return deviation >= self.up or deviation <= self.down
+        return deviation >= self.up
 
 
 @dataclass(frozen=True)
@@ -282,7 +282,7 @@ def detect_ordinary_abnormal(
         window_stock = stock_bars[end - rule.ordinary_days : end + 1]
         window_index = index_bars[end - rule.ordinary_days : end + 1]
         result = calculate_deviation(window_stock, window_index, rule.ordinary_days)
-        if abs(result.deviation) >= rule.ordinary_deviation:
+        if result.deviation >= rule.ordinary_deviation:
             records.append(
                 OrdinaryAbnormal(
                     start_date=result.start_date,
@@ -342,7 +342,7 @@ def _turnover_abnormal(
 
 
 def _count_same_direction(records: Iterable[OrdinaryAbnormal]) -> Tuple[int, Direction, int, int]:
-    """统计窗口内同向普通异动段，重叠窗口只计一次。
+    """统计窗口内上涨方向普通异动段，重叠窗口只计一次。
 
     交易所的 3 日异动是滚动窗口。连续上涨会让相邻窗口重复覆盖同一段
     行情；只有新的窗口不再与上一段重叠时，才算新的同向异动次数。
@@ -352,21 +352,19 @@ def _count_same_direction(records: Iterable[OrdinaryAbnormal]) -> Tuple[int, Dir
         (item for item in records if item.counts_for_same_direction and item.direction is not Direction.NONE),
         key=lambda item: (item.end_date, item.start_date),
     )
-    up_count = down_count = 0
+    up_count = 0
     previous = None
     for item in directional_records:
-        if previous is not None and item.direction is previous.direction and item.start_date <= previous.end_date:
+        # 最新业务规则只认上涨异动；下跌记录即使来自兼容数据，也不得进入计数。
+        if item.direction is not Direction.UP:
             continue
-        if item.direction is Direction.UP:
-            up_count += 1
-        elif item.direction is Direction.DOWN:
-            down_count += 1
+        if previous is not None and item.start_date <= previous.end_date:
+            continue
+        up_count += 1
         previous = item
-    if up_count == 0 and down_count == 0:
+    if up_count == 0:
         return 0, Direction.NONE, 0, 0
-    if up_count >= down_count:
-        return up_count, Direction.UP, up_count, down_count
-    return down_count, Direction.DOWN, up_count, down_count
+    return up_count, Direction.UP, up_count, 0
 
 
 def _best_effective_deviation(

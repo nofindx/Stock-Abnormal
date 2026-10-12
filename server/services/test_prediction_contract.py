@@ -68,11 +68,11 @@ class PredictionBoundaryTests(unittest.TestCase):
 
 
 class FixtureContractTests(unittest.TestCase):
-    def test_fixture_contains_only_three_prediction_rules(self):
+    def test_fixture_contains_only_two_severe_prediction_rules(self):
         path = Path(__file__).parents[1] / "fixtures" / "prediction_cases.json"
         payload = json.loads(path.read_text(encoding="utf-8"))
-        keys = {item["ruleKey"] for item in payload["three_rules_same_stock"]["items"]}
-        self.assertEqual(keys, {"ordinary_3d", "severe_10d", "severe_30d"})
+        keys = {item["ruleKey"] for item in payload["two_severe_rules_same_stock"]["items"]}
+        self.assertEqual(keys, {"severe_10d", "severe_30d"})
         self.assertNotIn("same_direction_10d", keys)
 
     def test_special_stock_eligibility_is_excluded_from_prediction(self):
@@ -84,6 +84,46 @@ class FixtureContractTests(unittest.TestCase):
 
 
 class PredictionFailurePropagationTests(unittest.TestCase):
+    def test_prediction_read_filters_legacy_ordinary_cards(self):
+        class LegacyRepository:
+            available = True
+
+            def get_prediction(self, scope, target_trade_date=None):
+                return {
+                    "scope": scope,
+                    "target_trade_date": target_trade_date or "20261009",
+                    "base_trade_date": "20261009",
+                    "updated_at": datetime(2026, 10, 9, 15, 0, 0),
+                    "items": [
+                        {"predictionKey": "600000.SH-ordinary_3d-20261009", "ruleKey": "ordinary_3d"},
+                        {"predictionKey": "600000.SH-severe_10d-20261009", "ruleKey": "severe_10d"},
+                    ],
+                    "status": "ready",
+                    "data_stage": "formal",
+                    "data_quality": "confirmed",
+                    "dataset_quote_complete": True,
+                    "exclusion_stats": {},
+                }
+
+            def prediction_job_status(self, _scope):
+                return {"status": "ready", "last_error": ""}
+
+        service = MarketService()
+        service._calc_repository = LegacyRepository()
+        service._prediction_state = lambda: {
+            "todaySourceScope": "today",
+            "targetTradeDate": "20261009",
+            "previousTradeDate": "20261008",
+            "nextTradeDate": "20261012",
+            "phase": "rest_day",
+            "realtimeRefreshAllowed": False,
+        }
+        try:
+            payload = service.predictions("today")
+            self.assertEqual([item["ruleKey"] for item in payload["items"]], ["severe_10d"])
+        finally:
+            service.close()
+
     class FailedRepository:
         available = True
 
@@ -94,7 +134,7 @@ class PredictionFailurePropagationTests(unittest.TestCase):
                 "base_trade_date": "20261009",
                 "updated_at": datetime(2026, 10, 9, 15, 0, 0),
                 "dataset_quote_updated_at": datetime(2026, 10, 9, 15, 0, 0),
-                "items": [{"predictionKey": "600000.SH-ordinary_3d-20261009"}],
+                    "items": [{"predictionKey": "600000.SH-severe_10d-20261009", "ruleKey": "severe_10d"}],
                 "status": "ready",
                 "data_stage": "formal",
                 "data_quality": "confirmed",
@@ -136,7 +176,7 @@ class PredictionFailurePropagationTests(unittest.TestCase):
                     "base_trade_date": "20261009",
                     "updated_at": datetime(2026, 10, 9, 15, 0, 0),
                     "dataset_quote_updated_at": datetime(2026, 10, 9, 15, 0, 0),
-                    "items": [{"predictionKey": "600000.SH-ordinary_3d-20261009"}],
+                "items": [{"predictionKey": "600000.SH-severe_10d-20261009", "ruleKey": "severe_10d"}],
                     "status": "ready",
                     "data_stage": "formal",
                     "data_quality": "confirmed",

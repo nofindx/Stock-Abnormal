@@ -1,7 +1,6 @@
 {
-  "three_rules_same_stock": {
+  "two_severe_rules_same_stock": {
     "items": [
-      {"ts_code": "600825.SH", "ruleKey": "ordinary_3d", "predictionKey": "600825.SH-ordinary_3d-20261012", "triggered": false},
       {"ts_code": "600825.SH", "ruleKey": "severe_10d", "predictionKey": "600825.SH-severe_10d-20261012", "triggered": true},
       {"ts_code": "600825.SH", "ruleKey": "severe_30d", "predictionKey": "600825.SH-severe_30d-20261012", "triggered": false}
     ],

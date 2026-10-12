@@ -152,7 +152,7 @@ class MarketVectorTests(unittest.TestCase):
         service._realtime = SimpleNamespace(fetch_many=lambda _codes: {})
         items = service._compute_prediction_from_repository("today")
         by_rule = {item["ruleKey"]: item for item in items}
-        self.assertEqual(sorted(by_rule), ["ordinary_3d", "severe_10d", "severe_30d"])
+        self.assertEqual(sorted(by_rule), ["severe_10d", "severe_30d"])
         self.assertEqual(by_rule["severe_10d"]["triggerCondition"], "10日偏离达到 +100.00%")
         self.assertEqual(by_rule["severe_30d"]["triggerCondition"], "30日偏离达到 +200.00%")
         self.assertTrue(by_rule["severe_10d"]["triggered"])
@@ -415,10 +415,7 @@ class MarketVectorTests(unittest.TestCase):
             "market": "SZSE", "board": "主板", "isST": False,
         }]
         items = service._compute_prediction_from_repository("today")
-        ordinary = [item for item in items if item["ruleKey"] == "ordinary_3d"]
-        self.assertEqual(len(ordinary), 1)
-        self.assertTrue(ordinary[0]["triggered"])
-        self.assertTrue(ordinary[0]["triggerValue"].startswith("+"))
+        self.assertNotIn("ordinary_3d", {item["ruleKey"] for item in items})
 
     def test_intraday_refresh_only_updates_existing_prediction_codes(self):
         service = self.service

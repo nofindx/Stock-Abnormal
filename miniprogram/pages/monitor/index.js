@@ -98,12 +98,12 @@ Page({
   applyFilters(items) {
     let filtered = items.map(item => ({
       ...item,
-      // 重点监控展示按自然日倒计时；结束日当天仍显示 0，次日由后端移出当前池。
-      days: formatRemainingDays(naturalDaysRemaining(item.monitorEndDate, item.days)),
+      // 剩余监管交易日由后端计算，前端只负责格式化展示。
+      days: formatRemainingDays(item.days),
       // 所有标的都保留；仅非关键标的和 ST 股票弱化名称、代码。
       // 监管日期、风险标签和剩余天数仍使用正常风险配色。
       mutedSecurity: !isCoreBoardSymbol(item.symbol) || item.isST || String(item.name || '').toUpperCase().includes('ST'),
-      riskTone: item.riskTone || (item.monitorType === '30日严重异动' ? 'severe-30d' : item.monitorType === '10日严重异动' ? 'severe-10d' : 'ordinary')
+      riskTone: item.riskTone || 'ordinary'
     }))
     // 去杂同时隐藏 ST 和非关键标的；关闭时保留后端快照中的全部记录。
     if (this.data.hideNoise) {
@@ -134,17 +134,6 @@ Page({
 function isCoreBoardSymbol(symbol) {
   const code = String(symbol || '').match(/\d{6}/)?.[0] || ''
   return /^(000|001|002|003|300|301|600|601|603|605|688|[489]\d{5})/.test(code)
-}
-
-function naturalDaysRemaining(endDate, fallback) {
-  const value = String(endDate || '')
-  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})$/)
-  if (!match) return fallback
-  const end = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]))
-  const now = new Date()
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
-  const remaining = Math.floor((end.getTime() - today.getTime()) / 86400000)
-  return Math.max(0, remaining)
 }
 
 function formatRemainingDays(value) {
