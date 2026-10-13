@@ -125,7 +125,7 @@ class MarketVectorTests(unittest.TestCase):
         }]
         service._realtime = SimpleNamespace(fetch_many=lambda _codes: {})
         items = service._compute_prediction_from_repository("next_day")
-        self.assertEqual({item["ruleKey"] for item in items}, {"same_direction_10d", "severe_10d"})
+        self.assertEqual({item["ruleKey"] for item in items}, {"severe_10d"})
         self.assertTrue(any(item["deviation"].startswith("10日 ") for item in items))
 
     def test_prediction_emits_separate_cards_for_ten_and_thirty_day_lines(self):
@@ -151,7 +151,7 @@ class MarketVectorTests(unittest.TestCase):
         service._realtime = SimpleNamespace(fetch_many=lambda _codes: {})
         items = service._compute_prediction_from_repository("today")
         by_rule = {item["ruleKey"]: item for item in items}
-        self.assertEqual(sorted(by_rule), ["same_direction_10d", "severe_10d", "severe_30d"])
+        self.assertEqual(sorted(by_rule), ["severe_10d", "severe_30d"])
         self.assertTrue(by_rule["severe_10d"]["triggerCondition"].startswith("涨幅达 "))
         self.assertTrue(by_rule["severe_30d"]["triggerCondition"].startswith("涨幅达 "))
         self.assertTrue(by_rule["severe_10d"]["triggered"])
@@ -199,6 +199,23 @@ class MarketVectorTests(unittest.TestCase):
         service._vector_metrics = lambda *_args: {"deviations": {3: None, 10: 0.0, 30: None}, "window_lengths": {3: None, 10: 10, 30: None}, "up": 4, "down": 0}
         items = service._compute_prediction_from_repository("today")
         self.assertFalse(any(item["ruleKey"] == "same_direction_10d" for item in items))
+
+    def test_monitored_stock_adds_short_window_prediction_cards(self):
+        service = self.service
+        dates = [f"2026-08-{index:02d}" for index in range(1, 11)]
+        stock_vector = [{"date": day, "return": 8.0 if index >= 8 else 0.0} for index, day in enumerate(dates, 1)]
+        index_vector = [{"date": day, "return": 0.0} for day in dates]
+        service._calc_repository = SimpleNamespace(
+            available=True,
+            all_calculations=lambda: {"000001.SZ": {"ts_code": "000001.SZ", "latest_close": 10.0, "as_of_trade_date": "20260930", "stock_return_vector": stock_vector}},
+            all_indexes=lambda: {"399001.SZ": {"index_code": "399001.SZ", "latest_close": 10.0, "index_return_vector": index_vector}},
+        )
+        service._stock_rows = lambda: [{"ts_code": "000001.SZ", "symbol": "000001", "name": "测试股票", "market": "SZSE", "board": "主板", "isST": False}]
+        service._realtime = SimpleNamespace(fetch_many=lambda _codes: {})
+        service.set_monitor_provider(lambda: {"items": [{"symbol": "000001", "riskTone": "severe-10d"}]})
+        keys = {item["ruleKey"] for item in service._compute_prediction_from_repository("today")}
+        self.assertIn("ordinary_3d", keys)
+        self.assertIn("same_direction_10d", keys)
 
     def test_same_dataset_merge_deduplicates_by_rule_and_target_date(self):
         merged = MarketService._merge_prediction_items(

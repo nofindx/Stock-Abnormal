@@ -120,7 +120,7 @@ class PredictionFailurePropagationTests(unittest.TestCase):
         }
         try:
             payload = service.predictions("today")
-            self.assertEqual([item["ruleKey"] for item in payload["items"]], ["ordinary_3d", "severe_10d"])
+            self.assertEqual([item["ruleKey"] for item in payload["items"]], ["severe_10d"])
         finally:
             service.close()
 

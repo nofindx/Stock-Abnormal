@@ -157,7 +157,11 @@ class MarketService:
         self._monitor_provider = provider
 
     def _monitored_rule_codes(self) -> Dict[str, set]:
-        """返回当前重点监控中各规则对应的股票代码。"""
+        """返回当前重点监控中各规则对应的股票代码。
+
+        `__severe_monitor__` 是产品层资格标记：股票进入 10 日或 30 日
+        严重异动监管期后，预测页才允许额外展示普通/同向短窗口卡。
+        """
         if not self._monitor_provider:
             return {}
         try:
@@ -166,15 +170,30 @@ class MarketService:
             for item in snapshot.get("items", []):
                 tone = str(item.get("riskTone") or "")
                 rule_keys = {
-                    "ordinary": {"ordinary_3d", "same_direction_10d"},
                     "severe-10d": {"severe_10d"},
                     "severe-30d": {"severe_30d"},
                 }.get(tone, set())
+                if tone in {"severe-10d", "severe-30d"}:
+                    rule_keys = set(rule_keys) | {"__severe_monitor__"}
                 for rule_key in rule_keys:
-                    result.setdefault(rule_key, set()).add(str(item.get("symbol") or ""))
+                    symbol = str(item.get("symbol") or item.get("ts_code") or "")
+                    result.setdefault(rule_key, set()).update({symbol, symbol.split(".")[0]})
             return result
         except Exception:
             return {}
+
+    @staticmethod
+    def _prediction_code_tokens(item: Dict[str, Any]) -> set:
+        ts_code = str(item.get("ts_code") or "")
+        return {ts_code, ts_code.split(".")[0], str(item.get("symbol") or "")}
+
+    def _prediction_item_allowed(self, item: Dict[str, Any], monitored_codes: Dict[str, set]) -> bool:
+        rule_key = str(item.get("ruleKey") or "")
+        if rule_key in {"severe_10d", "severe_30d"}:
+            return True
+        if rule_key in {"ordinary_3d", "same_direction_10d"}:
+            return bool(self._prediction_code_tokens(item) & monitored_codes.get("__severe_monitor__", set()))
+        return False
 
     def start_scheduler(self) -> None:
         """启动单股计算基础数据的每日更新任务。"""
@@ -1448,7 +1467,7 @@ class MarketService:
         if calculations is None or indexes is None or not calculations or not indexes:
             return None
         stocks = {item["ts_code"]: item for item in self._stock_rows()}
-        monitored_codes = self._monitored_rule_codes() if scope == "next_day" else {}
+        monitored_codes = self._monitored_rule_codes()
         stats = {"excludedByTriggered": 0, "excludedByMonitor": 0, "excludedBySpecialStock": 0,
                  "excludedByDataQuality": 0, "excludedByLimit": 0}
         self._prediction_generation_stats[scope] = stats
@@ -1475,21 +1494,21 @@ class MarketService:
                 continue
             metrics = self._vector_metrics(stock_vector, index_vector, board_rule)
             limit = float(board_rule.limit_price_ratio or 10.0)
-            # 同股同快照最多一张 3 日类卡：达到同向条件时用同向卡替代普通卡。
+            # 普通/同向短窗口卡只对已进入 10 日或 30 日监管期的股票开放。
             same_direction_count = int(metrics.get("same", 0) or 0)
-            same_direction_ready = same_direction_count >= max(1, board_rule.severe_same_direction_count - 1)
-            rules = (
-                ("ordinary_3d", 3, board_rule.ordinary_deviation, "deviation", board_rule.ordinary_deviation),
-                ("same_direction_10d", 3, board_rule.ordinary_deviation, "same_direction", board_rule.ordinary_deviation),
+            stock_keys = {str(stock.get("symbol") or ""), ts_code.split(".")[0]}
+            severe_monitored = bool(stock_keys & monitored_codes.get("__severe_monitor__", set()))
+            rules = [
                 ("severe_10d", 10, board_rule.severe_10d_threshold.up, "deviation", board_rule.severe_10d_threshold.up),
                 ("severe_30d", 30, board_rule.severe_30d_threshold.up, "deviation", board_rule.severe_30d_threshold.up),
-            )
+            ]
+            if severe_monitored:
+                rules[0:0] = [
+                    ("ordinary_3d", 3, board_rule.ordinary_deviation, "deviation", board_rule.ordinary_deviation),
+                    ("same_direction_10d", 3, board_rule.ordinary_deviation, "same_direction", board_rule.ordinary_deviation),
+                ]
             rule_options: List[Dict[str, Any]] = []
             for rule_key, rule_window, threshold, kind, target in rules:
-                if rule_key == "ordinary_3d" and same_direction_ready:
-                    continue
-                if rule_key == "same_direction_10d" and not same_direction_ready:
-                    continue
                 if scope == "next_day" and (stock.get("symbol") in monitored_codes.get(rule_key, set()) or ts_code.split(".")[0] in monitored_codes.get(rule_key, set())):
                     stats["excludedByMonitor"] += 1
                     continue
@@ -1988,8 +2007,9 @@ class MarketService:
             items = []
         if scope == "today" and source_scope == "next_day" and not dataset_matches_target:
             items = []
-        # 预测产品范围包含普通、同向和严重上涨异动；未知历史规则不得继续暴露。
-        items = [item for item in items if item.get("ruleKey") in {"ordinary_3d", "same_direction_10d", "severe_10d", "severe_30d"}]
+        # 普通/同向卡只有在股票仍处于 10 日或 30 日重点监控期时才展示。
+        monitored_codes = self._monitored_rule_codes()
+        items = [item for item in items if self._prediction_item_allowed(item, monitored_codes)]
         items = self._normalize_prediction_items(items)
         refreshing = False
         dataset_updated = self._format_prediction_datetime((persistent or {}).get("dataset_quote_updated_at")) or self._format_prediction_datetime((persistent or {}).get("updated_at") or (cached[0] if cached else None))
@@ -2050,8 +2070,8 @@ class MarketService:
             (persistent or {}).get("items") or [],
             self._prediction_cache.get(source_scope, (self._now(), []))[1],
         ))
-        # 旧数据集可能残留未知规则，读取/盘中刷新时只放行当前四类预测卡。
-        base_items = [item for item in base_items if item.get("ruleKey") in {"ordinary_3d", "same_direction_10d", "severe_10d", "severe_30d"}]
+        # 旧数据集可能残留短窗口卡；只有当前仍在严重异动监管期才放行。
+        base_items = [item for item in base_items if self._prediction_item_allowed(item, self._monitored_rule_codes())]
         if not base_items:
             return []
         calculations = self._calc_repository.all_calculations() if self._calc_repository.available else {}
