@@ -1436,15 +1436,31 @@ class MarketService:
                     indexes = self._calc_repository.all_indexes() or {}
                     quote_times = [str(row.get("quote_updated_at") or "") for row in list(calculations.values()) + list(indexes.values()) if row.get("quote_updated_at")]
                     dataset_quote_updated_at = max(quote_times, default="")
-                    snapshot_complete = bool(calculations and indexes) and all(
-                        self._date_key(row.get("as_of_trade_date")) == base_trade_date
+                    # The tables retain historical rows for stocks that are no
+                    # longer in the active stock pool. Completeness is about
+                    # the rows that can participate in this dataset, not those
+                    # orphaned rows. Mismatched active rows remain excluded by
+                    # _compute_prediction_from_repository and are counted in
+                    # exclusionStats.
+                    stocks_by_code = {item["ts_code"]: item for item in self._stock_rows()}
+                    valid_calculations = {
+                        code: row for code, row in calculations.items()
+                        if code in stocks_by_code
+                        and self._date_key(row.get("as_of_trade_date")) == base_trade_date
                         and self._vector_latest_date(self._vector_entries(row.get("stock_return_vector"))) == base_trade_date
-                        for row in calculations.values()
-                    ) and all(
-                        self._date_key(row.get("as_of_trade_date")) == base_trade_date
+                    }
+                    required_indexes = {
+                        _index_code_for_stock(stock)
+                        for stock in stocks_by_code.values()
+                        if stock.get("ts_code") in valid_calculations
+                    }
+                    valid_indexes = {
+                        code: row for code, row in indexes.items()
+                        if code in required_indexes
+                        and self._date_key(row.get("as_of_trade_date")) == base_trade_date
                         and self._vector_latest_date(self._vector_entries(row.get("index_return_vector"))) == base_trade_date
-                        for row in indexes.values()
-                    )
+                    }
+                    snapshot_complete = bool(valid_calculations and required_indexes) and required_indexes.issubset(valid_indexes)
                     self._calc_repository.save_prediction(
                         scope,
                         base_trade_date,
