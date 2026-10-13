@@ -30,7 +30,7 @@ BOARD_BY_MARKET = {"主板": Board.MAIN, "创业板": Board.CHINEXT, "科创板"
 SHANGHAI_TZ = ZoneInfo("Asia/Shanghai") if ZoneInfo else timezone(timedelta(hours=8))
 # 停牌/复牌重置、上涨同向计数和预测阶段切换属于同一套规则口径。
 # 版本变化会触发服务启动时用现有基础数据重建预测数据集。
-PREDICTION_RULE_VERSION = "2026-10-upward-only-rule-cards-v20"
+PREDICTION_RULE_VERSION = "2026-10-upward-only-rule-cards-v21"
 
 # GBK 区位表不依赖第三方拼音包，适合云托管的轻量搜索场景。
 _PINYIN_RANGES = (
@@ -211,8 +211,8 @@ class MarketService:
             daemon=True,
         )
         self._stock_basic_sync_thread.start()
-        # 规则代码发布后，持久化预测结果可能仍是旧口径。启动时只读取
-        # MySQL 已有的基础向量重建结果集，不请求行情、不触发全市场采集。
+        # 规则或计算口径发布后重建预测。若正式日线尚未就绪，会刷新当天
+        # 的初态行情，不能把旧快照伪装成正式数据。
         Thread(target=self._rebuild_predictions_if_rule_changed, name="prediction-rebuild", daemon=True).start()
         if str(os.getenv("FORCE_MARKET_HISTORY_REBUILD", "")).strip().lower() in {"1", "true", "yes", "on"}:
             Thread(target=self._rebuild_formal_history_once, name="history-rebuild", daemon=True).start()
@@ -288,13 +288,28 @@ class MarketService:
                 records = [self._calc_repository.get_prediction(scope) for scope in ("today", "next_day")]
                 if records and all(record and record.get("rule_version") == PREDICTION_RULE_VERSION for record in records):
                     return
-                # 版本升级包含正式涨跌回补修复，先用最近交易日正式日线替换
-                # 历史初态向量，再重建预测缓存，避免旧的 +0.00% 继续外露。
-                stage = "formal"
                 if self._calc_repository.all_calculations() and self._calc_repository.all_indexes():
-                    self.update_market_data(data_stage="formal", allow_non_trade_day=True)
-                if self._calc_repository.all_calculations() and self._calc_repository.all_indexes():
-                    self._generate_prediction_datasets(stage)
+                    # Prefer confirmed closes. If Tushare has not finished today's
+                    # batch, refresh the provisional quote snapshot instead of
+                    # relabelling an old initial vector as formal.
+                    try:
+                        formal = self.update_market_data(data_stage="formal", allow_non_trade_day=True)
+                    except Exception as exc:  # noqa: BLE001 - keep initial snapshot fallback available
+                        self._prediction_last_error["today"] = f"正式行情刷新失败：{exc}"
+                        formal = {"updated": False, "reason": str(exc)}
+                    latest_date, stage = self._latest_data_stage_date()
+                    target_date = str(formal.get("tradeDate") or self.client.latest_trade_date())
+                    confirmed = bool(formal.get("updated") and stage == "formal" and latest_date == target_date)
+                    refreshed_initial = False
+                    if not confirmed:
+                        today = self._now().strftime("%Y%m%d")
+                        if latest_date == today and stage == "initial":
+                            refreshed = self.update_initial_data()
+                            if refreshed.get("updated") and refreshed.get("tradeDate") == today:
+                                latest_date, stage = self._latest_data_stage_date()
+                                refreshed_initial = True
+                    if latest_date and (confirmed or stage == "formal" or refreshed_initial):
+                        self._generate_prediction_datasets(stage)
             except Exception as exc:  # noqa: BLE001 - 重建失败不影响旧数据读取
                 self._prediction_last_error["today"] = f"预测规则重建失败：{exc}"
 
@@ -833,6 +848,36 @@ class MarketService:
         return value[:10] if len(value) >= 10 else ""
 
     @classmethod
+    def _quotes_share_snapshot(cls, stock_quote: Optional[Dict[str, Any]], index_quote: Optional[Dict[str, Any]]) -> bool:
+        """只允许同源、同交易日且时间相差不超过五分钟的行情共同参与计算。"""
+        if not stock_quote or not index_quote:
+            return False
+        stock_time = str(stock_quote.get("updatedAt") or "")
+        index_time = str(index_quote.get("updatedAt") or "")
+        if not stock_time or not index_time:
+            return False
+        if cls._quote_date_string(stock_quote) != cls._quote_date_string(index_quote):
+            return False
+        stock_source = str(stock_quote.get("source") or "")
+        index_source = str(index_quote.get("source") or "")
+        if stock_source and index_source and stock_source != index_source:
+            return False
+        try:
+            stock_dt = datetime.fromisoformat(stock_time.replace("Z", "+00:00"))
+            index_dt = datetime.fromisoformat(index_time.replace("Z", "+00:00"))
+        except ValueError:
+            return stock_time[:10] == index_time[:10] and len(stock_time) >= 19 and len(index_time) >= 19
+        if stock_dt.tzinfo is None:
+            stock_dt = stock_dt.replace(tzinfo=SHANGHAI_TZ)
+        if index_dt.tzinfo is None:
+            index_dt = index_dt.replace(tzinfo=SHANGHAI_TZ)
+        return abs((stock_dt - index_dt).total_seconds()) <= 300
+
+    @classmethod
+    def _vector_latest_date(cls, vector: List[Dict[str, Any]]) -> str:
+        return max((cls._date_key(item.get("date")) for item in vector if item.get("date")), default="")
+
+    @classmethod
     def _apply_quote_to_vector(cls, entries: List[Dict[str, Any]], latest_close: Any, quote: Optional[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """把当前报价转为一个当日收益率，替换或追加最后一个向量元素。"""
 
@@ -840,23 +885,41 @@ class MarketService:
             return list(entries)
         try:
             current = float(quote.get("current"))
-            previous_close = float(latest_close)
         except (TypeError, ValueError):
             return list(entries)
-        if current <= 0 or previous_close <= 0:
+        if current <= 0:
             return list(entries)
-        quote_date = cls._quote_date_string(quote)
-        if not quote_date:
+        quote_date_text = cls._quote_date_string(quote)
+        quote_date = "".join(character for character in quote_date_text if character.isdigit())[:8]
+        if len(quote_date) != 8:
             return list(entries)
         result = list(entries)
-        if result and result[-1].get("date") == quote_date:
-            if len(result) >= 2:
+        last_date = "".join(character for character in str(result[-1].get("date") or "") if character.isdigit())[:8] if result else ""
+        try:
+            previous_close = float(quote.get("preClose") or latest_close)
+        except (TypeError, ValueError):
+            return list(entries)
+        if previous_close <= 0:
+            return list(entries)
+        if result and last_date == quote_date:
+            if not quote.get("preClose") and len(result) >= 2:
                 last_return = float(result[-1]["return"])
                 previous_close = previous_close / (1.0 + last_return / 100.0)
             result[-1] = {"date": quote_date, "return": (current / previous_close - 1.0) * 100.0}
-        elif not result or quote_date > str(result[-1].get("date") or ""):
+        elif not result or quote_date > last_date:
             result.append({"date": quote_date, "return": (current / previous_close - 1.0) * 100.0})
         return result[-30:]
+
+    def _refresh_initial_snapshot_after_formal_failure(self, trade_date: str) -> bool:
+        """正式行情未就绪时，用最新实时初态快照重建预测，避免沿用旧初态数据。"""
+        latest_date, stage = self._latest_data_stage_date()
+        if latest_date != trade_date or stage != "initial":
+            return False
+        result = self.update_initial_data()
+        if not result.get("updated") or result.get("tradeDate") != trade_date:
+            return False
+        self._generate_prediction_datasets("initial")
+        return True
 
     def _detail_from_repository(self, stock: Dict[str, Any], calc: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         index_code = _index_code_for_stock(stock)
@@ -869,13 +932,22 @@ class MarketService:
             return None
         stock_vector = self._vector_entries(calc.get("stock_return_vector"))
         index_vector = self._vector_entries(index.get("index_return_vector"))
+        stored_stock_date = self._date_key(calc.get("as_of_trade_date"))
+        stored_index_date = self._date_key(index.get("as_of_trade_date"))
+        if (
+            not stored_stock_date
+            or stored_stock_date != stored_index_date
+            or self._vector_latest_date(stock_vector) != stored_stock_date
+            or self._vector_latest_date(index_vector) != stored_index_date
+        ):
+            return None
         stock_vector, index_vector, suspension = self._trim_vectors_after_suspension(stock_vector, index_vector)
         board = BOARD_BY_MARKET.get(stock["board"], Board.MAIN)
         rule = BOARD_RULES[board]
         quotes = self._realtime.fetch_many([stock["ts_code"], index_code])
         quote = quotes.get(stock["ts_code"].upper())
         index_quote = quotes.get(index_code.upper())
-        realtime = bool(quote and index_quote)
+        realtime = self._quotes_share_snapshot(quote, index_quote)
         display_quote = quote if realtime else None
         if realtime:
             stock_vector = self._apply_quote_to_vector(stock_vector, calc.get("latest_close"), quote)
@@ -1005,9 +1077,15 @@ class MarketService:
                         marker = slot_marker if retry_due else catch_up_marker
                         if needs_formal and (retry_due or catch_up) and self._market_last_formal_attempt != marker:
                             self._market_last_formal_attempt = marker
-                            result = self.update_market_data(data_stage="formal")
+                            try:
+                                result = self.update_market_data(data_stage="formal")
+                            except Exception as exc:  # noqa: BLE001 - formal failure keeps provisional data usable
+                                self._market_update_error = str(exc)
+                                result = {"updated": False, "reason": str(exc)}
                             if result.get("updated") and result.get("tradeDate") == latest:
                                 self._generate_prediction_datasets("formal")
+                            else:
+                                self._refresh_initial_snapshot_after_formal_failure(today)
             except Exception as exc:  # noqa: BLE001
                 self._market_update_error = str(exc)
             self._market_scheduler_stop.wait(60)
@@ -1295,7 +1373,8 @@ class MarketService:
                 if not quote or float(quote.get("current") or 0) <= 0:
                     continue
                 quote = dict(quote)
-                quote.setdefault("updatedAt", f"{today[:4]}-{today[4:6]}-{today[6:]}T15:00:00")
+                if self._date_key(self._quote_date_string(quote)) != today:
+                    continue
                 vector = self._apply_quote_to_vector(self._vector_entries(item.get("index_return_vector")), item.get("latest_close"), quote)
                 item.update({"index_code": code, "index_name": item.get("index_name") or code, "latest_close": float(quote["current"]), "as_of_trade_date": today, "index_return_vector": vector[-30:], "data_stage": "initial", "quote_updated_at": str(quote.get("updatedAt") or "").replace("T", " ")[:19]})
                 indexes.append(item)
@@ -1305,10 +1384,15 @@ class MarketService:
                 item = existing.get(stock["ts_code"])
                 quote = quotes.get(stock["ts_code"].upper())
                 index_item = index_map.get(_index_code_for_stock(stock))
-                if not item or not quote or not index_item:
+                index_quote = quotes.get(_index_code_for_stock(stock).upper())
+                if (
+                    not item
+                    or not index_item
+                    or self._date_key(self._quote_date_string(quote)) != today
+                    or not self._quotes_share_snapshot(quote, index_quote)
+                ):
                     continue
                 quote = dict(quote)
-                quote.setdefault("updatedAt", f"{today[:4]}-{today[4:6]}-{today[6:]}T15:00:00")
                 vector = self._apply_quote_to_vector(self._vector_entries(item.get("stock_return_vector")), item.get("latest_close"), quote)
                 item = dict(item)
                 item.update({"ts_code": stock["ts_code"], "latest_close": float(quote["current"]), "as_of_trade_date": today, "stock_return_vector": vector[-30:], "data_stage": "initial", "quote_updated_at": str(quote.get("updatedAt") or "").replace("T", " ")[:19]})
@@ -1352,6 +1436,15 @@ class MarketService:
                     indexes = self._calc_repository.all_indexes() or {}
                     quote_times = [str(row.get("quote_updated_at") or "") for row in list(calculations.values()) + list(indexes.values()) if row.get("quote_updated_at")]
                     dataset_quote_updated_at = max(quote_times, default="")
+                    snapshot_complete = bool(calculations and indexes) and all(
+                        self._date_key(row.get("as_of_trade_date")) == base_trade_date
+                        and self._vector_latest_date(self._vector_entries(row.get("stock_return_vector"))) == base_trade_date
+                        for row in calculations.values()
+                    ) and all(
+                        self._date_key(row.get("as_of_trade_date")) == base_trade_date
+                        and self._vector_latest_date(self._vector_entries(row.get("index_return_vector"))) == base_trade_date
+                        for row in indexes.values()
+                    )
                     self._calc_repository.save_prediction(
                         scope,
                         base_trade_date,
@@ -1365,9 +1458,9 @@ class MarketService:
                         dataset_quote_updated_at=dataset_quote_updated_at,
                         dataset_quote_as_of=base_trade_date,
                         dataset_quote_source="tushare" if data_stage == "formal" else "intraday-initial",
-                        dataset_quote_complete=bool(calculations and indexes),
+                        dataset_quote_complete=snapshot_complete,
                         exclusion_stats=self._prediction_generation_stats.get(scope, {}),
-                        status="ready" if calculations and indexes else "incomplete",
+                        status="ready" if snapshot_complete else "incomplete",
                     )
             except Exception as exc:  # noqa: BLE001 - 保留上一份成功数据并记录任务失败
                 self._prediction_last_error[scope] = str(exc)
@@ -1489,7 +1582,15 @@ class MarketService:
                 self._vector_entries(calc.get("stock_return_vector")),
                 self._vector_entries(index.get("index_return_vector")),
             )
-            if suspension.get("suspended"):
+            stock_as_of = self._date_key(calc.get("as_of_trade_date"))
+            index_as_of = self._date_key(index.get("as_of_trade_date"))
+            if (
+                suspension.get("suspended")
+                or not stock_as_of
+                or stock_as_of != index_as_of
+                or self._vector_latest_date(stock_vector) != stock_as_of
+                or self._vector_latest_date(index_vector) != index_as_of
+            ):
                 stats["excludedByDataQuality"] += 1
                 continue
             metrics = self._vector_metrics(stock_vector, index_vector, board_rule)
@@ -1599,7 +1700,7 @@ class MarketService:
                 index_vector = self._apply_quote_to_vector(item["_indexVector"], item.get("_indexLatestClose"), index_quote)
                 # 指数没有把 latest_close 放入预测对象时，只有在同时具备两边报价
                 # 才修正；缺一边就沿用同一收盘口径，不能混合时点数据。
-                if quote and index_quote:
+                if self._quotes_share_snapshot(quote, index_quote):
                     threshold = float(item["_threshold"])
                     rule_window = int(item.get("_rule_window", item["_window"]))
                     deviation, actual_window = self._best_vector_deviation(stock_vector, index_vector, rule_window)
@@ -2023,6 +2124,9 @@ class MarketService:
             or (persistent or {}).get("last_error")
             or self._prediction_last_error.get(source_scope, "")
         )
+        dataset_incomplete = bool(persistent and (persistent.get("status") == "incomplete" or not persistent.get("dataset_quote_complete", True)))
+        if dataset_incomplete:
+            items = []
         return {
             "scope": scope,
             "items": items,
@@ -2045,7 +2149,7 @@ class MarketService:
             "datasetQuoteComplete": bool((persistent or {}).get("dataset_quote_complete", True)),
             "exclusionStats": (persistent or {}).get("exclusion_stats") or self._prediction_generation_stats.get(source_scope, {}),
             # 任务失败时保留上一份 items，但明确告诉前端更新时间位置显示不可用。
-            "dataUnavailable": bool(job_failed or (persistent or {}).get("status") == "failed" or ((persistent is None) and not items)),
+            "dataUnavailable": bool(job_failed or (persistent or {}).get("status") in {"failed", "incomplete"} or dataset_incomplete or ((persistent is None) and not items)),
             "datasetStatus": dataset_status,
             "updatedAt": dataset_updated,
             "dataStage": "realtime" if ephemeral_active else stored_stage,
@@ -2092,14 +2196,15 @@ class MarketService:
             index = (indexes or {}).get(index_code)
             quote = quotes.get(str(item.get("ts_code") or "").upper())
             index_quote = quotes.get(index_code.upper()) if index_code else None
-            if quote:
+            paired_quote = self._quotes_share_snapshot(quote, index_quote)
+            if paired_quote:
                 item["currentPrice"] = f"{float(quote.get('current')):.2f}"
                 item["change"] = _pct(quote.get("pctChg"))
                 item["changeSource"] = "realtime"
                 item["quoteUpdatedAt"] = quote.get("updatedAt", "")
                 item["quoteSource"] = quote.get("source", "腾讯行情")
             # 只有股票和对应指数同时成功，才临时修正偏离值，避免混合时点。
-            if quote and index_quote and calc and index:
+            if paired_quote and calc and index:
                 stock_vector = self._apply_quote_to_vector(self._vector_entries(calc.get("stock_return_vector")), calc.get("latest_close"), quote)
                 index_vector = self._apply_quote_to_vector(self._vector_entries(index.get("index_return_vector")), index.get("latest_close"), index_quote)
                 stock_vector, index_vector, suspension = self._trim_vectors_after_suspension(stock_vector, index_vector)

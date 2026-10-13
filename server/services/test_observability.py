@@ -113,6 +113,7 @@ class DetailDataQualityTests(unittest.TestCase):
             available=True,
             get_index=lambda _code: {
                 "index_code": "399001.SZ", "latest_close": 100.0,
+                "as_of_trade_date": "20260830",
                 "index_return_vector": vector,
             },
         )
@@ -128,7 +129,7 @@ class DetailDataQualityTests(unittest.TestCase):
         try:
             result = service._detail_from_repository(
                 service._stock_rows()[0],
-                {"latest_close": 10.0, "as_of_trade_date": "20260929", "data_stage": "formal", "stock_return_vector": [
+                {"latest_close": 10.0, "as_of_trade_date": "20260830", "data_stage": "formal", "stock_return_vector": [
                     {"date": f"2026-08-{index:02d}", "return": 0.0} for index in range(1, 31)
                 ]},
             )
@@ -142,7 +143,7 @@ class DetailDataQualityTests(unittest.TestCase):
         try:
             result = service._detail_from_repository(
                 service._stock_rows()[0],
-                {"latest_close": 10.0, "as_of_trade_date": "20260929", "data_stage": "formal", "stock_return_vector": [
+                {"latest_close": 10.0, "as_of_trade_date": "20260830", "data_stage": "formal", "stock_return_vector": [
                     {"date": f"2026-08-{index:02d}", "return": 0.0} for index in range(1, 31)
                 ]},
             )

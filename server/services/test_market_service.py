@@ -53,6 +53,115 @@ class MarketVectorTests(unittest.TestCase):
         self.assertEqual(len(result), 2)
         self.assertAlmostEqual(result[-1]["return"], 4.0285714286, places=6)
 
+    def test_iso_quote_date_appends_compact_trade_date_using_preclose(self):
+        entries = [{"date": "20261012", "return": 9.98}]
+        result = MarketService._apply_quote_to_vector(
+            entries,
+            109.98,
+            {"current": 106.19, "preClose": 100.0, "updatedAt": "2026-10-13T16:14:30"},
+        )
+        self.assertEqual(result[-1]["date"], "20261013")
+        self.assertAlmostEqual(result[-1]["return"], 6.19, places=6)
+
+    def test_iso_quote_date_replaces_same_compact_trade_date(self):
+        entries = [
+            {"date": "20261012", "return": 2.0},
+            {"date": "20261013", "return": 9.98},
+        ]
+        result = MarketService._apply_quote_to_vector(
+            entries,
+            109.98,
+            {"current": 106.19, "preClose": 100.0, "updatedAt": "2026-10-13T16:14:30"},
+        )
+        self.assertEqual(len(result), 2)
+        self.assertAlmostEqual(result[-1]["return"], 6.19, places=6)
+
+    def test_live_quotes_must_share_source_date_and_nearby_time(self):
+        stock = {"source": "腾讯行情", "updatedAt": "2026-10-13T14:55:00"}
+        same_snapshot = {"source": "腾讯行情", "updatedAt": "2026-10-13T14:59:59"}
+        different_time = {"source": "腾讯行情", "updatedAt": "2026-10-13T14:40:00"}
+        different_source = {"source": "新浪行情", "updatedAt": "2026-10-13T14:55:00"}
+        different_day = {"source": "腾讯行情", "updatedAt": "2026-10-12T14:55:00"}
+        self.assertTrue(MarketService._quotes_share_snapshot(stock, same_snapshot))
+        self.assertFalse(MarketService._quotes_share_snapshot(stock, different_time))
+        self.assertFalse(MarketService._quotes_share_snapshot(stock, different_source))
+        self.assertFalse(MarketService._quotes_share_snapshot(stock, different_day))
+        self.assertFalse(MarketService._quotes_share_snapshot(stock, {"source": "腾讯行情"}))
+
+    def test_detail_quote_and_calculation_vectors_share_current_trade_date(self):
+        service = self.service
+        service._calc_repository = SimpleNamespace(get_index=lambda _code: {
+            "index_code": "399001.SZ",
+            "latest_close": 100.0,
+            "as_of_trade_date": "20261012",
+            "index_return_vector": [
+                {"date": "20261011", "return": 0.0},
+                {"date": "20261012", "return": 0.0},
+            ],
+        })
+        service._realtime = SimpleNamespace(fetch_many=lambda _codes: {
+            "000001.SZ": {"current": 106.19, "preClose": 100.0, "pctChg": 6.19, "updatedAt": "2026-10-13T16:14:30"},
+            "399001.SZ": {"current": 101.0, "preClose": 100.0, "pctChg": 1.0, "updatedAt": "2026-10-13T16:14:30"},
+        })
+        service._future_trade_dates = lambda *_args: []
+        stock = {"ts_code": "000001.SZ", "symbol": "000001", "name": "测试股票", "market": "SZSE", "board": "主板", "isST": False}
+        calc = {
+            "latest_close": 100.0,
+            "as_of_trade_date": "20261012",
+            "data_stage": "formal",
+            "stock_return_vector": [
+                {"date": "20261011", "return": 0.0},
+                {"date": "20261012", "return": 0.0},
+            ],
+        }
+        result = service._detail_from_repository(stock, calc)
+        self.assertEqual(result["change"], "+6.19%")
+        self.assertEqual(result["calculationInput"]["stock"][-1]["date"], "20261013")
+        self.assertEqual(result["calculationInput"]["index"][-1]["date"], "20261013")
+        self.assertAlmostEqual(result["calculationInput"]["stock"][-1]["return"], 6.19, places=6)
+
+    def test_detail_does_not_mix_unpaired_realtime_quotes_into_calculation(self):
+        service = self.service
+        service._calc_repository = SimpleNamespace(get_index=lambda _code: {
+            "index_code": "399001.SZ", "latest_close": 100.0, "as_of_trade_date": "20261012",
+            "index_return_vector": [{"date": "20261011", "return": 0.0}, {"date": "20261012", "return": 0.0}],
+        })
+        service._realtime = SimpleNamespace(fetch_many=lambda _codes: {
+            "000001.SZ": {"current": 106.19, "preClose": 100.0, "pctChg": 6.19, "source": "腾讯行情", "updatedAt": "2026-10-13T16:14:30"},
+            "399001.SZ": {"current": 101.0, "preClose": 100.0, "pctChg": 1.0, "source": "新浪行情", "updatedAt": "2026-10-13T16:14:30"},
+        })
+        service._future_trade_dates = lambda *_args: []
+        stock = {"ts_code": "000001.SZ", "symbol": "000001", "name": "测试股票", "market": "SZSE", "board": "主板", "isST": False}
+        calc = {
+            "latest_close": 100.0, "as_of_trade_date": "20261012", "data_stage": "formal",
+            "stock_return_vector": [{"date": "20261011", "return": 0.0}, {"date": "20261012", "return": 0.0}],
+        }
+        result = service._detail_from_repository(stock, calc)
+        self.assertEqual(result["change"], "+0.00%")
+        self.assertEqual(result["calculationInput"]["stock"][-1]["date"], "20261012")
+        self.assertEqual(result["dataQuality"]["source"], "CloudBase MySQL")
+
+    def test_prediction_excludes_stock_and_index_with_different_snapshot_dates(self):
+        service = self.service
+        vector = [{"date": f"2026-10-{day:02d}", "return": 8.0 if day >= 3 else 0.0} for day in range(1, 13)]
+        service._calc_repository = SimpleNamespace(
+            all_calculations=lambda: {"000001.SZ": {
+                "ts_code": "000001.SZ", "latest_close": 10.0, "as_of_trade_date": "20261012",
+                "stock_return_vector": vector,
+            }},
+            all_indexes=lambda: {"399001.SZ": {
+                "index_code": "399001.SZ", "latest_close": 10.0, "as_of_trade_date": "20261011",
+                "index_return_vector": vector[:-1],
+            }},
+        )
+        service._stock_rows = lambda: [{
+            "ts_code": "000001.SZ", "symbol": "000001", "name": "测试股票",
+            "market": "SZSE", "board": "主板", "isST": False,
+        }]
+        items = service._compute_prediction_from_repository("today")
+        self.assertEqual(items, [])
+        self.assertEqual(service._prediction_generation_stats["today"]["excludedByDataQuality"], 1)
+
     def test_formal_backfill_replaces_same_day_initial_return_with_pct_chg(self):
         calculations = {
             "000001.SZ": {
@@ -112,10 +221,10 @@ class MarketVectorTests(unittest.TestCase):
             available=True,
             all_calculations=lambda: {"001216.SZ": {
                 "ts_code": "001216.SZ", "latest_close": 28.04,
-                "as_of_trade_date": "20260928", "stock_return_vector": stock_vector,
+                "as_of_trade_date": "20260830", "stock_return_vector": stock_vector,
             }},
             all_indexes=lambda: {"000001.SH": {
-                "index_code": "000001.SH", "latest_close": 11.3,
+                "index_code": "000001.SH", "latest_close": 11.3, "as_of_trade_date": "20260830",
                 "index_return_vector": index_vector,
             }},
         )
@@ -137,10 +246,10 @@ class MarketVectorTests(unittest.TestCase):
             available=True,
             all_calculations=lambda: {"000001.SZ": {
                 "ts_code": "000001.SZ", "latest_close": 10.0,
-                "as_of_trade_date": "20260928", "stock_return_vector": stock_vector,
+                "as_of_trade_date": "20260830", "stock_return_vector": stock_vector,
             }},
             all_indexes=lambda: {"399001.SZ": {
-                "index_code": "399001.SZ", "latest_close": 10.0,
+                "index_code": "399001.SZ", "latest_close": 10.0, "as_of_trade_date": "20260830",
                 "index_return_vector": index_vector,
             }},
         )
@@ -167,10 +276,10 @@ class MarketVectorTests(unittest.TestCase):
             available=True,
             all_calculations=lambda: {"000001.SZ": {
                 "ts_code": "000001.SZ", "latest_close": 10.0,
-                "as_of_trade_date": "20260928", "stock_return_vector": stock_vector,
+                "as_of_trade_date": "20260830", "stock_return_vector": stock_vector,
             }},
             all_indexes=lambda: {"399001.SZ": {
-                "index_code": "399001.SZ", "latest_close": 10.0,
+                "index_code": "399001.SZ", "latest_close": 10.0, "as_of_trade_date": "20260830",
                 "index_return_vector": index_vector,
             }},
         )
@@ -191,8 +300,8 @@ class MarketVectorTests(unittest.TestCase):
         vector = [{"date": f"2026-09-{index:02d}", "return": 0.0} for index in range(1, 11)]
         service._calc_repository = SimpleNamespace(
             available=True,
-            all_calculations=lambda: {"000001.SZ": {"ts_code": "000001.SZ", "latest_close": 10.0, "as_of_trade_date": "20260930", "stock_return_vector": vector}},
-            all_indexes=lambda: {"399001.SZ": {"index_code": "399001.SZ", "latest_close": 10.0, "index_return_vector": vector}},
+            all_calculations=lambda: {"000001.SZ": {"ts_code": "000001.SZ", "latest_close": 10.0, "as_of_trade_date": "20260910", "stock_return_vector": vector}},
+            all_indexes=lambda: {"399001.SZ": {"index_code": "399001.SZ", "latest_close": 10.0, "as_of_trade_date": "20260910", "index_return_vector": vector}},
         )
         service._stock_rows = lambda: [{"ts_code": "000001.SZ", "symbol": "000001", "name": "测试股票", "market": "SZSE", "board": "主板", "isST": False}]
         service._realtime = SimpleNamespace(fetch_many=lambda _codes: {})
@@ -207,8 +316,8 @@ class MarketVectorTests(unittest.TestCase):
         index_vector = [{"date": day, "return": 0.0} for day in dates]
         service._calc_repository = SimpleNamespace(
             available=True,
-            all_calculations=lambda: {"000001.SZ": {"ts_code": "000001.SZ", "latest_close": 10.0, "as_of_trade_date": "20260930", "stock_return_vector": stock_vector}},
-            all_indexes=lambda: {"399001.SZ": {"index_code": "399001.SZ", "latest_close": 10.0, "index_return_vector": index_vector}},
+            all_calculations=lambda: {"000001.SZ": {"ts_code": "000001.SZ", "latest_close": 10.0, "as_of_trade_date": "20260810", "stock_return_vector": stock_vector}},
+            all_indexes=lambda: {"399001.SZ": {"index_code": "399001.SZ", "latest_close": 10.0, "as_of_trade_date": "20260810", "index_return_vector": index_vector}},
         )
         service._stock_rows = lambda: [{"ts_code": "000001.SZ", "symbol": "000001", "name": "测试股票", "market": "SZSE", "board": "主板", "isST": False}]
         service._realtime = SimpleNamespace(fetch_many=lambda _codes: {})
@@ -261,10 +370,10 @@ class MarketVectorTests(unittest.TestCase):
             available=True,
             all_calculations=lambda: {"600825.SH": {
                 "ts_code": "600825.SH", "latest_close": 10.0,
-                "as_of_trade_date": "20260930", "stock_return_vector": stock_vector,
+                "as_of_trade_date": "20260907", "stock_return_vector": stock_vector,
             }},
             all_indexes=lambda: {"000001.SH": {
-                "index_code": "000001.SH", "latest_close": 100.0,
+                "index_code": "000001.SH", "latest_close": 100.0, "as_of_trade_date": "20260907",
                 "index_return_vector": index_vector,
             }},
         )
@@ -310,10 +419,10 @@ class MarketVectorTests(unittest.TestCase):
             available=True,
             all_calculations=lambda: {"301190.SZ": {
                 "ts_code": "301190.SZ", "latest_close": 29.94,
-                "as_of_trade_date": "20260929", "stock_return_vector": stock_vector,
+                "as_of_trade_date": "20260830", "stock_return_vector": stock_vector,
             }},
             all_indexes=lambda: {"399006.SZ": {
-                "index_code": "399006.SZ", "latest_close": 100.0,
+                "index_code": "399006.SZ", "latest_close": 100.0, "as_of_trade_date": "20260830",
                 "index_return_vector": index_vector,
             }},
         )
@@ -340,10 +449,10 @@ class MarketVectorTests(unittest.TestCase):
             available=True,
             all_calculations=lambda: {"301190.SZ": {
                 "ts_code": "301190.SZ", "latest_close": 35.93,
-                "as_of_trade_date": "20260930", "stock_return_vector": stock_vector,
+                "as_of_trade_date": "20260829", "stock_return_vector": stock_vector,
             }},
             all_indexes=lambda: {"399006.SZ": {
-                "index_code": "399006.SZ", "latest_close": 3210.0,
+                "index_code": "399006.SZ", "latest_close": 3210.0, "as_of_trade_date": "20260829",
                 "index_return_vector": index_vector,
             }},
         )
@@ -374,10 +483,10 @@ class MarketVectorTests(unittest.TestCase):
             available=True,
             all_calculations=lambda: {"000001.SZ": {
                 "ts_code": "000001.SZ", "latest_close": 10.0,
-                "as_of_trade_date": "20260928", "stock_return_vector": stock_vector,
+                "as_of_trade_date": "20260830", "stock_return_vector": stock_vector,
             }},
             all_indexes=lambda: {"399001.SZ": {
-                "index_code": "399001.SZ", "latest_close": 10.0,
+                "index_code": "399001.SZ", "latest_close": 10.0, "as_of_trade_date": "20260830",
                 "index_return_vector": index_vector,
             }},
         )
@@ -397,10 +506,10 @@ class MarketVectorTests(unittest.TestCase):
             available=True,
             all_calculations=lambda: {"000001.SZ": {
                 "ts_code": "000001.SZ", "latest_close": 10.0,
-                "as_of_trade_date": "20260928", "stock_return_vector": stock_vector,
+                "as_of_trade_date": "20260830", "stock_return_vector": stock_vector,
             }},
             all_indexes=lambda: {"399001.SZ": {
-                "index_code": "399001.SZ", "latest_close": 10.0,
+                "index_code": "399001.SZ", "latest_close": 10.0, "as_of_trade_date": "20260830",
                 "index_return_vector": index_vector,
             }},
         )
@@ -419,10 +528,10 @@ class MarketVectorTests(unittest.TestCase):
             available=True,
             all_calculations=lambda: {"000001.SZ": {
                 "ts_code": "000001.SZ", "latest_close": 10.0,
-                "as_of_trade_date": "20260928", "stock_return_vector": stock_vector,
+                "as_of_trade_date": "20260830", "stock_return_vector": stock_vector,
             }},
             all_indexes=lambda: {"399001.SZ": {
-                "index_code": "399001.SZ", "latest_close": 10.0,
+                "index_code": "399001.SZ", "latest_close": 10.0, "as_of_trade_date": "20260830",
                 "index_return_vector": index_vector,
             }},
         )
@@ -515,6 +624,18 @@ class MarketRepositoryConfigTests(unittest.TestCase):
             "b": {"as_of_trade_date": "20260930", "data_stage": "formal"},
         })
         self.assertEqual(service._latest_data_stage_date(), ("20260930", "formal"))
+        service.close()
+
+    def test_formal_failure_refreshes_same_day_initial_snapshot_and_predictions(self):
+        service = MarketService()
+        service._calc_repository = SimpleNamespace(available=True, all_calculations=lambda: {
+            "a": {"as_of_trade_date": "20261013", "data_stage": "initial"},
+        })
+        calls = []
+        service.update_initial_data = lambda: {"updated": True, "tradeDate": "20261013"}
+        service._generate_prediction_datasets = lambda stage: calls.append(stage)
+        self.assertTrue(service._refresh_initial_snapshot_after_formal_failure("20261013"))
+        self.assertEqual(calls, ["initial"])
         service.close()
 
 
