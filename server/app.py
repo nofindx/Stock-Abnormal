@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, quote, urlparse
@@ -117,13 +118,6 @@ class ApiHandler(BaseHTTPRequestHandler):
                         "realtime": SERVICE._realtime.health_stats(),
                     },
                     "prediction": prediction_health,
-                    "intradayState": {
-                        "backend": "redis" if SERVICE._intraday_store.shared else "local_fallback",
-                        "shared": SERVICE._intraday_store.shared,
-                        "ttlSeconds": SERVICE._intraday_store.TTL_SECONDS,
-                        "maxPayloadBytes": SERVICE._intraday_store.MAX_PAYLOAD_BYTES,
-                        "redis": SERVICE._intraday_store.health_stats(),
-                    },
                     "monitor": monitor_health,
                     # 保留旧字段，兼容旧版小程序健康检查。
                     "monitorSnapshot": monitor_health["available"],
@@ -204,13 +198,14 @@ class ApiHandler(BaseHTTPRequestHandler):
             self._respond({"code": 50001, "data": None, "message": "服务暂时不可用，请稍后重试"}, status=500)
 
     def do_POST(self):
-        """预测刷新只处理已有池的盘中临时行情，不触发全市场后台计算。"""
+        """处理不落盘的盘中行情透传和已有预测池刷新。"""
 
         parsed = urlparse(self.path)
-        if parsed.path != "/api/predictions/refresh":
+        if parsed.path not in ("/api/predictions/refresh", "/api/quotes/realtime"):
             self._respond({"code": 40401, "data": None, "message": "接口不存在"}, status=404)
             return
         query = parse_qs(parsed.query)
+        payload = {}
         try:
             length = int(self.headers.get("Content-Length", "0"))
             body = self.rfile.read(length) if length else b""
@@ -224,6 +219,23 @@ class ApiHandler(BaseHTTPRequestHandler):
             self._respond({"code": 40001, "data": None, "message": "请求参数格式错误"}, status=400)
             return
         try:
+            if parsed.path == "/api/quotes/realtime":
+                raw_codes = payload.get("ts_codes") if isinstance(payload, dict) else None
+                if not isinstance(raw_codes, list) or not raw_codes:
+                    raise ApiError(40001, "ts_codes 必须是非空数组", 400)
+                codes = []
+                seen = set()
+                for raw_code in raw_codes:
+                    code = str(raw_code or "").strip().upper()
+                    if not re.fullmatch(r"\d{6}\.(?:SH|SZ|BJ)", code):
+                        raise ApiError(40001, "ts_codes 包含非法证券代码", 400)
+                    if code not in seen:
+                        codes.append(code)
+                        seen.add(code)
+                if len(codes) >= 100:
+                    raise ApiError(40001, "ts_codes 必须少于 100 个代码", 400)
+                self._respond({"code": 0, "data": SERVICE.realtime_quotes(codes), "message": "ok"})
+                return
             scope = query.get("scope", ["today"])[0]
             if scope not in ("today", "next_day"):
                 raise ApiError(40001, "scope 必须是 today 或 next_day", 400)

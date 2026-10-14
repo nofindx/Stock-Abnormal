@@ -4,35 +4,7 @@ from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
 
-from server.services.intraday_state_store import IntradayStateStore
 from server.services.market_service import MarketService, SHANGHAI_TZ
-
-
-class IntradayStateStoreTests(unittest.TestCase):
-    def test_instances_share_fallback_state_and_enforce_payload_limit(self):
-        first = IntradayStateStore(redis_url="")
-        second = IntradayStateStore(redis_url="")
-        first.delete("today", "20261012")
-        first.set("today", "20261012", {"updatedAt": "2026-10-12 10:00:00", "items": [{"predictionKey": "a"}]})
-        self.assertEqual(second.get("today", "20261012")["items"][0]["predictionKey"], "a")
-        with self.assertRaises(ValueError):
-            first.set("today", "20261012", {"items": ["x" * IntradayStateStore.MAX_PAYLOAD_BYTES]})
-        first.delete("today", "20261012")
-
-    def test_health_stats_reports_capacity_and_hit_rate(self):
-        class FakeRedis:
-            def info(self, section):
-                return {
-                    "memory": {"used_memory": 80, "maxmemory": 100},
-                    "stats": {"keyspace_hits": 95, "keyspace_misses": 5, "evicted_keys": 2},
-                }[section]
-
-        stats = IntradayStateStore(redis_client=FakeRedis()).health_stats()
-        self.assertTrue(stats["shared"])
-        self.assertEqual(stats["usedMemoryBytes"], 80)
-        self.assertAlmostEqual(stats["memoryUsageRatio"], 0.8)
-        self.assertAlmostEqual(stats["hitRate"], 0.95)
-        self.assertEqual(stats["evictedKeys"], 2)
 
 
 class PredictionBoundaryTests(unittest.TestCase):
@@ -65,6 +37,19 @@ class PredictionBoundaryTests(unittest.TestCase):
             self.assertEqual(state["phase"], phase, clock_text)
             self.assertEqual(state["realtimeRefreshAllowed"], allowed, clock_text)
             self.assertEqual(state["todaySourceScope"], source, clock_text)
+
+    def test_realtime_quotes_are_deduplicated_and_marked_non_persistent(self):
+        requested = []
+        self.service._realtime.fetch_many = lambda codes: (
+            requested.extend(codes) or {
+                "000001.SZ": {"current": 10.1, "updatedAt": "2026-10-12T10:00:00"}
+            }
+        )
+        result = self.service.realtime_quotes(["000001.sz", "000001.SZ", "399107.SZ"])
+        self.assertEqual(requested, ["000001.SZ", "399107.SZ"])
+        self.assertEqual(result["requestedCount"], 2)
+        self.assertEqual(result["returnedCount"], 1)
+        self.assertFalse(result["persisted"])
 
 
 class FixtureContractTests(unittest.TestCase):

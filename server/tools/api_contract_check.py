@@ -39,26 +39,13 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--base-url", default="http://127.0.0.1:8787")
     parser.add_argument("--require-data", action="store_true", help="上游数据不可用时返回失败；生产验收使用")
-    parser.add_argument("--require-shared-redis", action="store_true", help="要求盘中状态使用共享 Redis；生产验收使用")
     args = parser.parse_args()
     base = args.base_url.rstrip("/")
     status, health = request_json(f"{base}/health")
     assert status == 200 and health.get("code") == 0, health
-    intraday_state = (health.get("data") or {}).get("intradayState") or {}
-    for field in ("backend", "shared", "ttlSeconds", "maxPayloadBytes"):
-        assert field in intraday_state, ("health.intradayState", field, health)
-    assert intraday_state["ttlSeconds"] == 120, intraday_state
-    assert intraday_state["maxPayloadBytes"] == 2 * 1024 * 1024, intraday_state
-    assert "redis" in intraday_state, intraday_state
-    if args.require_shared_redis:
-        redis_stats = intraday_state.get("redis") or {}
-        for field in ("usedMemoryBytes", "maxMemoryBytes", "memoryUsageRatio", "hitRate", "evictedKeys"):
-            assert field in redis_stats, ("health.intradayState.redis", field, health)
     market_calc = (health.get("data") or {}).get("marketCalc") or {}
     for field in ("stockBasicCoverage", "predictionMigration"):
         assert field in market_calc, ("health.marketCalc", field, health)
-    if args.require_shared_redis:
-        assert intraday_state.get("backend") == "redis" and intraday_state.get("shared") is True, intraday_state
     for scope in ("today", "next_day"):
         status, payload = request_json(f"{base}/api/predictions?scope={scope}")
         if status in (503, 500) and payload.get("code") in (50301, 50302) and not args.require_data:
@@ -76,6 +63,13 @@ def main() -> int:
         print("API contract checks passed (transport-only local mode)")
         return 0
     assert status == 200 and refreshed.get("code") == 0, refreshed
+    if (refreshed.get("data") or {}).get("refreshStatus") == "applied":
+        assert (refreshed.get("data") or {}).get("dataStage") == "realtime", refreshed
+        status, stable = request_json(f"{base}/api/predictions?scope=today")
+        assert status == 200 and stable.get("code") == 0, stable
+        assert (stable.get("data") or {}).get("dataStage") != "realtime", "GET 不应读取盘中刷新结果"
+    quote_status, quote_invalid = request_json(f"{base}/api/quotes/realtime", "POST", {"ts_codes": []})
+    assert quote_status == 400 and quote_invalid.get("code") == 40001, quote_invalid
     print("API contract checks passed")
     return 0
 

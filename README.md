@@ -46,9 +46,9 @@ python3 -m server.app
 ```bash
 python3 -m unittest discover -s server -p 'test_*.py'
 python3 server/tools/api_contract_check.py
-python3 server/tools/api_contract_check.py --require-data --require-shared-redis  # 生产验收
+python3 server/tools/api_contract_check.py --require-data  # 生产验收
 python3 server/tools/prediction_migration_check.py --require-zero-legacy-reads --require-complete-stock-basic  # 迁移验收
-python3 server/tools/health_alert_check.py --base-url http://127.0.0.1:8787 --require-shared-redis  # 健康告警检查
+python3 server/tools/health_alert_check.py --base-url http://127.0.0.1:8787  # 健康告警检查
 find miniprogram -name '*.js' -print0 | xargs -0 -n1 node --check
 python3 -m json.tool miniprogram/app.json >/dev/null
 git diff --check
@@ -63,6 +63,7 @@ GET  /api/stocks/detail?ts_code=...
 GET  /api/monitor?status=current&type=all|risk|severe
 GET  /api/predictions?scope=today|next_day
 POST /api/predictions/refresh
+POST /api/quotes/realtime
 ```
 
 接口完整字段和阶段规则见工程说明；不要依据旧方案文档或旧字段实现新功能。
@@ -79,4 +80,4 @@ POST /api/predictions/refresh
 
 根目录 `Dockerfile` 负责安装 `server/requirements.txt` 并启动
 `python -m server.app`；`server/Dockerfile` 可在把 `server` 设为独立构建上下文时使用。
-云托管生产环境还必须配置 `REDIS_URL`，服务重启后 `/health.data.intradayState.shared` 必须为 `true`、`backend` 必须为 `redis`。发布后先检查 `/health`，再按测试文档执行 API 和小程序验收。生产发布使用微信云托管控制台，不使用 CloudBase CLI。
+云托管生产环境不需要为盘中行情配置 Redis。盘中刷新结果只在 POST 响应中返回，不写入数据库或缓存。发布后先检查 `/health`，再按测试文档执行 API 和小程序验收。生产发布使用微信云托管控制台，不使用 CloudBase CLI。

@@ -17,8 +17,7 @@
       <view class="trigger-field"><text class="prediction-label">触发条件</text><text class="trigger-value">{{item.triggerValue}}</text></view>
     </view>
   </view></view>
-  <view wx:if="{{refreshing && !items.length}}" class="card loading-state">正在更新预测快照…</view>
-  <view wx:if="{{!items.length && !refreshing}}" class="card empty">当前范围暂无候选股票</view>
+  <view wx:if="{{!items.length && !loading && !refreshing}}" class="card empty">当前范围暂无候选股票</view>
   <view class="legal-footer-links">
     <navigator class="page-footer-link" url="/pages/privacy/index" hover-class="tap-feedback" hover-stay-time="80">隐私政策</navigator>
     <text class="footer-separator">·</text>

@@ -21,4 +21,9 @@ function refreshPredictions(scope) {
   return request({ url: '/api/predictions/refresh', method: 'POST', data: { scope }, timeout: 10000, retry: 0 }).then((response) => response.data || { items: [], quoteUpdatedAt: '' })
 }
 
-module.exports = { searchStocks, getStockDetail, getMonitor, getPredictions, refreshPredictions }
+// 仅供需要原始盘中行情的页面使用；后端不保存本次报价。
+function getRealtimeQuotes(tsCodes) {
+  return request({ url: '/api/quotes/realtime', method: 'POST', data: { ts_codes: tsCodes }, timeout: 8000, retry: 0 }).then((response) => response.data || { quotes: {}, persisted: false })
+}
+
+module.exports = { searchStocks, getStockDetail, getMonitor, getPredictions, refreshPredictions, getRealtimeQuotes }

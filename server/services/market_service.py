@@ -21,7 +21,6 @@ from server.core.abnormal_rules import BOARD_RULES, Board, PriceBar, calculate_d
 from .realtime_quote import RealtimeQuoteClient
 from .market_calc_repository import MarketCalcRepository
 from .tushare_client import TushareClient, TushareUnavailable
-from .intraday_state_store import IntradayStateStore
 
 
 INDEX_BY_MARKET = {"SSE": "000001.SH", "SZSE": "399107.SZ", "BSE": "899050.BJ"}
@@ -138,7 +137,6 @@ class MarketService:
         self._prediction_generation_stats: Dict[str, Dict[str, int]] = {}
         self._clock = lambda: datetime.now(SHANGHAI_TZ)
         self._prediction_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="prediction")
-        self._intraday_store = IntradayStateStore()
         self._intraday_refresh_futures: Dict[str, Any] = {}
         self._intraday_refresh_lock = Lock()
         self._prediction_rebuild_lock = Lock()
@@ -310,6 +308,26 @@ class MarketService:
 
         self._market_scheduler_stop.set()
         self._prediction_executor.shutdown(wait=False)
+
+    def realtime_quotes(self, ts_codes: Iterable[str]) -> Dict[str, Any]:
+        """透传一批盘中行情；只在本次请求内使用，不写入数据库或缓存。"""
+
+        requested: List[str] = []
+        seen = set()
+        for value in ts_codes:
+            code = str(value or "").strip().upper()
+            if code and code not in seen:
+                requested.append(code)
+                seen.add(code)
+        quotes = self._realtime.fetch_many(requested)
+        updated = [str(item.get("updatedAt") or "") for item in quotes.values() if item.get("updatedAt")]
+        return {
+            "quotes": quotes,
+            "requestedCount": len(requested),
+            "returnedCount": len(quotes),
+            "quoteUpdatedAt": max(updated, default=""),
+            "persisted": False,
+        }
 
     def set_clock(self, clock: Any) -> None:
         """Inject a Shanghai-time clock for deterministic phase tests."""
@@ -2077,11 +2095,9 @@ class MarketService:
         # 接口顶层日期必须对应本次实际展示的数据集。休息日/盘前的 today
         # 展示上一交易日，不能把阶段状态里的下一交易日误报给前端。
         display_target_date = dataset_date or lookup_date
-        ephemeral = self._intraday_store.get(source_scope, dataset_date) if dataset_date else None
-        ephemeral_at = self._parse_prediction_datetime((ephemeral or {}).get("updatedAt")) if ephemeral else None
-        ephemeral_active = bool(ephemeral and ephemeral_at and (now - ephemeral_at).total_seconds() <= IntradayStateStore.TTL_SECONDS and state["realtimeRefreshAllowed"] and scope == "today")
         cached = self._prediction_cache.get(source_scope)
-        items = list((ephemeral or {}).get("items") or [] if ephemeral_active else (cached[1] if cached else []))
+        # GET 只读已生成的数据集；盘中实时结果由 POST refresh 直接返回，不进入缓存或数据库。
+        items = list(cached[1] if cached else [])
         target_date = str(state.get("targetTradeDate") or "")
         dataset_matches_target = dataset_date == target_date
         next_data_stage = str((persistent or {}).get("data_stage") or "formal")
@@ -2113,9 +2129,9 @@ class MarketService:
         items = self._normalize_prediction_items(items)
         refreshing = False
         dataset_updated = self._format_prediction_datetime((persistent or {}).get("dataset_quote_updated_at")) or self._format_prediction_datetime((persistent or {}).get("updated_at") or (cached[0] if cached else None))
-        has_realtime = ephemeral_active
+        has_realtime = False
         stored_stage = str((persistent or {}).get("data_stage") or "formal")
-        quality = "realtime" if ephemeral_active else str((persistent or {}).get("data_quality") or ("provisional" if stored_stage == "initial" else "confirmed"))
+        quality = str((persistent or {}).get("data_quality") or ("provisional" if stored_stage == "initial" else "confirmed"))
         job_failed = str((prediction_job or {}).get("status") or "") == "failed"
         dataset_status = "failed" if job_failed else str((persistent or {}).get("status") or ("ready" if persistent else "missing"))
         dataset_error = str(
@@ -2151,18 +2167,18 @@ class MarketService:
             "dataUnavailable": bool(job_failed or (persistent or {}).get("status") in {"failed", "incomplete"} or dataset_incomplete or ((persistent is None) and not items)),
             "datasetStatus": dataset_status,
             "updatedAt": dataset_updated,
-            "dataStage": "realtime" if ephemeral_active else stored_stage,
-            "refreshStatus": "applied" if ephemeral_active else "not_allowed",
+            "dataStage": stored_stage,
+            "refreshStatus": "not_allowed",
             "refreshing": refreshing,
             "error": dataset_error,
             "dataQuality": {
                 "source": "腾讯/新浪/东方财富" if has_realtime else ("Tushare" if stored_stage == "formal" else "腾讯/新浪/东方财富"),
-                "intraday": ephemeral_active,
+                "intraday": False,
                 "quality": quality,
-                "stage": "realtime" if ephemeral_active else stored_stage,
+                "stage": stored_stage,
                 "complete": bool((persistent or {}).get("dataset_quote_complete", True)),
                 # 质量字段保留给监控和兼容调用方；预测页不展示实时行情延迟提示。
-                "message": "" if ephemeral_active else ("初态数据，待 Tushare 正式数据确认" if stored_stage == "initial" else "基于最近已确认收盘数据"),
+                "message": "初态数据，待 Tushare 正式数据确认" if stored_stage == "initial" else "基于最近已确认收盘数据",
             },
         }
 
@@ -2253,12 +2269,34 @@ class MarketService:
                 if future is None or future.done():
                     future = self._prediction_executor.submit(self._refresh_existing_prediction_scope, source_scope)
                     self._intraday_refresh_futures[source_scope] = future
+            items: List[Dict[str, Any]] = []
+            refresh_succeeded = False
             try:
                 items = future.result(timeout=10)
-                updated_at = self._now()
-                target_date = str((self._prediction_record(source_scope) or {}).get("target_trade_date") or self._prediction_trade_date.get(source_scope, ""))
-                if target_date:
-                    self._intraday_store.set(source_scope, target_date, {"updatedAt": updated_at.strftime("%Y-%m-%d %H:%M:%S"), "items": items})
+                refresh_succeeded = True
+                # 盘中结果只随本次响应返回，不写入 MySQL、Redis 或进程缓存。
             except Exception as exc:
                 self._prediction_last_error[source_scope] = str(exc)
+            if not refresh_succeeded:
+                return self.predictions(requested_scope)
+            result = self.predictions(requested_scope)
+            result["items"] = self._normalize_prediction_items(items)
+            quote_times = [str(item.get("quoteUpdatedAt") or "") for item in items if item.get("quoteUpdatedAt")]
+            quote_updated_at = max(quote_times, default="")
+            result.update({
+                "quoteUpdatedAt": quote_updated_at or result.get("quoteUpdatedAt", ""),
+                "dataStage": "realtime",
+                "refreshStatus": "applied",
+                "dataQuality": {
+                    **(result.get("dataQuality") or {}),
+                    "source": "腾讯/新浪/东方财富",
+                    "intraday": True,
+                    "quality": "realtime",
+                    "stage": "realtime",
+                    "message": "",
+                },
+                "dataUnavailable": False,
+                "refreshing": False,
+            })
+            return result
         return self.predictions(requested_scope)

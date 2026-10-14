@@ -66,14 +66,14 @@ class PredictionHealthTests(unittest.TestCase):
         finally:
             service.close()
 
-    def test_health_alerts_cover_failed_dataset_and_shared_redis(self):
+    def test_health_alerts_cover_failed_dataset_without_redis_requirement(self):
         alerts = collect_alerts({
             "marketCalc": {"lastErrorActive": False},
             "prediction": {"today": {"status": "failed", "lastError": "任务失败", "available": True, "datasetQuoteComplete": True}, "next_day": {}},
-            "intradayState": {"backend": "local_fallback", "shared": False},
-        }, require_shared_redis=True)
+            "intradayState": {},
+        })
         keys = {item["key"] for item in alerts}
-        self.assertEqual(keys, {"prediction_today", "shared_redis"})
+        self.assertEqual(keys, {"prediction_today"})
 
     def test_health_alerts_report_incomplete_stock_fields_and_legacy_rows(self):
         alerts = collect_alerts({
@@ -85,20 +85,6 @@ class PredictionHealthTests(unittest.TestCase):
             "intradayState": {"backend": "redis", "shared": True},
         })
         self.assertEqual({item["key"] for item in alerts}, {"stock_basic_coverage", "prediction_cache_migration"})
-
-    def test_health_alerts_report_redis_capacity_and_hit_rate(self):
-        alerts = collect_alerts({
-            "marketCalc": {},
-            "prediction": {"today": {}, "next_day": {}},
-            "intradayState": {
-                "backend": "redis", "shared": True,
-                "redis": {"memoryUsageRatio": 0.91, "hitRate": 0.8},
-            },
-        }, require_shared_redis=True)
-        self.assertEqual({item["key"] for item in alerts}, {"redis_memory", "redis_hit_rate"})
-        self.assertEqual(next(item for item in alerts if item["key"] == "redis_memory")["severity"], "critical")
-
-
 
 class DetailDataQualityTests(unittest.TestCase):
     def _service(self, quotes):

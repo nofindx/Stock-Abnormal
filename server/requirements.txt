@@ -4,9 +4,6 @@ tushare>=1.4.0
 # CloudBase MySQL 最小持久化层
 PyMySQL>=1.1,<2
 
-# 盘中预测状态跨云托管实例共享
-redis>=5,<7
-
 # 公告正文解析（失败时仍保留标题级保守判断）
 pypdf>=5,<7
 

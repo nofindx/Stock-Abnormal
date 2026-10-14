@@ -34,50 +34,26 @@ Page({
       return
     }
     if (scope === this.data.scope) return
-    if (this.pollTimer) clearTimeout(this.pollTimer)
-    this.pollAttempts = 0
     this.setData({ scope, items: [], error: '' }, () => this.loadData())
   },
   loadData() {
     if (this.data.loading) return Promise.resolve()
     this.setData({ loading: true, error: '' })
     return getPredictions(this.data.scope).then((result) => {
-      const refreshing = Boolean(result.refreshing)
-      this.setData({ items: normalizeItems(result.items), quoteUpdatedAt: result.quoteUpdatedAt || '', dataQuality: result.dataQuality || {}, dataUnavailable: Boolean(result.dataUnavailable), loading: false, refreshing, error: result.error || '', nextDayAvailable: result.nextDayAvailable !== false, nextDayReason: result.nextDayReason || '' })
+      this.setData({ items: normalizeItems(result.items), quoteUpdatedAt: result.quoteUpdatedAt || '', dataQuality: result.dataQuality || {}, dataUnavailable: Boolean(result.dataUnavailable), loading: false, refreshing: false, error: result.error || '', nextDayAvailable: result.nextDayAvailable !== false, nextDayReason: result.nextDayReason || '' })
       getApp().globalData.lastPredictionRefresh = result.quoteUpdatedAt || null
-      if (refreshing) this.schedulePoll()
     }).catch(() => {
       this.setData({ loading: false, error: '预测数据暂时不可用，请稍后重试' })
     })
   },
-  schedulePoll() {
-    if (this.pollTimer) clearTimeout(this.pollTimer)
-    this.pollAttempts = (this.pollAttempts || 0) + 1
-    if (this.pollAttempts > 25) {
-      this.setData({ refreshing: false })
-      return
-    }
-    this.pollTimer = setTimeout(() => {
-      getPredictions(this.data.scope).then((result) => {
-        const refreshing = Boolean(result.refreshing)
-        const items = preserveItemOrder(this.data.items, normalizeItems(result.items))
-        this.setData({ items, quoteUpdatedAt: result.quoteUpdatedAt || '', dataQuality: result.dataQuality || {}, dataUnavailable: Boolean(result.dataUnavailable), refreshing, error: result.error || '', nextDayAvailable: result.nextDayAvailable !== false, nextDayReason: result.nextDayReason || '' })
-        if (refreshing) this.schedulePoll()
-        else this.pollAttempts = 0
-      }).catch(() => this.schedulePoll())
-    }, 1200)
-  },
   refresh(options = {}) {
     const showButtonLoading = options.showButtonLoading !== false
     if (this.data.buttonRefreshing) return Promise.resolve()
-    this.pollAttempts = 0
     this.setData({ buttonRefreshing: showButtonLoading, error: '' })
     return refreshPredictions(this.data.scope).then((result) => {
-      const refreshing = Boolean(result.refreshing)
       const items = preserveItemOrder(this.data.items, normalizeItems(result.items))
-      this.setData({ buttonRefreshing: false, refreshing, items, quoteUpdatedAt: result.quoteUpdatedAt || '', dataQuality: result.dataQuality || {}, dataUnavailable: Boolean(result.dataUnavailable), error: result.error || '', nextDayAvailable: result.nextDayAvailable !== false, nextDayReason: result.nextDayReason || '' })
+      this.setData({ buttonRefreshing: false, refreshing: false, items, quoteUpdatedAt: result.quoteUpdatedAt || '', dataQuality: result.dataQuality || {}, dataUnavailable: Boolean(result.dataUnavailable), error: result.error || '', nextDayAvailable: result.nextDayAvailable !== false, nextDayReason: result.nextDayReason || '' })
       getApp().globalData.lastPredictionRefresh = result.quoteUpdatedAt || null
-      if (refreshing) this.schedulePoll()
     }).catch(() => {
       this.setData({ buttonRefreshing: false, refreshing: false, error: '刷新失败，请稍后重试' })
     })
@@ -91,8 +67,5 @@ Page({
     if (!stock) return
     getApp().globalData.pendingStock = stock
     wx.switchTab({ url: '/pages/stock/index' })
-  },
-  onUnload() {
-    if (this.pollTimer) clearTimeout(this.pollTimer)
   },
 })
