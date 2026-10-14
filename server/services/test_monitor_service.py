@@ -167,6 +167,29 @@ class MonitorWindowTests(unittest.TestCase):
         self.assertEqual(OfficialMonitorService._monitor_type("风险提示", "10 个交易日内涨幅偏离值累计超过100％以上"), ("10日严重异动", "severe-10d"))
         self.assertEqual(OfficialMonitorService._monitor_type("风险提示", "30个交易日内日收盘价格涨幅偏离值累计达到200.15%"), ("30日严重异动", "severe-30d"))
 
+    def test_actual_short_severe_windows_are_supported_for_shanghai_and_shenzhen(self):
+        self.assertEqual(
+            OfficialMonitorService._monitor_type(
+                "关于股票交易风险提示的公告",
+                "股票自2026年9月23日至2026年10月8日连续6个交易日收盘价格涨幅偏离值累计超过100%，属于股票交易严重异常波动情形。",
+            ),
+            ("10日严重异动", "severe-10d"),
+        )
+        self.assertEqual(
+            OfficialMonitorService._monitor_type(
+                "关于股票交易风险提示的公告",
+                "连续8个交易日内日收盘价格涨幅偏离值累计达到117.06%，属于股票交易严重异常波动的情形。",
+            ),
+            ("10日严重异动", "severe-10d"),
+        )
+        self.assertEqual(
+            OfficialMonitorService._monitor_type(
+                "关于股票交易异常波动的公告",
+                "连续3个交易日内收盘价格涨幅偏离值累计超过30%，属于股票交易异常波动。",
+            ),
+            ("", ""),
+        )
+
     def test_history_endpoint_is_removed(self):
         with self.assertRaises(ValueError):
             self.service.read("history", "all")

@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 import json
+import gzip
+import os
 import re
 from datetime import datetime
 from html.parser import HTMLParser
 from io import BytesIO
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 
 class AnnouncementService:
@@ -172,37 +175,82 @@ class AnnouncementService:
             return {"items": [], "available": False, "error": str(exc), "source": "东方财富证券 18.cn"}
 
         items: List[Dict[str, Any]] = []
-        for row in parser.items:
-            date_match = re.search(r"\d{4}-\d{2}-\d{2}", row["date"])
-            code_match = re.search(r"[（(](\d{6})[）)]", row["title"])
-            if not date_match or not code_match or not (start_date <= date_match.group(0) <= end_date):
-                continue
-            url = self.broker_alert_root + row["path"]
-            try:
-                detail_request = Request(url, headers={"User-Agent": "Mozilla/5.0"})
-                detail = urlopen(detail_request, timeout=12).read().decode("utf-8", "replace")
-                body_parser = self._TextParser()
-                body_parser.feed(detail)
-                body = " ".join(body_parser.parts)
-            except Exception as exc:  # noqa: BLE001 - 部分详情失败时禁止悄悄发布不完整结果
-                return {"items": items, "available": False, "error": str(exc), "source": "东方财富证券 18.cn"}
-            # 18.cn 只负责提供正文和链接；是否纳入及风险类型由监控服务统一按正文分类。
-            # ETF、基金、北交所等非核心板块标的也必须保留，前端只做视觉弱化。
-            code = code_match.group(1)
-            if not re.fullmatch(r"\d{6}", code):
-                continue
-            name_match = re.search(r"关于[“\"](.+?)[（(]" + code + r"[）)]", row["title"])
+        failures: List[str] = []
+
+        def fetch_detail(path: str, title_hint: str = "", date_hint: str = "") -> Dict[str, Any]:
+            """读取详情页并处理 18.cn 偶发的 gzip 响应。"""
+
+            url = self.broker_alert_root + path
+            request = Request(url, headers={"User-Agent": "Mozilla/5.0"})
+            response = urlopen(request, timeout=12)
+            content = response.read()
+            if content[:2] == b"\x1f\x8b" or response.headers.get("Content-Encoding", "").lower() == "gzip":
+                content = gzip.decompress(content)
+            html = content.decode("utf-8", "replace")
+            body_parser = self._TextParser()
+            body_parser.feed(html)
+            body = " ".join(body_parser.parts)
+            title_match = re.search(r"<h1[^>]*>(.*?)</h1>", html, re.I | re.S)
+            title = re.sub(r"<[^>]+>", "", title_match.group(1)).strip() if title_match else title_hint
+            date_match = re.search(r"<h5[^>]*>\s*(\d{4}-\d{2}-\d{2})", html, re.I)
+            announcement_date = date_match.group(1) if date_match else date_hint
+            code_match = re.search(r"[（(](\d{6})[）)]", title)
+            if not title or not announcement_date or not code_match:
+                raise ValueError("18.cn 详情页缺少标题、日期或证券代码")
+            name_match = re.search(r"关于[“\"](.+?)[（(]" + code_match.group(1) + r"[）)]", title)
             if not name_match:
-                continue
-            items.append({
-                "title": row["title"], "date": date_match.group(0),
-                "stockCode": code, "stockName": name_match.group(1),
-                "url": url, "source": "东方财富证券 18.cn",
+                raise ValueError("18.cn 详情页缺少证券名称")
+            return {
+                "title": title, "date": announcement_date, "stockCode": code_match.group(1),
+                "stockName": name_match.group(1), "url": url, "source": "东方财富证券 18.cn",
                 "sourceType": "broker-risk-alert", "sourceRole": "broker_primary",
                 "sourcePriority": self.source_policy["broker-risk-alert"]["priority"],
                 "sourceLabel": self.source_policy["broker-risk-alert"]["label"], "body": body,
-            })
-        return {"items": items, "available": True, "source": "东方财富证券 18.cn", "sourceUrl": self.broker_alert_list}
+            }
+
+        for row in parser.items:
+            date_match = re.search(r"\d{4}-\d{2}-\d{2}", row["date"])
+            if not date_match or not (start_date <= date_match.group(0) <= end_date):
+                continue
+            try:
+                items.append(fetch_detail(row["path"], row["title"], date_match.group(0)))
+            except Exception as exc:  # noqa: BLE001 - 部分详情失败时禁止悄悄发布不完整结果
+                failures.append(f"{row.get('path', '')}: {exc}")
+
+        # 列表页只保留最近 20 条。补读一小段相邻历史 ID，避免仍在 10 个
+        # 交易日监管期内的公告因滚出列表而永久消失。失败的 404/空页只计入
+        # 部分失败，不影响已成功读取的公告发布。
+        history_ids = []
+        current_ids = [int(value) for row in parser.items for value in re.findall(r"/article/detail/818/(\d+)", row.get("path", ""))]
+        if current_ids and os.getenv("BROKER_HISTORY_SCAN", "1") != "0":
+            floor = max(1, min(current_ids) - 80)
+            history_ids = list(range(min(current_ids) - 1, floor - 1, -1))
+
+        def fetch_history(identifier: int) -> Optional[Dict[str, Any]]:
+            try:
+                item = fetch_detail(f"/article/detail/818/{identifier}")
+                if start_date <= item["date"] <= end_date:
+                    return item
+            except Exception:
+                return None
+            return None
+
+        if history_ids:
+            with ThreadPoolExecutor(max_workers=12) as executor:
+                futures = [executor.submit(fetch_history, identifier) for identifier in history_ids]
+                for future in as_completed(futures):
+                    item = future.result()
+                    if item:
+                        items.append(item)
+
+        deduped = {item["url"]: item for item in items if item.get("url")}
+        return {
+            "items": sorted(deduped.values(), key=lambda item: (item["date"], item["stockCode"], item["url"]), reverse=True),
+            "available": True,
+            "partial": bool(failures),
+            "error": "; ".join(failures[:3]),
+            "source": "东方财富证券 18.cn", "sourceUrl": self.broker_alert_list,
+        }
 
     def query(self, symbol: str, name: str = "", limit: int = 10) -> Dict[str, Any]:
         symbol = str(symbol or "").strip()

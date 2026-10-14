@@ -100,18 +100,15 @@ Page({
       ...item,
       // 剩余监管交易日由后端计算，前端只负责格式化展示。
       days: formatRemainingDays(item.days),
-      // 所有标的都保留；仅非关键标的和 ST 股票弱化名称、代码。
+      // 所有标的都保留；去杂项仅弱化，不改变后端监控事实。
       // 监管日期、风险标签和剩余天数仍使用正常风险配色。
-      mutedSecurity: !isCoreBoardSymbol(item.symbol) || item.isST || String(item.name || '').toUpperCase().includes('ST'),
+      noiseSecurity: isNoiseSecurity(item),
+      mutedSecurity: isNoiseSecurity(item),
       riskTone: item.riskTone || 'ordinary'
     }))
-    // 去杂同时隐藏 ST 和非关键标的；关闭时保留后端快照中的全部记录。
+    // 去杂隐藏 5/1 开头标的、ST/*ST 和退市标的；9 开头北交所始终保留。
     if (this.data.hideNoise) {
-      filtered = filtered.filter(item => (
-        !item.isST &&
-        !String(item.name || '').toUpperCase().includes('ST') &&
-        !item.mutedSecurity
-      ))
+      filtered = filtered.filter(item => !item.noiseSecurity)
     }
     filtered.sort((left, right) => Number(left.days == null ? 9999 : left.days) - Number(right.days == null ? 9999 : right.days))
     this.setData({ items: filtered, visibleCount: filtered.length })
@@ -130,10 +127,13 @@ Page({
   }
 })
 
-// 沪深主板、创业板、科创板和北交所保持正常强调；其余证券仅做弱化展示，不参与过滤。
-function isCoreBoardSymbol(symbol) {
-  const code = String(symbol || '').match(/\d{6}/)?.[0] || ''
-  return /^(000|001|002|003|300|301|600|601|603|605|688|[489]\d{5})/.test(code)
+// 去杂只处理基金/ETF 常见的 5/1 开头代码、ST/*ST 和退市标的。
+// 9 开头是北交所证券，即使名称带特殊标记，也不按代码形态去杂。
+function isNoiseSecurity(item) {
+  const code = String(item && (item.symbol || item.ts_code) || '').match(/\d{6}/)?.[0] || ''
+  if (code.startsWith('9')) return false
+  const name = String(item && item.name || '').toUpperCase()
+  return code.startsWith('5') || code.startsWith('1') || /(?:^|\*)ST/.test(name) || name.includes('退市')
 }
 
 function formatRemainingDays(value) {

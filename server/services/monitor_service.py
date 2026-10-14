@@ -39,7 +39,7 @@ MONITOR_PERIOD_TRADING_DAYS = {
 MONITOR_WINDOW_TRADING_DAYS = MONITOR_PERIOD_TRADING_DAYS
 # 公告分类口径变化时，启动任务主动重采一次当前快照；避免必须等到次日
 # 00:00 才让修复后的北交所严重异动进入重点监控。
-MONITOR_RULE_VERSION = "2026-10-bse-severe-deviation-v3"
+MONITOR_RULE_VERSION = "2026-10-monitor-source-and-noise-v4"
 
 
 class MonitorRepository:
@@ -239,20 +239,32 @@ class OfficialMonitorService:
 
     @staticmethod
     def _classify_monitor_text(title: str, body: str) -> tuple[str, str]:
-        """按 18.cn/巨潮正文语义分类：30 日、10 日、风险提示；无法确认则丢弃。"""
+        """按公告正文语义分类：30 日、10 日、风险提示；无法确认则丢弃。
+
+        交易所公告经常把严重异动窗口写成“连续 6/8 个交易日”，而不是
+        固定复述“10 个交易日”。只要正文明确写出严重异常、上涨偏离值
+        累计达到 100% 以上，就归入产品的 10 日严重异动类型；3 日普通
+        异动没有“严重异常波动”语义，仍不会被纳入。
+        """
 
         # 分类严格基于正文；标题仅用于确认公告是否明确写明“严重异常波动”。
         text = re.sub(r"\s+", "", body or "").replace("％", "%")
         has_30_window = "30个交易日" in text
         has_10_window = "10个交易日" in text
-        has_30_threshold = bool(
-            re.search(r"30个交易日.{0,160}(?:200|300)(?:\.\d+)?%", text)
-            or re.search(r"(?:200|300)(?:\.\d+)?%.{0,160}30个交易日", text)
-        )
-        has_10_threshold = bool(
-            re.search(r"10个交易日.{0,160}(?:100|150)(?:\.\d+)?%", text)
-            or re.search(r"(?:100|150)(?:\.\d+)?%.{0,160}10个交易日", text)
-        )
+        def deviation_values(window: str) -> List[float]:
+            values: List[float] = []
+            pattern = rf"{window}个交易日.{{0,220}}?(?:涨幅|偏离值).{{0,60}}?(?:达到|超过|为)[^\d+%]?(\d+(?:\.\d+)?)%"
+            for match in re.finditer(pattern, text):
+                try:
+                    values.append(float(match.group(1)))
+                except ValueError:
+                    continue
+            return values
+
+        values_30 = deviation_values("30")
+        values_10 = deviation_values("10")
+        has_30_threshold = any(value >= 200 for value in values_30)
+        has_10_threshold = any(value >= 100 for value in values_10)
         has_risk_wording = (
             "交易所将对以上证券的异常交易行为进行从严认定" in text
         )
@@ -260,16 +272,20 @@ class OfficialMonitorService:
             return "30日严重异动", "severe-30d"
         if has_10_window and has_10_threshold:
             return "10日严重异动", "severe-10d"
-        # 北交所公告常按实际连续交易日数披露（例如“连续4个交易日跌幅
-        # 偏离值累计达到 -61.39%”），不一定写成沪深的 10/30 日固定窗口。
-        # 标题明确为“严重异常波动”且正文给出累计偏离百分比时，按严重异动
-        # 纳入 10 日监管期，不能因为窗口不是 10/30 日而漏掉。
-        has_severe_title = "严重异常波动" in str(title or "")
+        # 沪深交易所也会按实际连续交易日数披露严重异动（例如连续 6/8
+        # 个交易日上涨超过 100%）。这是公告事实分类，不改变行情规则的
+        # 固定 10 日判定窗口；负向偏离不在本产品规则范围内。
+        has_severe_title = "严重异常波动" in str(title or "") or "严重异常波动" in text
+        has_positive_deviation = bool(re.search(
+            r"(?:涨幅|偏离值累计).{0,30}(?:达到|超过|为)[^\d+%]?(?:1\d{2}|[2-9]\d{2})(?:\.\d+)?%",
+            text,
+        ))
+        has_actual_window = bool(re.search(r"连续\d+个交易日", text))
         has_explicit_deviation = bool(re.search(
             r"(?:涨幅|跌幅|涨跌幅).*?偏离值累计(?:达到|超过|为)[-+]?\d+(?:\.\d+)?%",
             text,
         ))
-        if has_severe_title and has_explicit_deviation:
+        if has_severe_title and has_actual_window and (has_positive_deviation or has_explicit_deviation):
             return "10日严重异动", "severe-10d"
         if has_risk_wording:
             return "风险提示", "ordinary"
@@ -480,6 +496,7 @@ class OfficialMonitorService:
             start_date = (now - timedelta(days=90)).strftime("%Y-%m-%d")
             broker_result = self.announcements.query_broker_risk_alerts(start_date, now.strftime("%Y-%m-%d"))
             broker_available = bool(broker_result.get("available"))
+            broker_partial = bool(broker_result.get("partial"))
             # 两种来源都尝试：18.cn 成功时作为主源，18.cn 失败而巨潮成功时由巨潮接替主源。
             try:
                 result = self.announcements.query_market(start_date, now.strftime("%Y-%m-%d"))
@@ -557,12 +574,15 @@ class OfficialMonitorService:
                 item for item in previous_snapshot.get("items", [])
                 if str(item.get("monitorEndDate") or "") >= (now - timedelta(days=30)).strftime("%Y-%m-%d")
             ]
-            merge_items = parsed_events + previous_items if broker_available else parsed_events
+            # 源站滚动、单条详情失败或短时不可用时，保留尚未到期的旧记录；
+            # 新公告按同股同类型的最新记录覆盖旧记录。这样不会因为一次
+            # 部分抓取把闽东、天普等仍在监管期内的卡片清空。
+            merge_items = parsed_events + previous_items
             parsed = self._collapse_by_stock(merge_items, now.strftime("%Y-%m-%d"))
             self._cache_active_pdfs(parsed, now.strftime("%Y-%m-%d"))
             updated_at = datetime.now(SHANGHAI_TZ).strftime("%Y-%m-%d %H:%M")
             active_source = "broker_primary" if broker_available else "issuer_disclosure_backup"
-            source_label = "18.cn 主源" if broker_available else "巨潮资讯备源（主源降级接替）"
+            source_label = "18.cn 主源（部分详情失败）" if broker_available and broker_partial else ("18.cn 主源" if broker_available else "巨潮资讯备源（主源降级接替）")
             snapshot = {
                 "snapshotId": run_id, "snapshotDate": now.strftime("%Y-%m-%d"),
                 "asOfTradeDate": "",
@@ -573,13 +593,13 @@ class OfficialMonitorService:
                     "announcementStatus": "source-specific",
                     "verifiedSources": ["东方财富证券 18.cn", "巨潮资讯"],
                     "sourcePolicy": [
-                        {"role": "broker_primary", "label": "18.cn 主源", "priority": 1, "status": "available" if broker_available else "degraded"},
+                        {"role": "broker_primary", "label": "18.cn 主源", "priority": 1, "status": "degraded" if broker_partial or not broker_available else "available"},
                         {"role": "issuer_disclosure_backup", "label": "巨潮资讯备源", "priority": 2, "status": "available" if issuer_available else "degraded"},
                     ],
                     "sourceHealth": {
-                        "brokerPrimary": "available" if broker_available else "degraded",
+                        "brokerPrimary": "degraded" if broker_partial or not broker_available else "available",
                         "issuerBackup": "available" if issuer_available else "degraded",
-                        "brokerError": "" if broker_available else str(broker_result.get("error") or "18.cn 未完整返回"),
+                        "brokerError": str(broker_result.get("error") or "") if broker_partial else ("" if broker_available else "18.cn 未完整返回"),
                         "issuerError": "" if issuer_available else str(result.get("error") or "巨潮资讯未完整返回"),
                     },
                     "activeSource": active_source,
