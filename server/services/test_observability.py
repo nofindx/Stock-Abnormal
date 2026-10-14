@@ -46,6 +46,20 @@ class RealtimeHealthTests(unittest.TestCase):
 
 
 class PredictionHealthTests(unittest.TestCase):
+    def test_health_ui_is_human_readable_and_escapes_values(self):
+        from server.app import _health_ui
+
+        html = _health_ui({"data": {
+            "tushareConfigured": True,
+            "dataSources": {"tushare": {"totals": {"failures": 0}}, "realtime": {"totals": {"failures": 0}}},
+            "prediction": {"today": {"itemCount": 3, "status": "ready", "targetTradeDate": "20261014"}, "next_day": {"itemCount": 2, "status": "ready", "targetTradeDate": "20261015"}},
+            "monitor": {"available": True, "itemCount": 0, "snapshotDate": "20261014", "dataQuality": {"activeSource": "18.cn 主源"}},
+            "marketCalc": {"available": True, "latestDataDate": "20261014", "dataStage": "formal", "stockBasicCoverage": {"complete": True, "total": 5574}, "predictionMigration": {"compatReadEnabled": False}},
+        }})
+        self.assertIn("异动查查 · 健康检查", html)
+        self.assertIn("当日预测", html)
+        self.assertIn("3 条", html)
+
     def test_prediction_health_reports_age_and_count(self):
         service = MarketService()
         try:

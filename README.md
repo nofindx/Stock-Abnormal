@@ -58,6 +58,7 @@ git diff --check
 
 ```text
 GET  /health
+GET  /health/ui
 GET  /api/stocks/search?q=...
 GET  /api/stocks/detail?ts_code=...
 GET  /api/monitor?status=current&type=all|risk|severe
@@ -67,6 +68,8 @@ POST /api/quotes/realtime
 ```
 
 接口完整字段和阶段规则见工程说明；不要依据旧方案文档或旧字段实现新功能。
+
+浏览器直接打开 `/health/ui` 可查看人类可读的发布状态摘要；`/health` 默认仍返回机器可读 JSON。浏览器以 `Accept: text/html` 请求 `/health` 时也会显示同一页面，脚本使用 `Accept: application/json` 时不受影响。
 
 ## 微信云托管部署
 
