@@ -29,7 +29,7 @@ BOARD_BY_MARKET = {"主板": Board.MAIN, "创业板": Board.CHINEXT, "科创板"
 SHANGHAI_TZ = ZoneInfo("Asia/Shanghai") if ZoneInfo else timezone(timedelta(hours=8))
 # 停牌/复牌重置、上涨同向计数和预测阶段切换属于同一套规则口径。
 # 版本变化会触发服务启动时从已确认收盘行情重建计算基础数据与预测集。
-PREDICTION_RULE_VERSION = "2026-10-upward-only-rule-cards-v23"
+PREDICTION_RULE_VERSION = "2026-10-upward-only-rule-cards-v24"
 
 # GBK 区位表不依赖第三方拼音包，适合云托管的轻量搜索场景。
 _PINYIN_RANGES = (
@@ -192,9 +192,13 @@ class MarketService:
         ts_code = str(item.get("ts_code") or "")
         return {ts_code, ts_code.split(".")[0], str(item.get("symbol") or "")}
 
-    def _prediction_item_allowed(self, item: Dict[str, Any], monitored_codes: Dict[str, set]) -> bool:
+    def _prediction_item_allowed(self, item: Dict[str, Any], monitored_codes: Dict[str, set], scope: str = "") -> bool:
         rule_key = str(item.get("ruleKey") or "")
         if rule_key in {"severe_10d", "severe_30d"}:
+            # 已进入对应严重异动监管期后，该严重规则由重点监控承接；
+            # 预测页仅追加普通/同向卡，避免同一规则重复展示。
+            if scope in {"today", "next_day"} and self._prediction_code_tokens(item) & monitored_codes.get(rule_key, set()):
+                return False
             return True
         if rule_key in {"ordinary_3d", "same_direction_10d"}:
             return bool(self._prediction_code_tokens(item) & monitored_codes.get("__severe_monitor__", set()))
@@ -771,10 +775,13 @@ class MarketService:
 
     @classmethod
     def _best_vector_deviation(cls, stock: List[Dict[str, Any]], index: List[Dict[str, Any]], max_window: int) -> tuple[Optional[float], Optional[int]]:
-        """计算窗口截止于最新共同有效交易日的固定尾窗偏离。
+        """计算最近有效窗口内的最大上涨偏离及实际窗口。
 
-        有效历史不足规则窗口时使用全部可用共同交易日并返回实际长度；
-        有足够历史时必须严格使用最近 N 个共同交易日，不能挑历史子窗口最大值。
+        交易所的 10/30 日口径是回看上限：10 日在最近 7/8/9/10 个共同
+        交易日中取当前端点的最大上涨偏离，30 日在 27/28/29/30 日中取
+        最大值。历史不足上限时使用全部可用共同交易日。这必须与
+        ``server.core.abnormal_rules._best_effective_deviation`` 保持一致，
+        否则单股和预测会出现“8 日被算成 10 日”的分叉。
         """
         if not stock or not index:
             return None, None
@@ -783,12 +790,20 @@ class MarketService:
         dates = sorted(set(stock_map) & set(index_map))
         if len(dates) < 1:
             return None, None
-        actual_window = min(max_window, len(dates))
-        if actual_window < 1:
+        upper = min(max_window, len(dates))
+        if upper < 1:
             return None, None
-        trailing_dates = dates[-actual_window:]
-        value = cls._compound(stock_map[day] for day in trailing_dates) - cls._compound(index_map[day] for day in trailing_dates)
-        return value, actual_window
+        lower = 27 if max_window == 30 else max(3, max_window - 3)
+        windows = list(range(lower, upper + 1)) if upper >= lower else [upper]
+        results = []
+        for window in windows:
+            trailing_dates = dates[-window:]
+            value = cls._compound(stock_map[day] for day in trailing_dates) - cls._compound(index_map[day] for day in trailing_dates)
+            results.append((value, window))
+        positive = [item for item in results if item[0] > 0]
+        if positive:
+            return max(positive, key=lambda item: (item[0], -item[1]))
+        return min(results, key=lambda item: (item[0], item[1]))
 
     @classmethod
     def _required_up_percent(cls, stock: List[Dict[str, Any]], index: List[Dict[str, Any]], actual_window: int, target_deviation: float) -> Optional[float]:
@@ -1627,7 +1642,7 @@ class MarketService:
                 ]
             rule_options: List[Dict[str, Any]] = []
             for rule_key, rule_window, threshold, kind, target in rules:
-                if scope == "next_day" and (stock.get("symbol") in monitored_codes.get(rule_key, set()) or ts_code.split(".")[0] in monitored_codes.get(rule_key, set())):
+                if scope in {"today", "next_day"} and (stock.get("symbol") in monitored_codes.get(rule_key, set()) or ts_code.split(".")[0] in monitored_codes.get(rule_key, set())):
                     stats["excludedByMonitor"] += 1
                     continue
                 deviation = metrics["deviations"].get(rule_window)
@@ -2125,7 +2140,7 @@ class MarketService:
             items = []
         # 普通/同向卡只有在股票仍处于 10 日或 30 日重点监控期时才展示。
         monitored_codes = self._monitored_rule_codes()
-        items = [item for item in items if self._prediction_item_allowed(item, monitored_codes)]
+        items = [item for item in items if self._prediction_item_allowed(item, monitored_codes, scope)]
         items = self._normalize_prediction_items(items)
         refreshing = False
         dataset_updated = self._format_prediction_datetime((persistent or {}).get("dataset_quote_updated_at")) or self._format_prediction_datetime((persistent or {}).get("updated_at") or (cached[0] if cached else None))
@@ -2190,7 +2205,7 @@ class MarketService:
             self._prediction_cache.get(source_scope, (self._now(), []))[1],
         ))
         # 旧数据集可能残留短窗口卡；只有当前仍在严重异动监管期才放行。
-        base_items = [item for item in base_items if self._prediction_item_allowed(item, self._monitored_rule_codes())]
+        base_items = [item for item in base_items if self._prediction_item_allowed(item, self._monitored_rule_codes(), source_scope)]
         if not base_items:
             return []
         calculations = self._calc_repository.all_calculations() if self._calc_repository.available else {}

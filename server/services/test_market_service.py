@@ -381,8 +381,25 @@ class MarketVectorTests(unittest.TestCase):
         stock = [{"date": f"2026-09-{index:02d}", "return": value} for index, value in enumerate([0, 0, 0, 0, 0, 0, 0, 10], 1)]
         index = [{"date": item["date"], "return": 0.0} for item in stock]
         value, window = MarketService._best_vector_deviation(stock, index, 10)
-        self.assertEqual(window, 8)
+        self.assertEqual(window, 7)
         self.assertAlmostEqual(value, 10.0)
+
+    def test_ten_day_window_uses_seven_to_ten_day_tail(self):
+        # 尚水智能的真实形态：最近 7 日偏离 +53.75%，8～10 日均较低。
+        stock = [{"date": f"2026-10-{index:02d}", "return": value} for index, value in enumerate([0, 0, 0, 0, 0, 0, 10], 1)]
+        index = [{"date": item["date"], "return": 0.0} for item in stock]
+        value, window = MarketService._best_vector_deviation(stock, index, 10)
+        self.assertEqual(window, 7)
+        self.assertAlmostEqual(value, 10.0)
+
+    def test_severe_card_is_hidden_when_same_rule_is_in_monitor(self):
+        service = self.service
+        service.set_monitor_provider(lambda: {"items": [{"symbol": "301190", "riskTone": "severe-10d"}]})
+        monitored = service._monitored_rule_codes()
+        severe = {"ts_code": "301190.SZ", "symbol": "301190", "ruleKey": "severe_10d"}
+        ordinary = {"ts_code": "301190.SZ", "symbol": "301190", "ruleKey": "ordinary_3d"}
+        self.assertFalse(service._prediction_item_allowed(severe, monitored, "today"))
+        self.assertTrue(service._prediction_item_allowed(ordinary, monitored, "today"))
 
     def test_seven_valid_days_can_trigger_ten_day_prediction(self):
         stock = [{"date": f"2026-09-{index:02d}", "return": 0.0 if index < 7 else 100.0} for index in range(1, 8)]
