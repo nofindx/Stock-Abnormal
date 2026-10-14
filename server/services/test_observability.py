@@ -112,7 +112,7 @@ class DetailDataQualityTests(unittest.TestCase):
         service._calc_repository = SimpleNamespace(
             available=True,
             get_index=lambda _code: {
-                "index_code": "399001.SZ", "latest_close": 100.0,
+                "index_code": "399107.SZ", "latest_close": 100.0,
                 "as_of_trade_date": "20260830",
                 "index_return_vector": vector,
             },
@@ -124,7 +124,7 @@ class DetailDataQualityTests(unittest.TestCase):
     def test_mysql_base_and_both_realtime_quotes_are_reported_as_realtime(self):
         service = self._service({
             "000001.SZ": {"current": 11.0, "pctChg": 10.0, "updatedAt": "2026-09-30T10:00:00"},
-            "399001.SZ": {"current": 101.0, "pctChg": 1.0, "updatedAt": "2026-09-30T10:00:00"},
+            "399107.SZ": {"current": 101.0, "pctChg": 1.0, "updatedAt": "2026-09-30T10:00:00"},
         })
         try:
             result = service._detail_from_repository(

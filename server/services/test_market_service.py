@@ -3,7 +3,7 @@ from datetime import datetime
 from types import SimpleNamespace
 
 from server.services.market_calc_repository import MarketCalcRepository
-from server.services.market_service import MarketService
+from server.services.market_service import MarketService, _index_code_for_stock
 from server.core.abnormal_rules import BOARD_RULES, Board
 
 
@@ -27,6 +27,36 @@ class MarketVectorTests(unittest.TestCase):
         result = service.rebuild_formal_history()
         self.assertFalse(result["updated"])
         self.assertEqual(calls, [{"data_stage": "formal", "allow_non_trade_day": True, "force_history": True, "history_end_date": "20261009"}])
+
+    def test_rule_upgrade_uses_one_completed_history_rebuild(self):
+        service = self.service
+        service._calc_repository = SimpleNamespace(
+            available=True,
+            get_prediction=lambda _scope: {"rule_version": "old-version"},
+            all_calculations=lambda: {"000001.SZ": {"as_of_trade_date": "20261013"}},
+            all_indexes=lambda: {"399107.SZ": {"as_of_trade_date": "20261013"}},
+        )
+        calls = []
+        service.rebuild_formal_history = lambda: calls.append("formal-history") or {"updated": True}
+
+        service._rebuild_predictions_if_rule_changed()
+
+        self.assertEqual(calls, ["formal-history"])
+
+    def test_failed_rule_upgrade_does_not_relabel_old_formal_vectors(self):
+        service = self.service
+        service._calc_repository = SimpleNamespace(
+            available=True,
+            get_prediction=lambda _scope: {"rule_version": "old-version"},
+        )
+        service.rebuild_formal_history = lambda: {"updated": False, "reason": "incomplete upstream data"}
+        service._latest_data_stage_date = lambda: ("20261013", "formal")
+        generated = []
+        service._generate_prediction_datasets = lambda stage: generated.append(stage)
+
+        service._rebuild_predictions_if_rule_changed()
+
+        self.assertEqual(generated, [])
 
     def test_deviation_aligns_same_trade_dates(self):
         stock = [
@@ -91,7 +121,7 @@ class MarketVectorTests(unittest.TestCase):
     def test_detail_quote_and_calculation_vectors_share_current_trade_date(self):
         service = self.service
         service._calc_repository = SimpleNamespace(get_index=lambda _code: {
-            "index_code": "399001.SZ",
+            "index_code": "399107.SZ",
             "latest_close": 100.0,
             "as_of_trade_date": "20261012",
             "index_return_vector": [
@@ -101,7 +131,7 @@ class MarketVectorTests(unittest.TestCase):
         })
         service._realtime = SimpleNamespace(fetch_many=lambda _codes: {
             "000001.SZ": {"current": 106.19, "preClose": 100.0, "pctChg": 6.19, "updatedAt": "2026-10-13T16:14:30"},
-            "399001.SZ": {"current": 101.0, "preClose": 100.0, "pctChg": 1.0, "updatedAt": "2026-10-13T16:14:30"},
+            "399107.SZ": {"current": 101.0, "preClose": 100.0, "pctChg": 1.0, "updatedAt": "2026-10-13T16:14:30"},
         })
         service._future_trade_dates = lambda *_args: []
         stock = {"ts_code": "000001.SZ", "symbol": "000001", "name": "测试股票", "market": "SZSE", "board": "主板", "isST": False}
@@ -123,12 +153,12 @@ class MarketVectorTests(unittest.TestCase):
     def test_detail_does_not_mix_unpaired_realtime_quotes_into_calculation(self):
         service = self.service
         service._calc_repository = SimpleNamespace(get_index=lambda _code: {
-            "index_code": "399001.SZ", "latest_close": 100.0, "as_of_trade_date": "20261012",
+            "index_code": "399107.SZ", "latest_close": 100.0, "as_of_trade_date": "20261012",
             "index_return_vector": [{"date": "20261011", "return": 0.0}, {"date": "20261012", "return": 0.0}],
         })
         service._realtime = SimpleNamespace(fetch_many=lambda _codes: {
             "000001.SZ": {"current": 106.19, "preClose": 100.0, "pctChg": 6.19, "source": "腾讯行情", "updatedAt": "2026-10-13T16:14:30"},
-            "399001.SZ": {"current": 101.0, "preClose": 100.0, "pctChg": 1.0, "source": "新浪行情", "updatedAt": "2026-10-13T16:14:30"},
+            "399107.SZ": {"current": 101.0, "preClose": 100.0, "pctChg": 1.0, "source": "新浪行情", "updatedAt": "2026-10-13T16:14:30"},
         })
         service._future_trade_dates = lambda *_args: []
         stock = {"ts_code": "000001.SZ", "symbol": "000001", "name": "测试股票", "market": "SZSE", "board": "主板", "isST": False}
@@ -149,8 +179,8 @@ class MarketVectorTests(unittest.TestCase):
                 "ts_code": "000001.SZ", "latest_close": 10.0, "as_of_trade_date": "20261012",
                 "stock_return_vector": vector,
             }},
-            all_indexes=lambda: {"399001.SZ": {
-                "index_code": "399001.SZ", "latest_close": 10.0, "as_of_trade_date": "20261011",
+            all_indexes=lambda: {"399107.SZ": {
+                "index_code": "399107.SZ", "latest_close": 10.0, "as_of_trade_date": "20261011",
                 "index_return_vector": vector[:-1],
             }},
         )
@@ -248,8 +278,8 @@ class MarketVectorTests(unittest.TestCase):
                 "ts_code": "000001.SZ", "latest_close": 10.0,
                 "as_of_trade_date": "20260830", "stock_return_vector": stock_vector,
             }},
-            all_indexes=lambda: {"399001.SZ": {
-                "index_code": "399001.SZ", "latest_close": 10.0, "as_of_trade_date": "20260830",
+            all_indexes=lambda: {"399107.SZ": {
+                "index_code": "399107.SZ", "latest_close": 10.0, "as_of_trade_date": "20260830",
                 "index_return_vector": index_vector,
             }},
         )
@@ -278,8 +308,8 @@ class MarketVectorTests(unittest.TestCase):
                 "ts_code": "000001.SZ", "latest_close": 10.0,
                 "as_of_trade_date": "20260830", "stock_return_vector": stock_vector,
             }},
-            all_indexes=lambda: {"399001.SZ": {
-                "index_code": "399001.SZ", "latest_close": 10.0, "as_of_trade_date": "20260830",
+            all_indexes=lambda: {"399107.SZ": {
+                "index_code": "399107.SZ", "latest_close": 10.0, "as_of_trade_date": "20260830",
                 "index_return_vector": index_vector,
             }},
         )
@@ -301,7 +331,7 @@ class MarketVectorTests(unittest.TestCase):
         service._calc_repository = SimpleNamespace(
             available=True,
             all_calculations=lambda: {"000001.SZ": {"ts_code": "000001.SZ", "latest_close": 10.0, "as_of_trade_date": "20260910", "stock_return_vector": vector}},
-            all_indexes=lambda: {"399001.SZ": {"index_code": "399001.SZ", "latest_close": 10.0, "as_of_trade_date": "20260910", "index_return_vector": vector}},
+            all_indexes=lambda: {"399107.SZ": {"index_code": "399107.SZ", "latest_close": 10.0, "as_of_trade_date": "20260910", "index_return_vector": vector}},
         )
         service._stock_rows = lambda: [{"ts_code": "000001.SZ", "symbol": "000001", "name": "测试股票", "market": "SZSE", "board": "主板", "isST": False}]
         service._realtime = SimpleNamespace(fetch_many=lambda _codes: {})
@@ -317,7 +347,7 @@ class MarketVectorTests(unittest.TestCase):
         service._calc_repository = SimpleNamespace(
             available=True,
             all_calculations=lambda: {"000001.SZ": {"ts_code": "000001.SZ", "latest_close": 10.0, "as_of_trade_date": "20260810", "stock_return_vector": stock_vector}},
-            all_indexes=lambda: {"399001.SZ": {"index_code": "399001.SZ", "latest_close": 10.0, "as_of_trade_date": "20260810", "index_return_vector": index_vector}},
+            all_indexes=lambda: {"399107.SZ": {"index_code": "399107.SZ", "latest_close": 10.0, "as_of_trade_date": "20260810", "index_return_vector": index_vector}},
         )
         service._stock_rows = lambda: [{"ts_code": "000001.SZ", "symbol": "000001", "name": "测试股票", "market": "SZSE", "board": "主板", "isST": False}]
         service._realtime = SimpleNamespace(fetch_many=lambda _codes: {})
@@ -347,19 +377,38 @@ class MarketVectorTests(unittest.TestCase):
         self.assertEqual(merged[0]["trigger"], "已达到阈值")
 
     def test_best_window_can_be_shorter_than_rule_horizon(self):
-        # 10 日规则允许 1～10 个有效交易日。
+        # 历史不足 10 日时使用全部共同有效交易日，不得缩成最大偏离子窗口。
         stock = [{"date": f"2026-09-{index:02d}", "return": value} for index, value in enumerate([0, 0, 0, 0, 0, 0, 0, 10], 1)]
         index = [{"date": item["date"], "return": 0.0} for item in stock]
         value, window = MarketService._best_vector_deviation(stock, index, 10)
-        self.assertEqual(window, 1)
+        self.assertEqual(window, 8)
         self.assertAlmostEqual(value, 10.0)
 
     def test_seven_valid_days_can_trigger_ten_day_prediction(self):
         stock = [{"date": f"2026-09-{index:02d}", "return": 0.0 if index < 7 else 100.0} for index in range(1, 8)]
         index = [{"date": item["date"], "return": 0.0} for item in stock]
         value, window = MarketService._best_vector_deviation(stock, index, 10)
-        self.assertEqual(window, 1)
+        self.assertEqual(window, 7)
         self.assertGreaterEqual(value, 100.0)
+
+    def test_fixed_window_uses_latest_sessions_not_best_historical_subwindow(self):
+        stock = [{"date": f"2026-09-{index:02d}", "return": value} for index, value in enumerate([80.0, 0.0, 0.0, 0.0, 0.0], 1)]
+        index = [{"date": item["date"], "return": 0.0} for item in stock]
+        value, window = MarketService._best_vector_deviation(stock, index, 3)
+        self.assertEqual(window, 3)
+        self.assertAlmostEqual(value, 0.0)
+
+    def test_index_mapping_uses_market_benchmarks(self):
+        self.assertEqual("399107.SZ", _index_code_for_stock({"market": "SZSE", "board": "主板"}))
+        self.assertEqual("399102.SZ", _index_code_for_stock({"market": "SZSE", "board": "创业板"}))
+
+    def test_expired_monitor_snapshot_does_not_grant_short_card_eligibility(self):
+        service = self.service
+        service.set_monitor_provider(lambda: {"items": [{
+            "symbol": "000001", "riskTone": "severe-10d",
+            "monitorDates": ["2026-09-01", "2026-09-02"], "monitorEndDate": "2026-09-02",
+        }]})
+        self.assertNotIn("__severe_monitor__", service._monitored_rule_codes())
 
     def test_today_prediction_accepts_seven_valid_days_at_ten_day_threshold(self):
         service = self.service
@@ -412,8 +461,8 @@ class MarketVectorTests(unittest.TestCase):
     def test_prediction_accepts_nine_valid_days_for_ten_day_line(self):
         """10 日规则在有效窗口边界允许 8/9/10 日，善水科技同类情形应入选。"""
         service = self.service
-        dates = [f"2026-08-{index:02d}" for index in range(1, 31)]
-        stock_vector = [{"date": day, "return": 6.0 if index >= 21 else 0.0} for index, day in enumerate(dates)]
+        dates = [f"2026-08-{index:02d}" for index in range(22, 31)]
+        stock_vector = [{"date": day, "return": 6.0} for day in dates]
         index_vector = [{"date": day, "return": 0.0} for day in dates]
         service._calc_repository = SimpleNamespace(
             available=True,
@@ -421,8 +470,8 @@ class MarketVectorTests(unittest.TestCase):
                 "ts_code": "301190.SZ", "latest_close": 29.94,
                 "as_of_trade_date": "20260830", "stock_return_vector": stock_vector,
             }},
-            all_indexes=lambda: {"399006.SZ": {
-                "index_code": "399006.SZ", "latest_close": 100.0, "as_of_trade_date": "20260830",
+            all_indexes=lambda: {"399102.SZ": {
+                "index_code": "399102.SZ", "latest_close": 100.0, "as_of_trade_date": "20260830",
                 "index_return_vector": index_vector,
             }},
         )
@@ -451,8 +500,8 @@ class MarketVectorTests(unittest.TestCase):
                 "ts_code": "301190.SZ", "latest_close": 35.93,
                 "as_of_trade_date": "20260829", "stock_return_vector": stock_vector,
             }},
-            all_indexes=lambda: {"399006.SZ": {
-                "index_code": "399006.SZ", "latest_close": 3210.0, "as_of_trade_date": "20260829",
+            all_indexes=lambda: {"399102.SZ": {
+                "index_code": "399102.SZ", "latest_close": 3210.0, "as_of_trade_date": "20260829",
                 "index_return_vector": index_vector,
             }},
         )
@@ -485,8 +534,8 @@ class MarketVectorTests(unittest.TestCase):
                 "ts_code": "000001.SZ", "latest_close": 10.0,
                 "as_of_trade_date": "20260830", "stock_return_vector": stock_vector,
             }},
-            all_indexes=lambda: {"399001.SZ": {
-                "index_code": "399001.SZ", "latest_close": 10.0, "as_of_trade_date": "20260830",
+            all_indexes=lambda: {"399107.SZ": {
+                "index_code": "399107.SZ", "latest_close": 10.0, "as_of_trade_date": "20260830",
                 "index_return_vector": index_vector,
             }},
         )
@@ -508,8 +557,8 @@ class MarketVectorTests(unittest.TestCase):
                 "ts_code": "000001.SZ", "latest_close": 10.0,
                 "as_of_trade_date": "20260830", "stock_return_vector": stock_vector,
             }},
-            all_indexes=lambda: {"399001.SZ": {
-                "index_code": "399001.SZ", "latest_close": 10.0, "as_of_trade_date": "20260830",
+            all_indexes=lambda: {"399107.SZ": {
+                "index_code": "399107.SZ", "latest_close": 10.0, "as_of_trade_date": "20260830",
                 "index_return_vector": index_vector,
             }},
         )
@@ -530,8 +579,8 @@ class MarketVectorTests(unittest.TestCase):
                 "ts_code": "000001.SZ", "latest_close": 10.0,
                 "as_of_trade_date": "20260830", "stock_return_vector": stock_vector,
             }},
-            all_indexes=lambda: {"399001.SZ": {
-                "index_code": "399001.SZ", "latest_close": 10.0, "as_of_trade_date": "20260830",
+            all_indexes=lambda: {"399107.SZ": {
+                "index_code": "399107.SZ", "latest_close": 10.0, "as_of_trade_date": "20260830",
                 "index_return_vector": index_vector,
             }},
         )
@@ -548,17 +597,17 @@ class MarketVectorTests(unittest.TestCase):
             available=True,
             get_prediction=lambda scope: {"scope": scope, "items": [{"ts_code": "001216.SZ", "ruleKey": "severe_10d", "predictionWindow": 10, "deviation": "10日 +95.00%", "currentPrice": "28.00", "change": "+1.00%", "trigger": "10日偏离达到 +100.00%", "triggerCondition": "10日偏离达到 +100.00%", "triggerValue": "+100.00%", "triggered": True, "cardTone": "triggered"}]},
             all_calculations=lambda: {"001216.SZ": {"ts_code": "001216.SZ", "latest_close": 28.0, "stock_return_vector": [{"date": f"2026-09-{index:02d}", "return": 0.0} for index in range(1, 31)]}},
-            all_indexes=lambda: {"399001.SZ": {"index_code": "399001.SZ", "latest_close": 10.0, "index_return_vector": [{"date": f"2026-09-{index:02d}", "return": 0.0} for index in range(1, 31)]}},
+            all_indexes=lambda: {"399107.SZ": {"index_code": "399107.SZ", "latest_close": 10.0, "index_return_vector": [{"date": f"2026-09-{index:02d}", "return": 0.0} for index in range(1, 31)]}},
         )
         service._stock_rows = lambda: [{"ts_code": "001216.SZ", "symbol": "001216", "name": "华瓷股份", "market": "SZSE", "board": "主板", "isST": False}]
         requested = []
         quote_state = {"current": 28.2}
         service._realtime = SimpleNamespace(fetch_many=lambda codes: (requested.extend(list(codes)) or {
             "001216.SZ": {"current": quote_state["current"], "pctChg": 0.71, "updatedAt": "2026-09-30T10:00:00", "source": "腾讯行情"},
-            "399001.SZ": {"current": 10.1, "pctChg": 1.0, "updatedAt": "2026-09-30T10:00:00", "source": "腾讯行情"},
+            "399107.SZ": {"current": 10.1, "pctChg": 1.0, "updatedAt": "2026-09-30T10:00:00", "source": "腾讯行情"},
         }))
         result = service._refresh_existing_prediction_scope("next_day")
-        self.assertEqual(["001216.SZ", "399001.SZ"], requested)
+        self.assertEqual(["001216.SZ", "399107.SZ"], requested)
         self.assertNotIn("currentPrice", result[0])
         self.assertFalse(result[0]["triggered"])
         self.assertEqual(result[0]["cardTone"], "")

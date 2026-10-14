@@ -24,13 +24,13 @@ from .tushare_client import TushareClient, TushareUnavailable
 from .intraday_state_store import IntradayStateStore
 
 
-INDEX_BY_MARKET = {"SSE": "000001.SH", "SZSE": "399001.SZ", "BSE": "899050.BJ"}
-INDEX_BY_BOARD = {"创业板": "399006.SZ", "科创板": "000688.SH", "北交所": "899050.BJ"}
+INDEX_BY_MARKET = {"SSE": "000001.SH", "SZSE": "399107.SZ", "BSE": "899050.BJ"}
+INDEX_BY_BOARD = {"创业板": "399102.SZ", "科创板": "000688.SH", "北交所": "899050.BJ"}
 BOARD_BY_MARKET = {"主板": Board.MAIN, "创业板": Board.CHINEXT, "科创板": Board.STAR, "北交所": Board.BSE}
 SHANGHAI_TZ = ZoneInfo("Asia/Shanghai") if ZoneInfo else timezone(timedelta(hours=8))
 # 停牌/复牌重置、上涨同向计数和预测阶段切换属于同一套规则口径。
-# 版本变化会触发服务启动时用现有基础数据重建预测数据集。
-PREDICTION_RULE_VERSION = "2026-10-upward-only-rule-cards-v22"
+# 版本变化会触发服务启动时从已确认收盘行情重建计算基础数据与预测集。
+PREDICTION_RULE_VERSION = "2026-10-upward-only-rule-cards-v23"
 
 # GBK 区位表不依赖第三方拼音包，适合云托管的轻量搜索场景。
 _PINYIN_RANGES = (
@@ -167,7 +167,14 @@ class MarketService:
         try:
             snapshot = self._monitor_provider() or {}
             result: Dict[str, set] = {}
+            today = self._now().strftime("%Y-%m-%d")
             for item in snapshot.get("items", []):
+                dates = item.get("monitorDates")
+                if isinstance(dates, list) and dates:
+                    if today not in {str(value)[:10] for value in dates}:
+                        continue
+                elif item.get("monitorEndDate") and str(item.get("monitorEndDate"))[:10] < today:
+                    continue
                 tone = str(item.get("riskTone") or "")
                 rule_keys = {
                     "severe-10d": {"severe_10d"},
@@ -211,24 +218,8 @@ class MarketService:
             daemon=True,
         )
         self._stock_basic_sync_thread.start()
-        # 规则或计算口径发布后重建预测。若正式日线尚未就绪，会刷新当天
-        # 的初态行情，不能把旧快照伪装成正式数据。
+        # 规则升级和显式强制重建共用同一任务，避免两个全量任务并行写库。
         Thread(target=self._rebuild_predictions_if_rule_changed, name="prediction-rebuild", daemon=True).start()
-        if str(os.getenv("FORCE_MARKET_HISTORY_REBUILD", "")).strip().lower() in {"1", "true", "yes", "on"}:
-            Thread(target=self._rebuild_formal_history_once, name="history-rebuild", daemon=True).start()
-
-    def _rebuild_formal_history_once(self) -> None:
-        """执行一次 31 个正式收盘点的全量重算；任务由部署环境变量显式开启。"""
-
-        try:
-            result = self.rebuild_formal_history()
-            if not result.get("updated"):
-                reason = str(result.get("reason") or "历史行情重算未完成")
-                self._market_update_error = reason
-                self._calc_repository.record_failure(f"历史行情重算：{reason}")
-        except Exception as exc:  # noqa: BLE001 - 失败状态通过健康接口暴露
-            self._market_update_error = f"历史行情重算失败：{exc}"
-            self._calc_repository.record_failure(self._market_update_error)
 
     def rebuild_formal_history(self) -> Dict[str, Any]:
         """重抓最近 31 个有效收盘点并重建正式预测数据集。"""
@@ -285,31 +276,32 @@ class MarketService:
             return
         with self._prediction_rebuild_lock:
             try:
+                force_history = str(os.getenv("FORCE_MARKET_HISTORY_REBUILD", "")).strip().lower() in {"1", "true", "yes", "on"}
                 records = [self._calc_repository.get_prediction(scope) for scope in ("today", "next_day")]
-                if records and all(record and record.get("rule_version") == PREDICTION_RULE_VERSION for record in records):
+                rules_match = bool(records) and all(
+                    record and record.get("rule_version") == PREDICTION_RULE_VERSION
+                    for record in records
+                )
+                if rules_match and not force_history:
                     return
-                if self._calc_repository.all_calculations() and self._calc_repository.all_indexes():
-                    # Prefer confirmed closes. If Tushare has not finished today's
-                    # batch, refresh the provisional quote snapshot instead of
-                    # relabelling an old initial vector as formal.
-                    try:
-                        formal = self.update_market_data(data_stage="formal", allow_non_trade_day=True)
-                    except Exception as exc:  # noqa: BLE001 - keep initial snapshot fallback available
-                        self._prediction_last_error["today"] = f"正式行情刷新失败：{exc}"
-                        formal = {"updated": False, "reason": str(exc)}
-                    latest_date, stage = self._latest_data_stage_date()
-                    target_date = str(formal.get("tradeDate") or self.client.latest_trade_date())
-                    confirmed = bool(formal.get("updated") and stage == "formal" and latest_date == target_date)
-                    refreshed_initial = False
-                    if not confirmed:
-                        today = self._now().strftime("%Y%m%d")
-                        if latest_date == today and stage == "initial":
-                            refreshed = self.update_initial_data()
-                            if refreshed.get("updated") and refreshed.get("tradeDate") == today:
-                                latest_date, stage = self._latest_data_stage_date()
-                                refreshed_initial = True
-                    if latest_date and (confirmed or stage == "formal" or refreshed_initial):
-                        self._generate_prediction_datasets(stage)
+                try:
+                    formal = self.rebuild_formal_history()
+                except Exception as exc:  # noqa: BLE001 - keep initial snapshot fallback available
+                    self._prediction_last_error["today"] = f"正式行情刷新失败：{exc}"
+                    formal = {"updated": False, "reason": str(exc)}
+                if formal.get("updated"):
+                    return
+                latest_date, stage = self._latest_data_stage_date()
+                refreshed_initial = False
+                if not force_history:
+                    today = self._now().strftime("%Y%m%d")
+                    if latest_date == today and stage == "initial":
+                        refreshed = self.update_initial_data()
+                        if refreshed.get("updated") and refreshed.get("tradeDate") == today:
+                            latest_date, stage = self._latest_data_stage_date()
+                            refreshed_initial = True
+                if latest_date and refreshed_initial:
+                    self._generate_prediction_datasets(stage)
             except Exception as exc:  # noqa: BLE001 - 重建失败不影响旧数据读取
                 self._prediction_last_error["today"] = f"预测规则重建失败：{exc}"
 
@@ -761,11 +753,10 @@ class MarketService:
 
     @classmethod
     def _best_vector_deviation(cls, stock: List[Dict[str, Any]], index: List[Dict[str, Any]], max_window: int) -> tuple[Optional[float], Optional[int]]:
-        """取规则回看窗口内最接近上涨阈值的有效连续区间。
+        """计算窗口截止于最新共同有效交易日的固定尾窗偏离。
 
-        交易所规则写的是“连续 N 个交易日内”，实际有效数据允许因边界、
-        停牌或指数对齐缺口使用 1～N 个有效交易日。窗口越短越不能被伪造为
-        固定 N 日；返回值同时带实际区间长度，用于展示“2 日”“18 日”等结果。
+        有效历史不足规则窗口时使用全部可用共同交易日并返回实际长度；
+        有足够历史时必须严格使用最近 N 个共同交易日，不能挑历史子窗口最大值。
         """
         if not stock or not index:
             return None, None
@@ -774,20 +765,12 @@ class MarketService:
         dates = sorted(set(stock_map) & set(index_map))
         if len(dates) < 1:
             return None, None
-        upper = min(max_window, len(dates))
-        # 规则窗口是回看上限；产品展示实际连续有效窗口，允许从 1 日起
-        # 计算，不能用固定窗口或任意字符串补齐缺失交易日。
-        lower = 1
-        if upper < lower:
+        actual_window = min(max_window, len(dates))
+        if actual_window < 1:
             return None, None
-        candidates = []
-        for window in range(lower, upper + 1):
-            value = cls._compound(stock_map[day] for day in dates[-window:]) - cls._compound(index_map[day] for day in dates[-window:])
-            candidates.append((value, window))
-        positive = [item for item in candidates if item[0] > 0]
-        if positive:
-            return max(positive, key=lambda item: (item[0], -item[1]))
-        return min(candidates, key=lambda item: (item[0], item[1]))
+        trailing_dates = dates[-actual_window:]
+        value = cls._compound(stock_map[day] for day in trailing_dates) - cls._compound(index_map[day] for day in trailing_dates)
+        return value, actual_window
 
     @classmethod
     def _required_up_percent(cls, stock: List[Dict[str, Any]], index: List[Dict[str, Any]], actual_window: int, target_deviation: float) -> Optional[float]:
