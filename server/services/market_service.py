@@ -29,7 +29,7 @@ BOARD_BY_MARKET = {"主板": Board.MAIN, "创业板": Board.CHINEXT, "科创板"
 SHANGHAI_TZ = ZoneInfo("Asia/Shanghai") if ZoneInfo else timezone(timedelta(hours=8))
 # 停牌/复牌重置、上涨同向计数和预测阶段切换属于同一套规则口径。
 # 版本变化会触发服务启动时从已确认收盘行情重建计算基础数据与预测集。
-PREDICTION_RULE_VERSION = "2026-10-upward-only-rule-cards-v24"
+PREDICTION_RULE_VERSION = "2026-10-upward-only-rule-cards-v25"
 
 # GBK 区位表不依赖第三方拼音包，适合云托管的轻量搜索场景。
 _PINYIN_RANGES = (
@@ -806,14 +806,31 @@ class MarketService:
         return min(results, key=lambda item: (item[0], item[1]))
 
     @classmethod
-    def _required_up_percent(cls, stock: List[Dict[str, Any]], index: List[Dict[str, Any]], actual_window: int, target_deviation: float) -> Optional[float]:
-        """按当前股票/指数区间收益，反推下一交易日达到目标偏离所需涨幅。"""
+    def _required_up_percent(
+        cls,
+        stock: List[Dict[str, Any]],
+        index: List[Dict[str, Any]],
+        actual_window: int,
+        target_deviation: float,
+        forecast_scope: str = "next_day",
+    ) -> Optional[float]:
+        """反推目标交易日股票需要达到的理论日涨幅。
+
+        ``today`` 卡是在当前交易日收盘前反推：最新股票日收益是待求的
+        未知量，所以只使用窗口内前 ``N-1`` 个股票收益；指数的最新日收益
+        已知，仍纳入基准。``next_day`` 卡则使用完整当前窗口，再反推下一
+        交易日的股票收益。两条路径共用同一复合收益公式，但未知日不同，
+        不能把当日卡也按“追加下一日”计算。
+        """
         stock_map = {item.get("date"): float(item.get("return")) for item in stock if item.get("date")}
         index_map = {item.get("date"): float(item.get("return")) for item in index if item.get("date")}
         dates = sorted(set(stock_map) & set(index_map))[-actual_window:]
         if len(dates) < actual_window:
             return None
-        stock_total = cls._compound(stock_map[day] for day in dates)
+        stock_dates = dates[:-1] if forecast_scope == "today" else dates
+        if not stock_dates and forecast_scope == "today":
+            return None
+        stock_total = cls._compound(stock_map[day] for day in stock_dates)
         index_total = cls._compound(index_map[day] for day in dates)
         return max(0.0, ((1.0 + (index_total + target_deviation) / 100.0) / (1.0 + stock_total / 100.0) - 1.0) * 100.0)
 
@@ -1650,7 +1667,13 @@ class MarketService:
                 if deviation is None or actual_window is None or deviation <= 0:
                     stats["excludedByDataQuality"] += 1
                     continue
-                distance = self._required_up_percent(stock_vector, index_vector, actual_window, target)
+                distance = self._required_up_percent(
+                    stock_vector,
+                    index_vector,
+                    actual_window,
+                    target,
+                    forecast_scope=scope,
+                )
                 if distance is None:
                     stats["excludedByDataQuality"] += 1
                     continue
@@ -1743,7 +1766,17 @@ class MarketService:
                         item["deviationLabel"] = item["deviation"]
                         item["deviationPercent"] = float(deviation)
                         item["triggered"] = deviation >= threshold
-                        item["triggerValue"] = f"+{threshold:.2f}%"
+                        distance = self._required_up_percent(
+                            stock_vector,
+                            index_vector,
+                            actual_window or item["_window"],
+                            threshold,
+                            forecast_scope=scope,
+                        )
+                        display_distance = threshold if item["triggered"] else max(0.0, float(distance or 0.0))
+                        item["triggerValue"] = f"+{display_distance:.2f}%"
+                        item["triggerCondition"] = f"涨幅达 {display_distance:.2f}%"
+                        item["trigger"] = item["triggerCondition"]
                     if deviation is not None:
                         item["alertText"] = "已触发" if item["triggered"] else ""
                         item["cardTone"] = "triggered" if item["triggered"] else ""
@@ -2250,7 +2283,13 @@ class MarketService:
                 # 与后台生成、单股详情相同的有效窗口和复牌重置逻辑。
                 if deviation is not None:
                     threshold = rule.ordinary_deviation if rule_key in {"ordinary_3d", "same_direction_10d"} else (rule.severe_30d_threshold.up if rule_key == "severe_30d" else rule.severe_10d_threshold.up)
-                    distance = self._required_up_percent(stock_vector, index_vector, actual_window, threshold)
+                    distance = self._required_up_percent(
+                        stock_vector,
+                        index_vector,
+                        actual_window,
+                        threshold,
+                        forecast_scope=source_scope,
+                    )
                     item["deviation"] = f"{actual_window}日 {_pct(deviation)}"
                     item["deviationLabel"] = item["deviation"]
                     item["deviationPercent"] = float(deviation)

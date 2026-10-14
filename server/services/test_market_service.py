@@ -19,6 +19,23 @@ class MarketVectorTests(unittest.TestCase):
     def test_compound_return_uses_composite_formula(self):
         self.assertAlmostEqual(MarketService._compound([10.0, 10.0]), 21.0)
 
+    def test_required_up_percent_today_solves_current_day_not_next_day(self):
+        """当日卡的触发涨幅必须把最新股票日收益作为未知量。"""
+        stock = [{"date": f"2026-10-{index:02d}", "return": value} for index, value in enumerate([10.0, 10.0, 5.0], 1)]
+        index = [{"date": item["date"], "return": 0.0} for item in stock]
+        # 目标 +30%，前两日股票累计 +21%，当日需要约 7.44%。
+        self.assertAlmostEqual(
+            MarketService._required_up_percent(stock, index, 3, 30.0, forecast_scope="today"),
+            7.4380165,
+            places=5,
+        )
+        # 次日口径使用完整当前窗口；当前已为 +26.05%，只需约 2.32% 追加到 +30%。
+        self.assertAlmostEqual(
+            MarketService._required_up_percent(stock, index, 3, 30.0, forecast_scope="next_day"),
+            2.3219205,
+            places=5,
+        )
+
     def test_force_history_rebuild_is_explicitly_supported(self):
         service = self.service
         calls = []
