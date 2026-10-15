@@ -1,6 +1,6 @@
 .monitor-page { background: #F2F3F5; padding-top: 24rpx; padding-bottom: 220rpx; }
 .filter-row { display: flex; height: 80rpx; min-height: 80rpx; align-items: center; justify-content: space-between; gap: 18rpx; margin-top: 12rpx; }
-.type-filters { display: flex; flex: 0 0 100%; width: 100%; min-width: 0; align-items: center; justify-content: space-between; gap: 0; }
+.type-filters { display: flex; flex: 0 0 auto; width: auto; min-width: 0; align-items: center; justify-content: flex-start; gap: 12rpx; }
 .filter-segment {
   flex: 0 0 88rpx;
   width: 88rpx;
