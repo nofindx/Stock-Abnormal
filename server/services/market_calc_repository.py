@@ -205,6 +205,8 @@ class MarketCalcRepository:
                     "ALTER TABLE prediction_dataset ADD COLUMN item_count INT NOT NULL DEFAULT 0",
                     "ALTER TABLE prediction_dataset ADD COLUMN exclusion_stats JSON NULL",
                     "ALTER TABLE prediction_dataset ADD COLUMN status VARCHAR(16) NOT NULL DEFAULT 'ready'",
+                    # 规则版本包含日期和语义版本，历史 VARCHAR(40) 不足以容纳当前版本。
+                    "ALTER TABLE prediction_dataset MODIFY COLUMN rule_version VARCHAR(128) NOT NULL DEFAULT ''",
                     "ALTER TABLE stock_basic ADD COLUMN list_date CHAR(8) NOT NULL DEFAULT ''",
                     "ALTER TABLE stock_basic ADD COLUMN delist_date CHAR(8) NOT NULL DEFAULT ''",
                     "ALTER TABLE stock_basic ADD COLUMN price_limit_enabled TINYINT NULL",
@@ -218,6 +220,7 @@ class MarketCalcRepository:
                         "ALTER TABLE prediction_cache ADD COLUMN data_stage VARCHAR(16) NOT NULL DEFAULT 'formal'",
                         "ALTER TABLE prediction_cache ADD COLUMN data_quality VARCHAR(32) NOT NULL DEFAULT 'confirmed'",
                         "ALTER TABLE prediction_cache ADD COLUMN rule_version VARCHAR(40) NOT NULL DEFAULT ''",
+                        "ALTER TABLE prediction_cache MODIFY COLUMN rule_version VARCHAR(128) NOT NULL DEFAULT ''",
                     ):
                         try:
                             cursor.execute(statement)
