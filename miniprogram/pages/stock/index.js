@@ -64,6 +64,28 @@ function cumulativeReturn(values) {
   return values.reduce((total, value) => (1 + total / 100) * (1 + value / 100) * 100 - 100, 0)
 }
 
+function bestDeviation(stockValues, indexValues, maxWindow) {
+  // 与后端 _best_vector_deviation 保持一致：10/30 日规则按价格日上限
+  // 枚举以当前端点结束的有效收益区间，选择最大上涨偏离；3 日固定取 3 个区间。
+  const upperLimit = maxWindow === 10 || maxWindow === 30 ? maxWindow - 1 : maxWindow
+  const upper = Math.min(upperLimit, stockValues.length, indexValues.length)
+  const lower = maxWindow === 10 || maxWindow === 30 ? 1 : maxWindow
+  if (upper < lower) return { value: null, window: null }
+  const results = []
+  for (let window = lower; window <= upper; window += 1) {
+    results.push({
+      value: cumulativeReturn(stockValues.slice(-window)) - cumulativeReturn(indexValues.slice(-window)),
+      window
+    })
+  }
+  const positive = results.filter(item => item.value > 0)
+  const candidates = positive.length ? positive : results
+  candidates.sort((left, right) => positive.length
+    ? right.value - left.value || left.window - right.window
+    : left.value - right.value || left.window - right.window)
+  return candidates[0]
+}
+
 function calculateSimulationRows(rows, detail) {
   const base = (detail && detail.simulationBase) || { stock: [], index: [] }
   const thresholds = (detail && detail.simulationThresholds) || { '10': { up: 100 } }
@@ -75,19 +97,16 @@ function calculateSimulationRows(rows, detail) {
     const indexValue = parsePercent(row.index)
     if (stockValue == null || indexValue == null) complete = false
     if (!complete) {
-      return { ...row, deviation3: '--', deviation10: '--', deviation30: '--', space: '--', deviationClass: '' }
+      return { ...row, deviation3: '--', deviation10: '--', deviation30: '--', space: '--', deviation3Window: null, deviation10Window: null, deviation30Window: null, deviationClass: '' }
     }
     const stockSeries = stockBase.concat(rows.slice(0, rowIndex + 1).map(item => parsePercent(item.stock)))
     const indexSeries = indexBase.concat(rows.slice(0, rowIndex + 1).map(item => parsePercent(item.index)))
-    const metric = (window) => {
-      const stockWindow = stockSeries.slice(-window)
-      const indexWindow = indexSeries.slice(-window)
-      if (stockWindow.length < window || indexWindow.length < window) return null
-      return cumulativeReturn(stockWindow) - cumulativeReturn(indexWindow)
-    }
-    const deviation3 = metric(3)
-    const deviation10 = metric(10)
-    const deviation30 = metric(30)
+    const metric3 = bestDeviation(stockSeries, indexSeries, 3)
+    const metric10 = bestDeviation(stockSeries, indexSeries, 10)
+    const metric30 = bestDeviation(stockSeries, indexSeries, 30)
+    const deviation3 = metric3.value
+    const deviation10 = metric10.value
+    const deviation30 = metric30.value
     const display = value => value == null ? '--' : `${value >= 0 ? '+' : ''}${value.toFixed(2)}%`
     const safety = deviation10 == null ? '--' : (deviation10 >= Number(thresholds['10'].up) ? '已触发' : `${Math.max(0, Number(thresholds['10'].up) - deviation10).toFixed(2)}%`)
     const currentDeviation = deviation10 == null ? (deviation3 == null ? 0 : deviation3) : deviation10
@@ -97,6 +116,9 @@ function calculateSimulationRows(rows, detail) {
       deviation10: display(deviation10),
       deviation30: display(deviation30),
       space: safety,
+      deviation3Window: metric3.window,
+      deviation10Window: metric10.window,
+      deviation30Window: metric30.window,
       deviationClass: currentDeviation > 0 ? 'risk' : currentDeviation < 0 ? 'safe' : ''
     }
   })
@@ -238,3 +260,6 @@ Page({
     if (this.searchTimer) clearTimeout(this.searchTimer)
   },
 })
+
+// 纯计算函数导出给前端回归测试；小程序运行时不影响 Page 注册。
+if (typeof module !== 'undefined') module.exports = { bestDeviation, calculateSimulationRows, createInputRows }
