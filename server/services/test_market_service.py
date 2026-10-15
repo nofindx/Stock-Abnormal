@@ -645,7 +645,7 @@ class MarketVectorTests(unittest.TestCase):
         self.assertNotIn("currentPrice", result[0])
         self.assertFalse(result[0]["triggered"])
         self.assertEqual(result[0]["cardTone"], "")
-        self.assertEqual(result[0]["trigger"], "10日偏离达到 +100.00%")
+        self.assertEqual(result[0]["trigger"], result[0]["triggerCondition"])
         self.assertNotEqual(result[0]["deviation"], "10日 +95.00%")
         self.assertTrue(result[0]["deviation"].endswith("-0.29%"))
         today_result = service._refresh_existing_prediction_scope("next_day", "today")
@@ -655,7 +655,7 @@ class MarketVectorTests(unittest.TestCase):
         recovered = service._refresh_existing_prediction_scope("next_day")
         self.assertTrue(recovered[0]["triggered"])
         self.assertEqual(recovered[0]["cardTone"], "triggered")
-        self.assertEqual(recovered[0]["trigger"], "10日偏离达到 +100.00%")
+        self.assertEqual(recovered[0]["trigger"], recovered[0]["triggerCondition"])
         self.assertFalse(hasattr(service._calc_repository, "save_prediction"))
 
 

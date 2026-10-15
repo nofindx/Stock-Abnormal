@@ -2303,6 +2303,8 @@ class MarketService:
                     if distance is not None:
                         item["triggerValue"] = f"+{max(0.0, float(distance)):.2f}%"
                         item["triggerCondition"] = f"涨幅达 {max(0.0, float(distance)):.2f}%"
+                        # 兼容旧调用方：盘中重算后旧字段也必须与实时条件一致。
+                        item["trigger"] = item["triggerCondition"]
                 if deviation is not None:
                     item["alertText"] = "已触发" if item["triggered"] else ""
                     item["cardTone"] = "triggered" if item["triggered"] else ""
