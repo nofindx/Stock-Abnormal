@@ -196,6 +196,8 @@
 .stock-page .inline-error,
 .stock-page .clear-link,
 .stock-page .text-button { color: #4B5563 !important; }
+.stock-page .quote-line .change.up { color: #D93025 !important; }
+.stock-page .quote-line .change.down { color: #16835D !important; }
 .stock-page .guide-pointer { background: #6B7280 !important; }
 .stock-page .status-safe,
 .stock-page .status-risk,
