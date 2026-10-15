@@ -29,7 +29,7 @@ BOARD_BY_MARKET = {"主板": Board.MAIN, "创业板": Board.CHINEXT, "科创板"
 SHANGHAI_TZ = ZoneInfo("Asia/Shanghai") if ZoneInfo else timezone(timedelta(hours=8))
 # 停牌/复牌重置、上涨同向计数和预测阶段切换属于同一套规则口径。
 # 版本变化会触发服务启动时从已确认收盘行情重建计算基础数据与预测集。
-PREDICTION_RULE_VERSION = "2026-10-upward-only-rule-cards-v27"
+PREDICTION_RULE_VERSION = "2026-10-upward-only-rule-cards-v28"
 
 # GBK 区位表不依赖第三方拼音包，适合云托管的轻量搜索场景。
 _PINYIN_RANGES = (
@@ -777,11 +777,12 @@ class MarketService:
     def _best_vector_deviation(cls, stock: List[Dict[str, Any]], index: List[Dict[str, Any]], max_window: int) -> tuple[Optional[float], Optional[int]]:
         """计算最近有效窗口内的最大上涨偏离及实际窗口。
 
-        交易所的 10/30 日口径是回看上限：10 日在最近 7/8/9/10 个共同
-        交易日中取当前端点的最大上涨偏离，30 日在 27/28/29/30 日中取
-        最大值。历史不足上限时使用全部可用共同交易日。这必须与
+        10/30 日规则的“连续 N 个交易日内”是价格日回看上限：在最近 N 个共同
+        交易日内枚举以当前端点结束的 1..N-1 个连续有效收益率区间，取上涨偏离
+        最大值并返回实际窗口。3 日普通异动仍固定使用最近 3 个共同日。
+        这必须与
         ``server.core.abnormal_rules._best_effective_deviation`` 保持一致，
-        否则单股和预测会出现“8 日被算成 10 日”的分叉。
+        否则单股和预测会出现实际窗口分叉。
         """
         if not stock or not index:
             return None, None
@@ -790,10 +791,13 @@ class MarketService:
         dates = sorted(set(stock_map) & set(index_map))
         if len(dates) < 1:
             return None, None
-        upper = min(max_window, len(dates))
+        # N 个交易日规则由 N 个价格点构成，因此收益率向量最多对应 N-1
+        # 个区间；卡片的 actualWindow 展示的是实际收益率区间长度。
+        upper_limit = max_window - 1 if max_window in (10, 30) else max_window
+        upper = min(upper_limit, len(dates))
         if upper < 1:
             return None, None
-        lower = 27 if max_window == 30 else max(3, max_window - 3)
+        lower = 1 if max_window in (10, 30) else max_window
         windows = list(range(lower, upper + 1)) if upper >= lower else [upper]
         results = []
         for window in windows:
@@ -874,6 +878,21 @@ class MarketService:
             "down": 0,
             "same": up_count,
         }
+
+    @staticmethod
+    def _prediction_sort_key(item: Dict[str, Any]) -> tuple:
+        """按产品顺序返回预测卡排序键：30 日、10 日、其他；同类按触发条件升序。"""
+        priority = {"severe_30d": 0, "severe_10d": 1}.get(str(item.get("ruleKey") or ""), 2)
+        value = item.get("triggerValue")
+        try:
+            trigger = float(re.search(r"[-+]?\d+(?:\.\d+)?", str(value)).group(0))
+        except (AttributeError, ValueError):
+            trigger = float("inf")
+        return priority, trigger, str(item.get("ts_code") or ""), str(item.get("predictionKey") or "")
+
+    @classmethod
+    def _sort_prediction_items(cls, items: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        return sorted(list(items or []), key=cls._prediction_sort_key)
 
     @staticmethod
     def _quote_date_string(quote: Optional[Dict[str, Any]]) -> str:
@@ -1644,6 +1663,23 @@ class MarketService:
                 continue
             metrics = self._vector_metrics(stock_vector, index_vector, board_rule)
             limit = float(board_rule.limit_price_ratio or 10.0)
+            # 次日预测只面向“尚未进入当日严重异动”的股票。若任一严重规则
+            # 已在当前快照触发，后续监管由重点监控承接，不再为同一股票生成
+            # 另一严重窗口的次日候选（例如善水的 10 日已触发时不再展示 30 日卡）。
+            already_triggered = bool(
+                (
+                    metrics["deviations"].get(10) is not None
+                    and board_rule.severe_10d_threshold.triggered(metrics["deviations"][10])
+                )
+                or (
+                    metrics["deviations"].get(30) is not None
+                    and board_rule.severe_30d_threshold.triggered(metrics["deviations"][30])
+                )
+                or int(metrics.get("same", 0) or 0) >= board_rule.severe_same_direction_count
+            )
+            if scope == "next_day" and already_triggered:
+                stats["excludedByTriggered"] += 1
+                continue
             # 普通/同向短窗口卡只对已进入 10 日或 30 日监管期的股票开放。
             same_direction_count = int(metrics.get("same", 0) or 0)
             stock_keys = {str(stock.get("symbol") or ""), ts_code.split(".")[0]}
@@ -1791,8 +1827,7 @@ class MarketService:
             for key in ("_stockVector", "_indexVector", "_indexCode", "_indexLatestClose", "_deviation", "_window", "_rule_window", "_threshold", "_trigger_kind"):
                 item.pop(key, None)
             item.pop("currentPrice", None)
-        candidates.sort(key=lambda item: abs(float(item.get("deviationPercent") or 0)), reverse=True)
-        return candidates
+        return self._sort_prediction_items(candidates)
 
     def _compute_prediction_from_daily(self, scope: str) -> List[Dict[str, Any]]:
         """初始化数据集前的兼容回退；仅作为冷启动临时路径。"""
@@ -2174,7 +2209,7 @@ class MarketService:
         # 普通/同向卡只有在股票仍处于 10 日或 30 日重点监控期时才展示。
         monitored_codes = self._monitored_rule_codes()
         items = [item for item in items if self._prediction_item_allowed(item, monitored_codes, scope)]
-        items = self._normalize_prediction_items(items)
+        items = self._sort_prediction_items(self._normalize_prediction_items(items))
         # 交易时段 today 允许复用上一交易日的 next_day 候选池；对外展示范围
         # 仍必须是“当日”，不能把底层数据集名称泄漏到卡片字段。
         if scope == "today" and source_scope == "next_day":
@@ -2348,7 +2383,7 @@ class MarketService:
             if not refresh_succeeded:
                 return self.predictions(requested_scope)
             result = self.predictions(requested_scope)
-            result["items"] = self._normalize_prediction_items(items)
+            result["items"] = self._sort_prediction_items(self._normalize_prediction_items(items))
             quote_times = [str(item.get("quoteUpdatedAt") or "") for item in items if item.get("quoteUpdatedAt")]
             quote_updated_at = max(quote_times, default="")
             result.update({

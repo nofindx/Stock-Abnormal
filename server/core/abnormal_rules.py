@@ -372,16 +372,19 @@ def _best_effective_deviation(
     index_bars: Sequence[PriceBar],
     max_window: int,
 ) -> Optional[DeviationResult]:
-    """在 N、N-1、N-2 个有效交易日中选择当前端点的偏离值。
+    """在规则回看上限内选择当前端点的最大上涨偏离。
 
-    交易所的 10/30 日是回看上限；10 日允许 7/8/9/10 个、30 日允许
-    27/28/29/30 个有效共同交易日，可以来自首日边界、停牌或指数对齐缺口，
-    但不能退化成任意 3 日窗口。
+    10/30 日规则枚举最近 N 个共同交易日内以当前端点结束的 1..N-1 个
+    连续有效收益率区间，返回最大正向偏离及其实际窗口；3 日普通异动仍
+    固定使用最近 3 个共同交易日（历史不足时使用全部可用交易日）。
     """
 
     _validate_bars(stock_bars, index_bars)
-    upper = min(max_window, len(stock_bars) - 1)
-    lower = 27 if max_window == 30 else max(3, max_window - 3)
+    # N 个交易日规则由 N 个价格点构成，收益率区间最多为 N-1 个；3 日
+    # 普通异动仍按 3 个收益率区间处理，保持历史普通异动口径不变。
+    upper_limit = max_window - 1 if max_window in (10, 30) else max_window
+    upper = min(upper_limit, len(stock_bars) - 1)
+    lower = 1 if max_window in (10, 30) else max_window
     if upper < lower:
         return None
     results = [

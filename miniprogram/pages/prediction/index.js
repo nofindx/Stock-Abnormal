@@ -1,7 +1,7 @@
 // 异动预测页面：只请求后端批量快照，不在前端逐票扫描或模拟刷新。
 const { getPredictions, refreshPredictions } = require('../../utils/api')
 
-function normalizeItems(items = []) {
+function normalizeItems(items = [], scope = 'today') {
   return items.map((item, index) => {
     const rawChange = item.change == null || item.change === '' ? '' : String(item.change)
     const change = /^[-+]?0\.00%$/.test(rawChange) && !item.changeSource ? '--' : (rawChange || '--')
@@ -9,7 +9,7 @@ function normalizeItems(items = []) {
     const deviationLabel = item.deviationLabel || item.deviation || '--'
     const triggerValue = item.triggerValue || '--'
     const window = item.predictionWindow || item.deviationWindow || ''
-    return { ...item, deviationLabel, triggerValue, triggered, alertText: triggered ? (item.alertText || '已触发') : '', cardTone: triggered ? 'triggered' : '', predictionKey: item.predictionKey || `${item.ts_code || index}-${item.ruleKey || window || index}`, change, changeClass: change === '--' ? 'neutral' : (change[0] === '-' ? 'down' : 'up') }
+    return { ...item, deviationLabel, triggerValue, triggered, showCurrentChange: scope !== 'next_day', alertText: triggered ? (item.alertText || '已触发') : '', cardTone: triggered ? 'triggered' : '', predictionKey: item.predictionKey || `${item.ts_code || index}-${item.ruleKey || window || index}`, change, changeClass: change === '--' ? 'neutral' : (change[0] === '-' ? 'down' : 'up') }
   })
 }
 
@@ -40,7 +40,7 @@ Page({
     if (this.data.loading) return Promise.resolve()
     this.setData({ loading: true, error: '' })
     return getPredictions(this.data.scope).then((result) => {
-      this.setData({ items: normalizeItems(result.items), quoteUpdatedAt: result.quoteUpdatedAt || '', dataQuality: result.dataQuality || {}, dataUnavailable: Boolean(result.dataUnavailable), loading: false, refreshing: false, error: result.error || '', nextDayAvailable: result.nextDayAvailable !== false, nextDayReason: result.nextDayReason || '' })
+      this.setData({ items: normalizeItems(result.items, this.data.scope), quoteUpdatedAt: result.quoteUpdatedAt || '', dataQuality: result.dataQuality || {}, dataUnavailable: Boolean(result.dataUnavailable), loading: false, refreshing: false, error: result.error || '', nextDayAvailable: result.nextDayAvailable !== false, nextDayReason: result.nextDayReason || '' })
       getApp().globalData.lastPredictionRefresh = result.quoteUpdatedAt || null
     }).catch(() => {
       this.setData({ loading: false, error: '预测数据暂时不可用，请稍后重试' })
@@ -51,7 +51,7 @@ Page({
     if (this.data.buttonRefreshing) return Promise.resolve()
     this.setData({ buttonRefreshing: showButtonLoading, error: '' })
     return refreshPredictions(this.data.scope).then((result) => {
-      const items = preserveItemOrder(this.data.items, normalizeItems(result.items))
+      const items = preserveItemOrder(this.data.items, normalizeItems(result.items, this.data.scope))
       this.setData({ buttonRefreshing: false, refreshing: false, items, quoteUpdatedAt: result.quoteUpdatedAt || '', dataQuality: result.dataQuality || {}, dataUnavailable: Boolean(result.dataUnavailable), error: result.error || '', nextDayAvailable: result.nextDayAvailable !== false, nextDayReason: result.nextDayReason || '' })
       getApp().globalData.lastPredictionRefresh = result.quoteUpdatedAt || null
     }).catch(() => {

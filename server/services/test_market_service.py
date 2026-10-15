@@ -262,7 +262,7 @@ class MarketVectorTests(unittest.TestCase):
         """次日预测不能只检查 30 日线，10 日接近 +100% 也必须入选。"""
         service = self.service
         dates = [f"2026-08-{index:02d}" for index in range(1, 31)]
-        stock_vector = [{"date": day, "return": 7.0 if index >= 20 else 0.0} for index, day in enumerate(dates)]
+        stock_vector = [{"date": day, "return": 8.0 if index >= 20 else 0.0} for index, day in enumerate(dates)]
         index_vector = [{"date": day, "return": 0.0} for day in dates]
         service._calc_repository = SimpleNamespace(
             available=True,
@@ -282,12 +282,12 @@ class MarketVectorTests(unittest.TestCase):
         service._realtime = SimpleNamespace(fetch_many=lambda _codes: {})
         items = service._compute_prediction_from_repository("next_day")
         self.assertEqual({item["ruleKey"] for item in items}, {"severe_10d"})
-        self.assertTrue(any(item["deviation"].startswith("10日 ") for item in items))
+        self.assertTrue(any(item["deviation"].startswith("9日 ") for item in items))
 
     def test_prediction_emits_separate_cards_for_ten_and_thirty_day_lines(self):
         service = self.service
         dates = [f"2026-08-{index:02d}" for index in range(1, 31)]
-        stock_vector = [{"date": day, "return": 6.0 if index < 20 else 8.0} for index, day in enumerate(dates)]
+        stock_vector = [{"date": day, "return": 6.0 if index < 20 else 9.0} for index, day in enumerate(dates)]
         index_vector = [{"date": day, "return": 0.0} for day in dates]
         service._calc_repository = SimpleNamespace(
             available=True,
@@ -314,10 +314,10 @@ class MarketVectorTests(unittest.TestCase):
         self.assertEqual(by_rule["severe_10d"]["alertText"], "已触发")
         self.assertTrue(by_rule["severe_10d"]["triggerValue"].startswith("+"))
 
-    def test_today_prediction_keeps_pending_thirty_day_card_after_ten_day_trigger(self):
+    def test_today_prediction_drops_unreachable_pending_thirty_day_card(self):
         service = self.service
         dates = [f"2026-08-{index:02d}" for index in range(1, 31)]
-        stock_vector = [{"date": day, "return": 2.0 if index < 20 else 7.2} for index, day in enumerate(dates)]
+        stock_vector = [{"date": day, "return": 0.0 if index < 20 else 8.5} for index, day in enumerate(dates)]
         index_vector = [{"date": day, "return": 0.0} for day in dates]
         service._calc_repository = SimpleNamespace(
             available=True,
@@ -338,9 +338,8 @@ class MarketVectorTests(unittest.TestCase):
         items = service._compute_prediction_from_repository("today")
         by_rule = {item["ruleKey"]: item for item in items}
         self.assertIn("severe_10d", by_rule)
-        self.assertIn("severe_30d", by_rule)
         self.assertTrue(by_rule["severe_10d"]["triggered"])
-        self.assertFalse(by_rule["severe_30d"]["triggered"])
+        self.assertNotIn("severe_30d", by_rule)
 
     def test_same_direction_is_a_prediction_card(self):
         service = self.service
@@ -394,19 +393,19 @@ class MarketVectorTests(unittest.TestCase):
         self.assertEqual(merged[0]["trigger"], "已达到阈值")
 
     def test_best_window_can_be_shorter_than_rule_horizon(self):
-        # 历史不足 10 日时使用全部共同有效交易日，不得缩成最大偏离子窗口。
+        # 历史不足 10 日时，在全部可用尾部区间中选择最大上涨偏离。
         stock = [{"date": f"2026-09-{index:02d}", "return": value} for index, value in enumerate([0, 0, 0, 0, 0, 0, 0, 10], 1)]
         index = [{"date": item["date"], "return": 0.0} for item in stock]
         value, window = MarketService._best_vector_deviation(stock, index, 10)
-        self.assertEqual(window, 7)
+        self.assertEqual(window, 1)
         self.assertAlmostEqual(value, 10.0)
 
-    def test_ten_day_window_uses_seven_to_ten_day_tail(self):
-        # 尚水智能的真实形态：最近 7 日偏离 +53.75%，8～10 日均较低。
+    def test_ten_day_window_uses_maximum_tail_interval(self):
+        # 10 日规则允许在最近 10 个交易日内选择最大上涨区间。
         stock = [{"date": f"2026-10-{index:02d}", "return": value} for index, value in enumerate([0, 0, 0, 0, 0, 0, 10], 1)]
         index = [{"date": item["date"], "return": 0.0} for item in stock]
         value, window = MarketService._best_vector_deviation(stock, index, 10)
-        self.assertEqual(window, 7)
+        self.assertEqual(window, 1)
         self.assertAlmostEqual(value, 10.0)
 
     def test_severe_card_is_hidden_when_same_rule_is_in_monitor(self):
@@ -422,7 +421,7 @@ class MarketVectorTests(unittest.TestCase):
         stock = [{"date": f"2026-09-{index:02d}", "return": 0.0 if index < 7 else 100.0} for index in range(1, 8)]
         index = [{"date": item["date"], "return": 0.0} for item in stock]
         value, window = MarketService._best_vector_deviation(stock, index, 10)
-        self.assertEqual(window, 7)
+        self.assertEqual(window, 1)
         self.assertGreaterEqual(value, 100.0)
 
     def test_fixed_window_uses_latest_sessions_not_best_historical_subwindow(self):
@@ -523,9 +522,9 @@ class MarketVectorTests(unittest.TestCase):
         """善水科技触发 10 日 +100% 后，当日快照不能被次日过滤逻辑漏掉。"""
         service = self.service
         dates = [f"2026-08-{index:02d}" for index in range(1, 30)]
-        # 末尾 10 个有效交易日累计相对指数偏离约 +100.89%，
+        # 末尾 9 个有效交易日累计相对指数偏离超过 +100%，
         # 与实际善水科技的边界形态一致；30 日线仍未达到 +200%。
-        stock_returns = [0.0] * 19 + [7.2] * 10
+        stock_returns = [0.0] * 19 + [12.0] * 10
         stock_vector = [{"date": day, "return": value} for day, value in zip(dates, stock_returns)]
         index_vector = [{"date": day, "return": 0.0} for day in dates]
         service._calc_repository = SimpleNamespace(
@@ -547,8 +546,9 @@ class MarketVectorTests(unittest.TestCase):
         items = service._compute_prediction_from_repository("today")
         self.assertGreaterEqual(len(items), 1)
         self.assertEqual(items[0]["ts_code"], "301190.SZ")
-        self.assertEqual(items[0]["predictionWindow"], 10)
-        self.assertTrue(items[0]["triggered"])
+        severe_10 = next(item for item in items if item["ruleKey"] == "severe_10d")
+        self.assertEqual(severe_10["predictionWindow"], 10)
+        self.assertTrue(severe_10["triggered"])
 
     def test_ten_day_rule_never_uses_a_three_day_spike(self):
         stock = [{"date": f"2026-09-{index:02d}", "return": value} for index, value in enumerate([30, 30, 30], 1)]
@@ -556,6 +556,50 @@ class MarketVectorTests(unittest.TestCase):
         value, window = MarketService._best_vector_deviation(stock, index, 10)
         self.assertEqual(window, 3)
         self.assertAlmostEqual(value, 119.7, places=1)
+
+    def test_effective_windows_match_next_day_examples(self):
+        ten_day_stock = [{"date": f"2026-09-{index:02d}", "return": value} for index, value in enumerate([0.0] + [5.0] * 9, 1)]
+        ten_day_index = [{"date": item["date"], "return": 0.0} for item in ten_day_stock]
+        _, ten_window = MarketService._best_vector_deviation(ten_day_stock, ten_day_index, 10)
+        self.assertEqual(ten_window, 9)
+
+        thirty_day_stock = [{"date": f"2026-08-{index:02d}", "return": value} for index, value in enumerate([0.0] * 8 + [2.0] * 22, 1)]
+        thirty_day_index = [{"date": item["date"], "return": 0.0} for item in thirty_day_stock]
+        _, thirty_window = MarketService._best_vector_deviation(thirty_day_stock, thirty_day_index, 30)
+        self.assertEqual(thirty_window, 22)
+
+    def test_next_day_excludes_stock_already_triggered_on_any_severe_rule(self):
+        service = self.service
+        dates = [f"2026-08-{index:02d}" for index in range(1, 31)]
+        stock_vector = [{"date": day, "return": 10.0} for day in dates]
+        index_vector = [{"date": day, "return": 0.0} for day in dates]
+        service._calc_repository = SimpleNamespace(
+            available=True,
+            all_calculations=lambda: {"301190.SZ": {
+                "ts_code": "301190.SZ", "latest_close": 35.93,
+                "as_of_trade_date": "20260830", "stock_return_vector": stock_vector,
+            }},
+            all_indexes=lambda: {"399102.SZ": {
+                "index_code": "399102.SZ", "latest_close": 3210.0,
+                "as_of_trade_date": "20260830", "index_return_vector": index_vector,
+            }},
+        )
+        service._stock_rows = lambda: [{
+            "ts_code": "301190.SZ", "symbol": "301190", "name": "善水科技",
+            "market": "SZSE", "board": "创业板", "isST": False,
+        }]
+        service._realtime = SimpleNamespace(fetch_many=lambda _codes: {})
+        self.assertEqual(service._compute_prediction_from_repository("next_day"), [])
+
+    def test_prediction_sort_prioritizes_window_then_trigger_distance(self):
+        items = [
+            {"ruleKey": "severe_10d", "triggerValue": "+3.02%", "ts_code": "002242.SZ"},
+            {"ruleKey": "severe_30d", "triggerValue": "+15.73%", "ts_code": "688137.SH"},
+            {"ruleKey": "severe_10d", "triggerValue": "+2.07%", "ts_code": "600241.SH"},
+            {"ruleKey": "ordinary_3d", "triggerValue": "+1.00%", "ts_code": "000001.SZ"},
+        ]
+        ordered = MarketService._sort_prediction_items(items)
+        self.assertEqual([item["ts_code"] for item in ordered], ["688137.SH", "600241.SH", "002242.SZ", "000001.SZ"])
 
     def test_prediction_excludes_downward_direction(self):
         service = self.service

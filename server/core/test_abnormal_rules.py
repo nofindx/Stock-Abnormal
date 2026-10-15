@@ -47,7 +47,7 @@ class AbnormalRulesTest(unittest.TestCase):
     def test_main_board_10_day_severe_threshold(self):
         """主板最近 10 个交易日偏离达到 100% 时应触发严重异常。"""
 
-        stock, index = make_bars([100] + [200] * 10, [100] * 11)
+        stock, index = make_bars([100] + [200] * 9, [100] * 10)
         result = detect_severe_abnormal(stock, index, Board.MAIN)
         self.assertTrue(result.triggered)
         self.assertIsNotNone(result.severe_10d)
@@ -56,7 +56,7 @@ class AbnormalRulesTest(unittest.TestCase):
     def test_main_board_10_day_down_does_not_trigger(self):
         """下跌方向只保留为原始偏离，不触发严重异常。"""
 
-        stock, index = make_bars([100] + [50] * 10, [100] * 11)
+        stock, index = make_bars([100] + [50] * 9, [100] * 10)
         result = detect_severe_abnormal(stock, index, Board.MAIN)
         self.assertIsNone(result.severe_10d)
         self.assertFalse(result.triggered)
@@ -64,7 +64,7 @@ class AbnormalRulesTest(unittest.TestCase):
     def test_main_board_10_day_down_is_not_counted(self):
         """下跌未达到上涨阈值，也不应进入同向次数。"""
 
-        stock, index = make_bars([100] + [50.01] * 10, [100] * 11)
+        stock, index = make_bars([100] + [50.01] * 9, [100] * 10)
         result = detect_severe_abnormal(stock, index, Board.MAIN)
         self.assertIsNone(result.severe_10d)
         self.assertEqual(result.same_direction_count, 0)
@@ -79,7 +79,7 @@ class AbnormalRulesTest(unittest.TestCase):
     def test_main_board_30_day_down_does_not_trigger(self):
         """下跌方向不触发 30 日严重异常。"""
 
-        stock, index = make_bars([100] + [30] * 30, [100] * 31)
+        stock, index = make_bars([100] + [30] * 29, [100] * 30)
         result = detect_severe_abnormal(stock, index, Board.MAIN)
         self.assertIsNone(result.severe_30d)
         self.assertFalse(result.triggered)
@@ -87,7 +87,7 @@ class AbnormalRulesTest(unittest.TestCase):
     def test_main_board_30_day_up_threshold_is_plus_200_percent(self):
         """上涨达到 +200% 时触发 30 日严重异常。"""
 
-        stock, index = make_bars([100] + [300] * 30, [100] * 31)
+        stock, index = make_bars([100] + [300] * 29, [100] * 30)
         result = detect_severe_abnormal(stock, index, Board.MAIN)
         self.assertIsNotNone(result.severe_30d)
         self.assertAlmostEqual(result.severe_30d.deviation, 200.0)
@@ -110,11 +110,11 @@ class AbnormalRulesTest(unittest.TestCase):
     def test_bse_uses_current_exchange_thresholds(self):
         """北交所应使用 2026-07-06 生效的独立方向阈值。"""
 
-        stock, index = make_bars([100] + [250] * 10, [100] * 11)
+        stock, index = make_bars([100] + [250] * 9, [100] * 10)
         result = detect_severe_abnormal(stock, index, Board.BSE)
         self.assertIsNotNone(result.severe_10d)
         self.assertAlmostEqual(result.severe_10d.deviation, 150.0)
 
-        stock, index = make_bars([100] + [25] * 30, [100] * 31)
+        stock, index = make_bars([100] + [25] * 29, [100] * 30)
         result = detect_severe_abnormal(stock, index, Board.BSE)
         self.assertIsNone(result.severe_30d)
