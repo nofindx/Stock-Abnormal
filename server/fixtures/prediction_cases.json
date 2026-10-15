@@ -4,7 +4,7 @@
       {"ts_code": "600825.SH", "ruleKey": "severe_10d", "predictionKey": "600825.SH-severe_10d-20261012", "triggered": true},
       {"ts_code": "600825.SH", "ruleKey": "severe_30d", "predictionKey": "600825.SH-severe_30d-20261012", "triggered": false}
     ],
-    "supportedRuleKeys": ["ordinary_3d", "same_direction_10d", "severe_10d", "severe_30d"]
+    "supportedRuleKeys": ["ordinary_3d", "severe_10d", "severe_30d"]
   },
   "next_day_same_rule_exclusion": {
     "todayTriggered": [{"ts_code": "600825.SH", "ruleKey": "severe_10d"}],

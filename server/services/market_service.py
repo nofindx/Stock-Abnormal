@@ -29,7 +29,7 @@ BOARD_BY_MARKET = {"主板": Board.MAIN, "创业板": Board.CHINEXT, "科创板"
 SHANGHAI_TZ = ZoneInfo("Asia/Shanghai") if ZoneInfo else timezone(timedelta(hours=8))
 # 停牌/复牌重置、上涨同向计数和预测阶段切换属于同一套规则口径。
 # 版本变化会触发服务启动时从已确认收盘行情重建计算基础数据与预测集。
-PREDICTION_RULE_VERSION = "2026-10-unified-max-window-simulation-v29"
+PREDICTION_RULE_VERSION = "2026-10-unified-max-window-simulation-v30"
 
 
 class CalculationDataUnavailable(RuntimeError):
@@ -198,6 +198,9 @@ class MarketService:
 
     def _prediction_item_allowed(self, item: Dict[str, Any], monitored_codes: Dict[str, set], scope: str = "") -> bool:
         rule_key = str(item.get("ruleKey") or "")
+        # 同向次数仍参与单股状态判断，但不再生成或展示预测卡片。
+        if rule_key == "same_direction_10d":
+            return False
         if rule_key in {"severe_10d", "severe_30d"}:
             # 已进入对应严重异动监管期后，该严重规则由重点监控承接；
             # 预测页仅追加普通/同向卡，避免同一规则重复展示。
@@ -1980,10 +1983,7 @@ class MarketService:
                 ("severe_30d", 30, board_rule.severe_30d_threshold.up, "deviation", board_rule.severe_30d_threshold.up),
             ]
             if severe_monitored:
-                rules[0:0] = [
-                    ("ordinary_3d", 3, board_rule.ordinary_deviation, "deviation", board_rule.ordinary_deviation),
-                    ("same_direction_10d", 3, board_rule.ordinary_deviation, "same_direction", board_rule.ordinary_deviation),
-                ]
+                rules.insert(0, ("ordinary_3d", 3, board_rule.ordinary_deviation, "deviation", board_rule.ordinary_deviation))
             rule_options: List[Dict[str, Any]] = []
             for rule_key, rule_window, threshold, kind, target in rules:
                 if scope in {"today", "next_day"} and (stock.get("symbol") in monitored_codes.get(rule_key, set()) or ts_code.split(".")[0] in monitored_codes.get(rule_key, set())):
@@ -2024,8 +2024,6 @@ class MarketService:
                 trigger_condition = f"涨幅达 {display_distance:.2f}%"
                 if option["ruleKey"] == "ordinary_3d":
                     rule_text = f"连续3个交易日内收盘价涨幅偏离值累计达到 +{option['threshold']:.0f}%"
-                elif option["ruleKey"] == "same_direction_10d":
-                    rule_text = "连续10个交易日内多次出现同向异常波动"
                 elif option["ruleKey"] == "severe_30d":
                     rule_text = f"连续30个交易日内收盘价涨幅偏离值累计达到 +{option['threshold']:.0f}%"
                 else:

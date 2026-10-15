@@ -58,7 +58,7 @@ class FixtureContractTests(unittest.TestCase):
         payload = json.loads(path.read_text(encoding="utf-8"))
         keys = {item["ruleKey"] for item in payload["two_severe_rules_same_stock"]["items"]}
         self.assertEqual(keys, {"severe_10d", "severe_30d"})
-        self.assertEqual(set(payload["two_severe_rules_same_stock"]["supportedRuleKeys"]), {"ordinary_3d", "same_direction_10d", "severe_10d", "severe_30d"})
+        self.assertEqual(set(payload["two_severe_rules_same_stock"]["supportedRuleKeys"]), {"ordinary_3d", "severe_10d", "severe_30d"})
 
     def test_special_stock_eligibility_is_excluded_from_prediction(self):
         self.assertFalse(MarketService._prediction_stock_eligible({"isST": True}, "20261012"))

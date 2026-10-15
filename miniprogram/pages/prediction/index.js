@@ -6,7 +6,6 @@ function normalizeItems(items = [], scope = 'today') {
     severe_30d: '30日严重异动',
     severe_10d: '10日严重异动',
     ordinary_3d: '普通异动',
-    same_direction_10d: '同向次数',
   }
   return items.map((item, index) => {
     const rawChange = item.change == null || item.change === '' ? '' : String(item.change)

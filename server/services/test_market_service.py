@@ -494,7 +494,7 @@ class MarketVectorTests(unittest.TestCase):
         items = service._compute_prediction_from_repository("today")
         self.assertFalse(any(item["ruleKey"] == "same_direction_10d" for item in items))
 
-    def test_monitored_stock_adds_short_window_prediction_cards(self):
+    def test_monitored_stock_adds_only_ordinary_short_window_prediction_card(self):
         service = self.service
         dates = [f"2026-08-{index:02d}" for index in range(1, 11)]
         stock_vector = [{"date": day, "return": 8.0 if index >= 8 else 0.0} for index, day in enumerate(dates, 1)]
@@ -509,7 +509,7 @@ class MarketVectorTests(unittest.TestCase):
         service.set_monitor_provider(lambda: {"items": [{"symbol": "000001", "riskTone": "severe-10d"}]})
         keys = {item["ruleKey"] for item in service._compute_prediction_from_repository("today")}
         self.assertIn("ordinary_3d", keys)
-        self.assertIn("same_direction_10d", keys)
+        self.assertNotIn("same_direction_10d", keys)
 
     def test_same_dataset_merge_deduplicates_by_rule_and_target_date(self):
         merged = MarketService._merge_prediction_items(
