@@ -39,7 +39,7 @@ MONITOR_PERIOD_TRADING_DAYS = {
 MONITOR_WINDOW_TRADING_DAYS = MONITOR_PERIOD_TRADING_DAYS
 # 公告分类口径变化时，启动任务主动重采一次当前快照；避免必须等到次日
 # 00:00 才让修复后的北交所严重异动进入重点监控。
-MONITOR_RULE_VERSION = "2026-10-monitor-source-and-noise-v4"
+MONITOR_RULE_VERSION = "2026-10-monitor-source-and-noise-v5"
 
 
 class MonitorRepository:
@@ -197,6 +197,7 @@ class OfficialMonitorService:
         today = datetime.now(SHANGHAI_TZ).strftime("%Y-%m-%d")
         active_items = [
             item for item in (snapshot or {}).get("items", [])
+            if not self._is_noise_stock(item.get("symbol", ""), item.get("name", ""))
             if not self._is_expired(str(item.get("monitorEndDate") or ""), today)
         ]
         return {
@@ -346,7 +347,7 @@ class OfficialMonitorService:
             raise ValueError(f"无法计算监管期：{source_date}")
         return dates[0], dates[-1]
 
-    def _monitor_period_dates(self, source_date: str, source_type: str, risk_tone: str = "ordinary", symbol: str = "") -> List[str]:
+    def _monitor_period_dates(self, source_date: str, source_type: str, risk_tone: str = "ordinary", symbol: str = "", event_end_date: str = "") -> List[str]:
         """返回已冻结的监管交易日序列，供快照保存和倒计时使用。"""
 
         window = MONITOR_PERIOD_TRADING_DAYS.get(risk_tone, MONITOR_PERIOD_TRADING_DAYS["ordinary"])
@@ -358,7 +359,9 @@ class OfficialMonitorService:
         # 仍是触发日，因此监管期同样从下一个交易日开始。沪深巨潮公告保持
         # 公告日作为起点，避免改变已有的其他监管记录。
         is_bse = bool(re.match(r"^(?:4|8|9)\d{5}", str(symbol or "")))
-        starts_next_trade_day = source_type == "broker-risk-alert" or (is_bse and risk_tone in ("severe-10d", "severe-30d"))
+        # 公告正文明确异动事实最后交易日时，监管从其后的首个交易日开始。
+        # 这能处理公告发布日期晚于异动结束日的情况，例如近岸蛋白。
+        starts_next_trade_day = source_type == "broker-risk-alert" or bool(event_end_date) or (is_bse and risk_tone in ("severe-10d", "severe-30d"))
         comparator = (lambda value: value > source_date) if starts_next_trade_day else (lambda value: value >= source_date)
         start_index = next((index for index, value in enumerate(dates) if comparator(value)), 0)
         end_index = min(start_index + window - 1, len(dates) - 1)
@@ -367,6 +370,60 @@ class OfficialMonitorService:
     @staticmethod
     def _risk_rank(item: Dict[str, Any]) -> int:
         return {"severe-30d": 3, "severe-10d": 2, "ordinary": 1}.get(str(item.get("riskTone")), 0)
+
+    @staticmethod
+    def _is_noise_stock(symbol: Any, name: Any) -> bool:
+        """去除 5/1 开头基金类标的、ST/*ST 与退市整理期；正常 9 开头北交所股票保留。"""
+
+        code_match = re.search(r"\d{6}", str(symbol or ""))
+        code = code_match.group(0) if code_match else ""
+        normalized = re.sub(r"\s+", "", str(name or "")).upper()
+        return (
+            code.startswith(("5", "1"))
+            or normalized.startswith("ST")
+            or normalized.startswith("*ST")
+            or "退" in normalized
+        )
+
+    @staticmethod
+    def _event_end_date(announcement_date: str, body: str) -> str:
+        """从严重异动正文提取不晚于公告日的最后事实交易日。"""
+
+        if not body or not announcement_date:
+            return ""
+        text = re.sub(r"\s+", "", str(body)).replace("／", "/")
+
+        def parse_fragment(fragment: str) -> str:
+            match = re.search(r"(?:(20\d{2})年)?(\d{1,2})月(\d{1,2})日?", fragment)
+            if not match:
+                match = re.search(r"(?:(20\d{2})[-/.])?(\d{1,2})[-/.](\d{1,2})", fragment)
+            if not match:
+                return ""
+            try:
+                year = int(match.group(1) or announcement_date[:4])
+                value = datetime(year, int(match.group(2)), int(match.group(3))).strftime("%Y-%m-%d")
+            except ValueError:
+                return ""
+            return value if value <= announcement_date else ""
+
+        candidates: List[str] = []
+        # 公告最稳定的事实口径：区间末日紧邻“连续 N 个交易日”。
+        for match in re.finditer(
+            r"((?:20\d{2}年)?\d{1,2}月\d{1,2}日?)连续\d+个交易日",
+            text,
+        ):
+            value = parse_fragment(match.group(1))
+            if value:
+                candidates.append(value)
+        # 部分公告只写“截至某日收盘”，作为次优事实日期。
+        for match in re.finditer(
+            r"截至((?:20\d{2}年)?\d{1,2}月\d{1,2}日?)(?:收盘|，|,)",
+            text,
+        ):
+            value = parse_fragment(match.group(1))
+            if value:
+                candidates.append(value)
+        return max(candidates) if candidates else ""
 
     def _pdf_path(self, monitor_key: str) -> Path:
         """根据监控记录键生成固定 PDF 路径，不接受用户传入的文件名。"""
@@ -515,6 +572,8 @@ class OfficialMonitorService:
             parsed_events: List[Dict[str, Any]] = []
             for announcement in result.get("items", []) if issuer_available else []:
                 title = announcement["title"]
+                if self._is_noise_stock(announcement.get("stockCode", ""), announcement.get("stockName", "")):
+                    continue
                 # 一般性的公司风险提示不等于交易所重点监控提示；后者单独使用 18.cn 券商公告源。
                 if "异常波动" not in title:
                     continue
@@ -525,7 +584,11 @@ class OfficialMonitorService:
                     continue
                 if not announcement.get("date"):
                     continue
-                monitor_dates = self._monitor_period_dates(announcement["date"], "issuer-disclosure", risk_tone, announcement.get("stockCode", ""))
+                event_end_date = self._event_end_date(announcement["date"], body) if risk_tone.startswith("severe-") else ""
+                monitor_dates = self._monitor_period_dates(
+                    event_end_date or announcement["date"], "issuer-disclosure", risk_tone,
+                    announcement.get("stockCode", ""), event_end_date=event_end_date,
+                )
                 if not monitor_dates:
                     continue
                 monitor_start, monitor_end = monitor_dates[0], monitor_dates[-1]
@@ -552,8 +615,14 @@ class OfficialMonitorService:
                 # 18.cn 是主源；只有正文满足风险提示或 10/30 日阈值语义才进入重点监控。
                 if not self._is_accepted_broker_alert(alert["title"], alert.get("body", "")):
                     continue
+                if self._is_noise_stock(alert.get("stockCode", ""), alert.get("stockName", "")):
+                    continue
                 monitor_type, risk_tone = self._broker_monitor_type(alert["title"], alert.get("body", ""))
-                monitor_dates = self._monitor_period_dates(alert["date"], alert["sourceType"], risk_tone)
+                event_end_date = self._event_end_date(alert["date"], alert.get("body", "")) if risk_tone.startswith("severe-") else ""
+                monitor_dates = self._monitor_period_dates(
+                    event_end_date or alert["date"], alert["sourceType"], risk_tone, alert.get("stockCode", ""),
+                    event_end_date=event_end_date,
+                )
                 if not monitor_dates:
                     continue
                 monitor_start, monitor_end = monitor_dates[0], monitor_dates[-1]
@@ -642,6 +711,8 @@ class OfficialMonitorService:
         today = datetime.now(SHANGHAI_TZ).strftime("%Y-%m-%d")
         items = []
         for item in snapshot.get("items", []):
+            if self._is_noise_stock(item.get("symbol", ""), item.get("name", "")):
+                continue
             end_date = str(item.get("monitorEndDate") or "")
             if self._is_expired(end_date, today):
                 continue
@@ -653,10 +724,8 @@ class OfficialMonitorService:
                 expected = {"ordinary": "ordinary", "severe_10d": "severe-10d", "severe_30d": "severe-30d"}[monitor_type]
                 if item.get("riskTone") != expected:
                     continue
-            remaining = self._remaining_trading_days(item.get("monitorDates"), today)
-            if remaining is None and end_date:
-                # 兼容升级前快照；新快照始终保存交易日序列。
-                remaining = self._remaining_natural_days(end_date, today)
+            # 页面展示“还剩几天”按自然日计算；monitorDates 仍保留用于审计监管交易日序列。
+            remaining = self._remaining_natural_days(end_date, today)
             row = {**item, "days": remaining}
             if item.get("riskTone") in ("severe-10d", "severe-30d"):
                 row["pdfCached"] = bool(self.announcement_pdf_path(str(item.get("monitorKey") or "")))

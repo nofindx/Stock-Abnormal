@@ -1,6 +1,6 @@
 .monitor-page { background: #F2F3F5; padding-top: 24rpx; padding-bottom: 220rpx; }
 .filter-row { display: flex; height: 80rpx; min-height: 80rpx; align-items: center; justify-content: space-between; gap: 18rpx; margin-top: 12rpx; }
-.type-filters { display: flex; flex: 0 0 50%; width: 50%; min-width: 0; align-items: center; justify-content: space-between; gap: 0; }
+.type-filters { display: flex; flex: 0 0 100%; width: 100%; min-width: 0; align-items: center; justify-content: space-between; gap: 0; }
 .filter-segment {
   flex: 0 0 88rpx;
   width: 88rpx;
@@ -28,15 +28,6 @@
 .filter-segment.active,
 .filter-segment-risk.active,
 .filter-segment-severe.active { border-color: #E49A8E; background: #FDEBE8; color: #C0271E; box-shadow: none; }
-.st-control {
-  display: flex;
-  flex: 0 0 auto;
-  align-items: center;
-  gap: 10rpx;
-}
-.st-label { color: #6B7280; font-size: 22rpx; font-weight: 600; white-space: nowrap; }
-.st-native-switch-wrap { display: flex; width: 78rpx; height: 48rpx; align-items: center; justify-content: flex-end; overflow: visible; }
-.st-native-switch { flex: 0 0 auto; transform: scale(.75); transform-origin: right center; }
 .snapshot-row { position: relative; display: flex; height: 48rpx; min-height: 48rpx; align-items: center; margin-top: 12rpx; padding-right: 120rpx; box-sizing: border-box; }
 .snapshot-summary { display: flex; min-width: 0; max-width: 100%; align-items: baseline; gap: 10rpx; color: #6B7280; font-size: 22rpx; line-height: 30rpx; white-space: nowrap; overflow: hidden; }
 .snapshot-count { color: #1A1A1A; font-size: 28rpx; font-weight: 700; font-variant-numeric: tabular-nums; }
@@ -59,8 +50,6 @@
 .source-link-icon { font-size: 20rpx; line-height: 30rpx; }
 .monitor-page .stock-name { min-width: 0; flex: 0 1 auto; overflow: hidden; color: #1A1A1A; font-size: 30rpx; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
 .monitor-page .stock-meta { flex: 0 0 auto; margin: 0; color: #6B7280; font-size: 20rpx; font-variant-numeric: tabular-nums; white-space: nowrap; }
-.muted-security .stock-name, .muted-security .stock-meta { color: #9CA3AF; }
-.muted-security .stock-name { font-weight: 500; }
 .monitor-page .badge { max-width: 220rpx; min-height: 30rpx; padding: 0 10rpx; border-radius: 8rpx; font-size: 20rpx; line-height: 30rpx; }
 .monitor-page .badge-ordinary { background: #FFFCF8; color: #8A6D0B; }
 .monitor-page .badge-severe-10d { background: #FFF7F2; color: #E0501F; }

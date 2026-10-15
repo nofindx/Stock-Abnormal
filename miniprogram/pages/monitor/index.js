@@ -3,7 +3,7 @@ const { getMonitor } = require('../../utils/api')
 const { openPdf } = require('../../utils/open-pdf')
 
 Page({
-  data: { type: 'all', hideNoise: false, items: [], rawItems: [], visibleCount: 0, updatedAt: '', loading: false, refreshing: false, buttonRefreshing: false, error: '', skeletonRows: [0, 1, 2, 3], types: [{ key: 'all', label: '全部' }, { key: 'risk', label: '风险提示' }, { key: 'severe', label: '严重异动' }] },
+  data: { type: 'all', items: [], rawItems: [], visibleCount: 0, updatedAt: '', loading: false, refreshing: false, buttonRefreshing: false, error: '', skeletonRows: [0, 1, 2, 3], types: [{ key: 'all', label: '全部' }, { key: 'risk', label: '风险提示' }, { key: 'severe', label: '严重异动' }] },
   onLoad() { this.restoreCache(); this.loadData() },
   onShow() {
     const tabBar = this.getTabBar && this.getTabBar()
@@ -15,11 +15,6 @@ Page({
     if (this.pollTimer) clearTimeout(this.pollTimer)
     this.pollAttempts = 0
     this.setData({ type: event.currentTarget.dataset.type }, () => { if (!this.restoreCache()) this.setData({ items: [], rawItems: [], updatedAt: '' }); this.loadData() })
-  },
-  toggleNoise(event) {
-    const hasSwitchValue = event && event.detail && typeof event.detail.value !== 'undefined'
-    const hideNoise = hasSwitchValue ? Boolean(event.detail.value) : !this.data.hideNoise
-    this.setData({ hideNoise }, () => this.applyFilters(this.data.rawItems || []))
   },
   refreshSnapshot() {
     if (this.data.buttonRefreshing) return this.loadPromise || Promise.resolve()
@@ -98,18 +93,10 @@ Page({
   applyFilters(items) {
     let filtered = items.map(item => ({
       ...item,
-      // 剩余监管交易日由后端计算，前端只负责格式化展示。
+      // 剩余自然日由后端计算，前端只负责格式化展示。
       days: formatRemainingDays(item.days),
-      // 所有标的都保留；去杂项仅弱化，不改变后端监控事实。
-      // 监管日期、风险标签和剩余天数仍使用正常风险配色。
-      noiseSecurity: isNoiseSecurity(item),
-      mutedSecurity: isNoiseSecurity(item),
       riskTone: item.riskTone || 'ordinary'
     }))
-    // 去杂隐藏 5/1 开头标的、ST/*ST 和退市标的；9 开头北交所始终保留。
-    if (this.data.hideNoise) {
-      filtered = filtered.filter(item => !item.noiseSecurity)
-    }
     filtered.sort((left, right) => Number(left.days == null ? 9999 : left.days) - Number(right.days == null ? 9999 : right.days))
     this.setData({ items: filtered, visibleCount: filtered.length })
   },
@@ -126,15 +113,6 @@ Page({
     if (this.pollTimer) clearTimeout(this.pollTimer)
   }
 })
-
-// 去杂只处理基金/ETF 常见的 5/1 开头代码、ST/*ST 和退市标的。
-// 9 开头是北交所证券，即使名称带特殊标记，也不按代码形态去杂。
-function isNoiseSecurity(item) {
-  const code = String(item && (item.symbol || item.ts_code) || '').match(/\d{6}/)?.[0] || ''
-  if (code.startsWith('9')) return false
-  const name = String(item && item.name || '').toUpperCase()
-  return code.startsWith('5') || code.startsWith('1') || /(?:^|\*)ST/.test(name) || name.includes('退市')
-}
 
 function formatRemainingDays(value) {
   if (value == null || value === '') return '--'

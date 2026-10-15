@@ -75,6 +75,28 @@ class MonitorWindowTests(unittest.TestCase):
             ("2026-09-30", "2026-10-20"),
         )
 
+    def test_severe_period_uses_last_event_trade_date_from_announcement_body(self):
+        dates = [
+            "2026-09-30", "2026-10-08", "2026-10-09", "2026-10-12", "2026-10-13",
+            "2026-10-14", "2026-10-15", "2026-10-16", "2026-10-19", "2026-10-20",
+            "2026-10-21", "2026-10-22",
+        ]
+        self.service._trade_dates = lambda source_date, days: dates
+        body = "公司股票于2026年9月16日至2026年9月30日连续10个交易日内收盘价累计涨幅偏离值达到100%"
+        event_end = self.service._event_end_date("2026-10-08", body)
+        self.assertEqual(event_end, "2026-09-30")
+        self.assertEqual(
+            self.service._monitor_period_dates(event_end, "issuer-disclosure", "severe-10d", "688137", event_end_date=event_end)[-1],
+            "2026-10-21",
+        )
+
+    def test_monitor_noise_excludes_st_delisting_but_keeps_normal_bse_nine(self):
+        self.assertFalse(self.service._is_noise_stock("920229", "世纪数码"))
+        self.assertTrue(self.service._is_noise_stock("510300", "沪深300ETF"))
+        self.assertTrue(self.service._is_noise_stock("123456", "测试基金"))
+        self.assertTrue(self.service._is_noise_stock("920575", "*ST康乐"))
+        self.assertTrue(self.service._is_noise_stock("301139", "元道退"))
+
     def test_thirty_day_detection_window_does_not_create_thirty_day_monitor_period(self):
         dates = [
             (date(2026, 8, 21) + timedelta(days=index)).strftime("%Y-%m-%d")
