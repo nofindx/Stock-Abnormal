@@ -2,6 +2,12 @@
 const { getPredictions, refreshPredictions } = require('../../utils/api')
 
 function normalizeItems(items = [], scope = 'today') {
+  const ruleLabels = {
+    severe_30d: '30日严重异动',
+    severe_10d: '10日严重异动',
+    ordinary_3d: '普通异动',
+    same_direction_10d: '同向次数',
+  }
   return items.map((item, index) => {
     const rawChange = item.change == null || item.change === '' ? '' : String(item.change)
     const change = /^[-+]?0\.00%$/.test(rawChange) && !item.changeSource ? '--' : (rawChange || '--')
@@ -9,7 +15,7 @@ function normalizeItems(items = [], scope = 'today') {
     const deviationLabel = item.deviationLabel || item.deviation || '--'
     const triggerValue = item.triggerValue || '--'
     const window = item.predictionWindow || item.deviationWindow || ''
-    return { ...item, deviationLabel, triggerValue, triggered, showCurrentChange: scope !== 'next_day', alertText: triggered ? (item.alertText || '已触发') : '', cardTone: triggered ? 'triggered' : '', predictionKey: item.predictionKey || `${item.ts_code || index}-${item.ruleKey || window || index}`, change, changeClass: change === '--' ? 'neutral' : (change[0] === '-' ? 'down' : 'up') }
+    return { ...item, deviationLabel, triggerValue, ruleLabel: item.ruleLabel || ruleLabels[item.ruleKey] || item.rule || '异动预测', triggered, showCurrentChange: scope !== 'next_day', alertText: triggered ? (item.alertText || '已触发') : '', cardTone: triggered ? 'triggered' : '', predictionKey: item.predictionKey || `${item.ts_code || index}-${item.ruleKey || window || index}`, change, changeClass: change === '--' ? 'neutral' : (change[0] === '-' ? 'down' : 'up') }
   })
 }
 

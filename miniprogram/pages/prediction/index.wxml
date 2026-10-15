@@ -6,7 +6,7 @@
   <view wx:if="{{error}}" class="card error-state">{{error}}</view>
   <view class="prediction-list"><view wx:for="{{items}}" wx:key="predictionKey" class="prediction-row {{item.cardTone === 'triggered' ? 'prediction-row-triggered' : ''}}" hover-class="tap-feedback" bindtap="openStock" data-code="{{item.ts_code}}">
     <view class="prediction-top">
-      <view class="prediction-stock"><view class="stock-line"><text class="stock-name">{{item.name}}</text><text class="stock-meta">{{item.symbol}}</text></view></view>
+      <view class="prediction-stock"><view class="stock-line"><text class="stock-name">{{item.name}}</text><text class="stock-meta">{{item.symbol}}</text></view><text class="prediction-rule-label">{{item.ruleLabel}}</text></view>
       <view wx:if="{{item.showCurrentChange}}" class="prediction-quote"><text class="prediction-change-prefix">当前涨幅</text><text class="prediction-change-value change {{item.changeClass}}">{{item.change}}</text></view>
     </view>
     <view class="prediction-middle">
