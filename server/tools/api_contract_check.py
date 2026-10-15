@@ -55,6 +55,19 @@ def main() -> int:
     assert coverage_data["activeStockCount"] == coverage_data["completeStockCount"] + coverage_data["incompleteStockCount"], coverage_data
     assert len(coverage_data["items"]) <= 5, coverage_data
     assert all(not ({"close", "price", "daily"} & set(item)) for item in coverage_data["items"]), coverage_data
+    for path, required in (
+        ("/api/market/calculation-bases?offset=0&limit=1", ("items", "indexes", "asOfTradeDate", "containsRawDaily", "containsIntradaySnapshot")),
+        ("/api/market/dataset-status", ("items", "count", "source")),
+        ("/api/market/jobs", ("market", "prediction", "source")),
+    ):
+        status, payload = request_json(base + path)
+        if status in (503, 500) and payload.get("code") in (50301, 50302) and not args.require_data:
+            print(f"{path}: database unavailable, direct storage assertions skipped")
+            continue
+        assert status == 200 and payload.get("code") == 0, (path, status, payload)
+        body = payload.get("data") or {}
+        for field in required:
+            assert field in body, (path, field, payload)
     for scope in ("today", "next_day"):
         status, payload = request_json(f"{base}/api/predictions?scope={scope}")
         if status in (503, 500) and payload.get("code") in (50301, 50302) and not args.require_data:
