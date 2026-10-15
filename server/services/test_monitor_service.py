@@ -1,10 +1,10 @@
 import os
 import tempfile
 import unittest
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from unittest.mock import Mock
 
-from server.services.monitor_service import OfficialMonitorService
+from server.services.monitor_service import OfficialMonitorService, SHANGHAI_TZ
 from server.services.announcement_service import AnnouncementService
 
 
@@ -92,6 +92,18 @@ class MonitorWindowTests(unittest.TestCase):
         self.assertFalse(self.service._is_expired("2026-09-28", "2026-09-28"))
         self.assertEqual(self.service._remaining_natural_days("2026-10-14", "2026-09-27"), 17)
         self.assertTrue(self.service._is_expired("2026-09-28", "2026-09-29"))
+
+    def test_health_count_matches_current_active_items(self):
+        today = datetime.now(SHANGHAI_TZ).strftime("%Y-%m-%d")
+        yesterday = (datetime.now(SHANGHAI_TZ) - timedelta(days=1)).strftime("%Y-%m-%d")
+        self.service.repository.active_snapshot = lambda: {
+            "snapshotDate": today,
+            "updatedAt": datetime.now(SHANGHAI_TZ).isoformat(timespec="minutes"),
+            "items": [{"monitorEndDate": yesterday}, {"monitorEndDate": today}],
+        }
+        self.service.repository.states = lambda: {}
+        health = self.service.health_stats(today_is_trade_day=True)
+        self.assertEqual(health["itemCount"], 1)
 
     def test_same_type_overlapping_period_uses_latest_record_but_different_types_remain_separate(self):
         risk_first = self.event("2026-09-23", "2026-10-14", "ordinary")

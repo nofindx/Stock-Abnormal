@@ -194,6 +194,11 @@ class OfficialMonitorService:
                 age_seconds = max(0, int((datetime.now(SHANGHAI_TZ) - parsed.astimezone(SHANGHAI_TZ)).total_seconds()))
             except ValueError:
                 age_seconds = None
+        today = datetime.now(SHANGHAI_TZ).strftime("%Y-%m-%d")
+        active_items = [
+            item for item in (snapshot or {}).get("items", [])
+            if not self._is_expired(str(item.get("monitorEndDate") or ""), today)
+        ]
         return {
             "available": bool(snapshot),
             "snapshotDate": str((snapshot or {}).get("snapshotDate") or ""),
@@ -201,7 +206,9 @@ class OfficialMonitorService:
             "ageSeconds": age_seconds,
             # 节假日不要求公告快照按自然日滚动更新。
             "stale": bool(age_seconds is None or (age_seconds > 36 * 3600 and today_is_trade_day is not False)),
-            "itemCount": len((snapshot or {}).get("items") or []),
+            # 健康页展示当前有效监管条数，与 /api/monitor?status=current 一致；
+            # 快照内部可能保留尚未清理的历史记录，不能直接计入当前数量。
+            "itemCount": len(active_items),
             "dataQuality": (snapshot or {}).get("dataQuality") or {},
             "refreshing": bool(self.refreshing),
             "lastStatus": state.get("last_status", ""),

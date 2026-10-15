@@ -29,7 +29,7 @@ BOARD_BY_MARKET = {"主板": Board.MAIN, "创业板": Board.CHINEXT, "科创板"
 SHANGHAI_TZ = ZoneInfo("Asia/Shanghai") if ZoneInfo else timezone(timedelta(hours=8))
 # 停牌/复牌重置、上涨同向计数和预测阶段切换属于同一套规则口径。
 # 版本变化会触发服务启动时从已确认收盘行情重建计算基础数据与预测集。
-PREDICTION_RULE_VERSION = "2026-10-upward-only-rule-cards-v26"
+PREDICTION_RULE_VERSION = "2026-10-upward-only-rule-cards-v27"
 
 # GBK 区位表不依赖第三方拼音包，适合云托管的轻量搜索场景。
 _PINYIN_RANGES = (
@@ -2175,6 +2175,11 @@ class MarketService:
         monitored_codes = self._monitored_rule_codes()
         items = [item for item in items if self._prediction_item_allowed(item, monitored_codes, scope)]
         items = self._normalize_prediction_items(items)
+        # 交易时段 today 允许复用上一交易日的 next_day 候选池；对外展示范围
+        # 仍必须是“当日”，不能把底层数据集名称泄漏到卡片字段。
+        if scope == "today" and source_scope == "next_day":
+            for item in items:
+                item["scope"] = "当日"
         refreshing = False
         dataset_updated = self._format_prediction_datetime((persistent or {}).get("dataset_quote_updated_at")) or self._format_prediction_datetime((persistent or {}).get("updated_at") or (cached[0] if cached else None))
         has_realtime = False
