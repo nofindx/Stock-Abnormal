@@ -227,6 +227,23 @@ class ApiHandler(BaseHTTPRequestHandler):
                 if offset < 0 or limit < 1:
                     raise ApiError(40001, "offset 必须不小于 0，limit 必须大于 0", 400)
                 data = SERVICE.history_coverage(offset=offset, limit=limit)
+            elif parsed.path == "/api/market/calculation-bases":
+                try:
+                    offset = int(query.get("offset", ["0"])[0])
+                    limit = int(query.get("limit", ["100"])[0])
+                except ValueError as exc:
+                    raise ApiError(40001, "offset 和 limit 必须是整数", 400) from exc
+                if offset < 0 or limit < 1 or limit > 100:
+                    raise ApiError(40001, "offset 必须不小于 0，limit 必须为 1～100", 400)
+                raw_codes = query.get("ts_codes", [""])[0]
+                ts_codes = [item.strip().upper() for item in raw_codes.split(",") if item.strip()]
+                if len(ts_codes) > 100:
+                    raise ApiError(40001, "ts_codes 最多 100 只股票", 400)
+                data = SERVICE.calculation_bases(ts_codes=ts_codes or None, offset=offset, limit=limit)
+            elif parsed.path == "/api/market/dataset-status":
+                data = SERVICE.persisted_dataset_statuses()
+            elif parsed.path == "/api/market/jobs":
+                data = SERVICE.persisted_jobs()
             elif parsed.path == "/api/market/status":
                 latest = SERVICE.client.latest_trade_date()
                 data = {"latestTradeDate": latest, "source": "tushare", "intraday": False}

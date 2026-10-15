@@ -611,6 +611,121 @@ class MarketService:
             "pagination": {"offset": start, "limit": page_size, "total": len(findings)},
         }
 
+    def calculation_bases(self, ts_codes: Optional[List[str]] = None,
+                          offset: int = 0, limit: int = 100) -> Dict[str, Any]:
+        """直接读取数据库中的股票/指数收益基线，供审计和本地模拟使用。"""
+
+        def scalar(value: Any) -> Any:
+            if value is None or isinstance(value, (str, int, float, bool)):
+                return value
+            if isinstance(value, datetime):
+                return self._format_prediction_datetime(value)
+            try:
+                return float(value)
+            except (TypeError, ValueError):
+                return str(value)
+
+        repository = self._calc_repository
+        if not repository.available:
+            raise CalculationDataUnavailable("MySQL 计算数据仓库不可用，无法读取计算基线")
+        try:
+            payload = repository.calculation_bases(ts_codes=ts_codes, offset=offset, limit=limit)
+        except Exception as exc:  # noqa: BLE001
+            raise CalculationDataUnavailable("读取计算基线失败") from exc
+        if not payload:
+            raise CalculationDataUnavailable("计算基线不可读")
+        indexes = {str(item.get("index_code")): item for item in payload.get("indexes", [])}
+        items: List[Dict[str, Any]] = []
+        referenced_indexes = set()
+        for stock in payload.get("stocks", []):
+            index_code = _index_code_for_stock(stock)
+            referenced_indexes.add(index_code)
+            items.append({
+                "ts_code": stock.get("ts_code", ""),
+                "symbol": stock.get("symbol", ""),
+                "name": stock.get("name", ""),
+                "market": stock.get("market", ""),
+                "board": stock.get("board", ""),
+                "isST": bool(stock.get("isST")),
+                "listStatus": stock.get("list_status", ""),
+                "listDate": stock.get("list_date", ""),
+                "delistDate": stock.get("delist_date", ""),
+                "priceLimitEnabled": stock.get("priceLimitEnabled"),
+                "indexCode": index_code,
+                "asOfTradeDate": stock.get("as_of_trade_date", ""),
+                "latestClose": scalar(stock.get("latest_close")),
+                "returnVector": stock.get("stock_return_vector") or [],
+                "deviations": {
+                    "3": scalar(stock.get("deviation_3")),
+                    "10": scalar(stock.get("deviation_10")),
+                    "30": scalar(stock.get("deviation_30")),
+                },
+                "sameDirection": {
+                    "up": int(stock.get("same_direction_up") or 0),
+                    "down": int(stock.get("same_direction_down") or 0),
+                },
+                "dataStage": stock.get("data_stage", "formal"),
+                "quoteUpdatedAt": scalar(stock.get("quote_updated_at")),
+                "updatedAt": scalar(stock.get("updated_at")),
+            })
+        index_items = []
+        for code in sorted(referenced_indexes):
+            index = indexes.get(code)
+            if not index:
+                continue
+            index_items.append({
+                "indexCode": index.get("index_code", ""),
+                "indexName": index.get("index_name", ""),
+                "asOfTradeDate": index.get("as_of_trade_date", ""),
+                "latestClose": scalar(index.get("latest_close")),
+                "returnVector": index.get("index_return_vector") or [],
+                "dataStage": index.get("data_stage", "formal"),
+                "quoteUpdatedAt": scalar(index.get("quote_updated_at")),
+                "updatedAt": scalar(index.get("updated_at")),
+            })
+        dates = [str(item.get("asOfTradeDate") or "") for item in items + index_items]
+        return {
+            "items": items,
+            "indexes": index_items,
+            "activeStockCount": int(payload.get("activeStockCount") or 0),
+            "returnedStockCount": len(items),
+            "asOfTradeDate": max(dates, default=""),
+            "pagination": {"offset": offset, "limit": limit, "total": int(payload.get("activeStockCount") or 0)},
+            "source": "stock_calc_base + index_calc_base",
+            "containsRawDaily": False,
+            "containsIntradaySnapshot": False,
+        }
+
+    def persisted_dataset_statuses(self) -> Dict[str, Any]:
+        repository = self._calc_repository
+        if not repository.available:
+            raise CalculationDataUnavailable("MySQL 计算数据仓库不可用，无法读取数据集状态")
+        try:
+            rows = repository.prediction_dataset_statuses() or []
+        except Exception as exc:  # noqa: BLE001
+            raise CalculationDataUnavailable("读取预测数据集状态失败") from exc
+        for row in rows:
+            for key in ("updated_at", "dataset_quote_updated_at"):
+                row[key] = self._format_prediction_datetime(row.get(key))
+        return {"items": rows, "count": len(rows), "source": "prediction_dataset"}
+
+    def persisted_jobs(self) -> Dict[str, Any]:
+        repository = self._calc_repository
+        if not repository.available:
+            raise CalculationDataUnavailable("MySQL 计算数据仓库不可用，无法读取任务状态")
+        try:
+            payload = repository.jobs_snapshot() or {"market": [], "prediction": []}
+        except Exception as exc:  # noqa: BLE001
+            raise CalculationDataUnavailable("读取任务状态失败") from exc
+        for rows in payload.values():
+            if not isinstance(rows, list):
+                continue
+            for row in rows:
+                for key in ("last_attempt_at", "started_at", "finished_at"):
+                    if key in row:
+                        row[key] = self._format_prediction_datetime(row.get(key))
+        return {**payload, "source": "market_calc_job + prediction_job"}
+
     def _market_context(self) -> Dict[str, Any]:
         """缓存最近 30 个交易日和板块指数，详情请求复用该上下文。"""
 

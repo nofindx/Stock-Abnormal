@@ -83,6 +83,49 @@ class MarketVectorTests(unittest.TestCase):
         self.assertEqual(len(result["items"]), 2)
         self.assertEqual(result["pagination"]["total"], 4)
 
+    def test_calculation_bases_returns_persisted_vectors_and_index_without_intraday_data(self):
+        service = self.service
+        service._calc_repository = SimpleNamespace(
+            available=True,
+            calculation_bases=lambda **_kwargs: {
+                "activeStockCount": 1,
+                "stocks": [{
+                    "ts_code": "000001.SZ", "symbol": "000001", "name": "测试",
+                    "market": "SZSE", "board": "主板", "isST": 0,
+                    "list_status": "L", "list_date": "20200101", "delist_date": "",
+                    "priceLimitEnabled": True, "as_of_trade_date": "20261015",
+                    "latest_close": 10.0, "stock_return_vector": [{"date": "20261015", "return": 1.2}],
+                    "deviation_3": 1.2, "deviation_10": 2.3, "deviation_30": 4.5,
+                    "same_direction_up": 3, "same_direction_down": 0,
+                    "data_stage": "formal", "quote_updated_at": None, "updated_at": None,
+                }],
+                "indexes": [{
+                    "index_code": "399107.SZ", "index_name": "深证成指",
+                    "as_of_trade_date": "20261015", "latest_close": 1000,
+                    "index_return_vector": [{"date": "20261015", "return": 0.5}],
+                    "data_stage": "formal", "quote_updated_at": None, "updated_at": None,
+                }],
+            },
+        )
+        result = service.calculation_bases(ts_codes=["000001.SZ"], limit=1)
+        self.assertEqual(result["returnedStockCount"], 1)
+        self.assertEqual(result["items"][0]["indexCode"], "399107.SZ")
+        self.assertEqual(result["indexes"][0]["returnVector"][0]["return"], 0.5)
+        self.assertFalse(result["containsRawDaily"])
+        self.assertFalse(result["containsIntradaySnapshot"])
+
+    def test_persisted_dataset_and_jobs_are_read_only_wrappers(self):
+        service = self.service
+        service._calc_repository = SimpleNamespace(
+            available=True,
+            prediction_dataset_statuses=lambda: [{"scope": "today", "target_trade_date": "20261015", "item_count": 3}],
+            jobs_snapshot=lambda: {"market": [{"job_name": "daily"}], "prediction": [{"job_name": "today"}]},
+        )
+        self.assertEqual(service.persisted_dataset_statuses()["count"], 1)
+        jobs = service.persisted_jobs()
+        self.assertEqual(jobs["market"][0]["job_name"], "daily")
+        self.assertEqual(jobs["prediction"][0]["job_name"], "today")
+
     def test_compound_return_uses_composite_formula(self):
         self.assertAlmostEqual(MarketService._compound([10.0, 10.0]), 21.0)
 

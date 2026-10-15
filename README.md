@@ -61,6 +61,10 @@ GET  /health
 GET  /health/ui
 GET  /api/stocks/search?q=...
 GET  /api/stocks/detail?ts_code=...
+GET  /api/market/history-coverage?offset=0&limit=100
+GET  /api/market/calculation-bases?ts_codes=...
+GET  /api/market/dataset-status
+GET  /api/market/jobs
 GET  /api/monitor?status=current&type=all|risk|severe
 GET  /api/predictions?scope=today|next_day
 POST /api/predictions/refresh

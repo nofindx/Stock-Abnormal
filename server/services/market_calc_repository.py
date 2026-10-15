@@ -339,6 +339,98 @@ class MarketCalcRepository:
             result[str(value["index_code"])] = value
         return result
 
+    def calculation_bases(self, ts_codes: Optional[List[str]] = None,
+                          offset: int = 0, limit: int = 100) -> Optional[Dict[str, Any]]:
+        """读取已落盘的股票/指数计算基线。
+
+        这里只返回收益向量和最新收盘基准，不读取原始日线、成交量或盘中快照。
+        由上层根据股票市场把股票关联到所属指数。
+        """
+
+        if not self.available:
+            return None
+        self.ensure_schema()
+        codes = [str(value).strip().upper() for value in (ts_codes or []) if str(value).strip()]
+        with self.connection() as db:
+            with db.cursor(self._driver().cursors.DictCursor) as cursor:
+                if codes:
+                    placeholders = ",".join(["%s"] * len(codes))
+                    cursor.execute(
+                        "SELECT b.ts_code, b.symbol, b.name, b.market, b.board, "
+                        "b.is_st AS isST, b.list_status, b.list_date, b.delist_date, "
+                        "b.price_limit_enabled AS priceLimitEnabled, "
+                        "c.as_of_trade_date, c.latest_close, c.stock_return_vector, "
+                        "c.deviation_3, c.deviation_10, c.deviation_30, "
+                        "c.same_direction_up, c.same_direction_down, c.data_stage, "
+                        "c.quote_updated_at, c.updated_at "
+                        "FROM stock_basic b LEFT JOIN stock_calc_base c ON c.ts_code=b.ts_code "
+                        f"WHERE b.ts_code IN ({placeholders}) ORDER BY b.symbol",
+                        tuple(codes),
+                    )
+                else:
+                    cursor.execute(
+                        "SELECT b.ts_code, b.symbol, b.name, b.market, b.board, "
+                        "b.is_st AS isST, b.list_status, b.list_date, b.delist_date, "
+                        "b.price_limit_enabled AS priceLimitEnabled, "
+                        "c.as_of_trade_date, c.latest_close, c.stock_return_vector, "
+                        "c.deviation_3, c.deviation_10, c.deviation_30, "
+                        "c.same_direction_up, c.same_direction_down, c.data_stage, "
+                        "c.quote_updated_at, c.updated_at "
+                        "FROM stock_basic b LEFT JOIN stock_calc_base c ON c.ts_code=b.ts_code "
+                        "WHERE b.list_status='L' ORDER BY b.symbol LIMIT %s OFFSET %s",
+                        (int(limit), int(offset)),
+                    )
+                stocks = [dict(row) for row in cursor.fetchall()]
+                cursor.execute(
+                    "SELECT index_code, index_name, as_of_trade_date, latest_close, "
+                    "index_return_vector, data_stage, quote_updated_at, updated_at "
+                    "FROM index_calc_base"
+                )
+                indexes = [dict(row) for row in cursor.fetchall()]
+                cursor.execute("SELECT COUNT(*) AS count FROM stock_basic WHERE list_status='L'")
+                active_count = int((cursor.fetchone() or {}).get("count") or 0)
+        for row in stocks:
+            row["isST"] = bool(row.get("isST"))
+            row["stock_return_vector"] = self._json_value(row.get("stock_return_vector"), [])
+        for row in indexes:
+            row["index_return_vector"] = self._json_value(row.get("index_return_vector"), [])
+        return {"stocks": stocks, "indexes": indexes, "activeStockCount": active_count}
+
+    def prediction_dataset_statuses(self) -> Optional[List[Dict[str, Any]]]:
+        """读取预测数据集的持久化元数据，不展开卡片 items。"""
+
+        if not self.available:
+            return None
+        self.ensure_schema()
+        with self.connection() as db:
+            with db.cursor(self._driver().cursors.DictCursor) as cursor:
+                cursor.execute(
+                    "SELECT dataset_role AS scope, target_trade_date, base_trade_date, updated_at, "
+                    "data_stage, data_quality, dataset_quote_updated_at, dataset_quote_as_of, "
+                    "dataset_quote_source, dataset_quote_complete, item_count, exclusion_stats, "
+                    "status, last_error, rule_version FROM prediction_dataset "
+                    "ORDER BY target_trade_date DESC, dataset_role"
+                )
+                rows = [dict(row) for row in cursor.fetchall()]
+        for row in rows:
+            row["dataset_quote_complete"] = bool(row.get("dataset_quote_complete"))
+            row["exclusion_stats"] = self._json_value(row.get("exclusion_stats"), {})
+        return rows
+
+    def jobs_snapshot(self) -> Optional[Dict[str, Any]]:
+        """读取计算与预测任务状态，供发布验收使用。"""
+
+        if not self.available:
+            return None
+        self.ensure_schema()
+        with self.connection() as db:
+            with db.cursor(self._driver().cursors.DictCursor) as cursor:
+                cursor.execute("SELECT * FROM market_calc_job ORDER BY job_name")
+                market = [dict(row) for row in cursor.fetchall()]
+                cursor.execute("SELECT * FROM prediction_job ORDER BY job_name")
+                prediction = [dict(row) for row in cursor.fetchall()]
+        return {"market": market, "prediction": prediction}
+
     def history_coverage_snapshot(self):
         """纯 SELECT 读取覆盖审计所需数据，不初始化或修改 schema。"""
 
