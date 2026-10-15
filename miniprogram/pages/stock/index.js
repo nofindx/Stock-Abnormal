@@ -159,7 +159,7 @@ function presentAlerts(alerts = []) {
 }
 
 function presentWarnings(warnings = []) {
-  const colors = { safe: '#128A5F', warning: '#8A6D0B', triggered: '#C0271E', unknown: '#6B7280' }
+  const colors = { safe: '#4B5563', warning: '#6B7280', triggered: '#1C1C1E', unknown: '#9CA3AF' }
   return warnings.map((item) => {
     if (item.title === '10 日同向') {
       const up = Number(item.up || 0)

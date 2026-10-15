@@ -20,6 +20,9 @@
 .rules-risk { border-color: #F0D8D5; background: #FFF9F8; }
 .rules-risk .rules-heading { color: #B93833; }
 .rules-risk .rules-copy { color: #73504D; }
+.rules-risk { border-color: #D1D5DB !important; background: #F2F3F5 !important; }
+.rules-risk .rules-heading,
+.rules-risk .rules-copy { color: #1C1C1E !important; }
 .rules-page .free-note { display: none; }
 
 @media (max-width: 390px) {

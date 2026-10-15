@@ -114,6 +114,20 @@
 .spinning { animation: spin .8s linear infinite; }
 @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 
+/* Prediction semantics are monochrome; only the current quote remains red/green. */
+.prediction-page .segment.active { border-color: #4B5563 !important; color: #1C1C1E !important; }
+.prediction-page .prediction-rule-label,
+.prediction-page .prediction-rule-label.change.up,
+.prediction-page .prediction-rule-label.change.down,
+.prediction-page .trigger-value { color: #1C1C1E !important; }
+.prediction-page .prediction-deviation-tag,
+.prediction-page .prediction-triggered-badge { border-color: #9CA3AF !important; background: #F2F3F5 !important; color: #1C1C1E !important; }
+.prediction-page .prediction-row-triggered { border-color: #9CA3AF !important; background: #F2F3F5 !important; }
+.prediction-page .snapshot-refresh,
+.prediction-page .refresh-button { border-color: #9CA3AF !important; background: #374151 !important; color: #FFFFFF !important; box-shadow: none !important; }
+.prediction-page .refresh-button.loading { border-color: #D1D5DB !important; background: #F2F3F5 !important; color: #6B7280 !important; }
+.prediction-page .error-state { color: #4B5563 !important; }
+
 @media (max-width: 390px) {
   .prediction-page .badge { padding: 0 8rpx; font-size: 18rpx; }
   .rule-value { font-size: 19rpx; }

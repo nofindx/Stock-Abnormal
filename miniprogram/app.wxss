@@ -133,3 +133,13 @@ button::after { border: 0; }
 .legal-footer-links .footer-separator,
 .page-footer-links .footer-separator,
 .stock-footer-links .footer-separator { color: #C4C7CE; }
+
+/* Monochrome UI: only quote change values use red/green semantics. */
+.rules-link,
+.button-plain,
+.page-footer-link { color: #4B5563 !important; }
+.button-primary { background: #374151 !important; color: #FFFFFF !important; }
+.badge-safe,
+.badge-risk,
+.badge-severe,
+.badge-neutral { background: #F2F3F5 !important; color: #4B5563 !important; }

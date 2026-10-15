@@ -77,3 +77,22 @@
 .skeleton-badge { width: 150rpx; height: 30rpx; }
 .skeleton-days { width: 200rpx; height: 25rpx; margin-left: auto; margin-top: -25rpx; }
 .chip-feedback { opacity: .72; }
+
+/* Monitoring status is informational, not a price quote: keep it grayscale. */
+.monitor-page .filter-segment.active,
+.monitor-page .filter-segment-risk.active,
+.monitor-page .filter-segment-severe.active { border-color: #4B5563 !important; background: #F2F3F5 !important; color: #1C1C1E !important; }
+.monitor-page .snapshot-refresh { border-color: #9CA3AF !important; color: #1C1C1E !important; }
+.monitor-page .source-link,
+.monitor-page .badge-ordinary,
+.monitor-page .badge-severe-10d,
+.monitor-page .badge-severe-30d,
+.monitor-page .days-value,
+.monitor-page .days-value.days-ordinary,
+.monitor-page .days-value.days-severe-10d,
+.monitor-page .days-value.days-severe-30d,
+.monitor-page .days-number { color: #1C1C1E !important; }
+.monitor-page .badge-ordinary,
+.monitor-page .badge-severe-10d,
+.monitor-page .badge-severe-30d { background: #F2F3F5 !important; }
+.monitor-page .error-state { border-color: #D1D5DB !important; background: #F2F3F5 !important; color: #4B5563 !important; }
