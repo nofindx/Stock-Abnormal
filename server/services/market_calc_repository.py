@@ -339,6 +339,39 @@ class MarketCalcRepository:
             result[str(value["index_code"])] = value
         return result
 
+    def history_coverage_snapshot(self):
+        """纯 SELECT 读取覆盖审计所需数据，不初始化或修改 schema。"""
+
+        if not self.available:
+            return None, None, None
+        with self.connection() as db:
+            with db.cursor(self._driver().cursors.DictCursor) as cursor:
+                cursor.execute("""
+                    SELECT ts_code, symbol, name, market, board, is_st AS isST,
+                           list_status, list_date, price_limit_enabled AS priceLimitEnabled
+                    FROM stock_basic WHERE list_status = 'L' ORDER BY symbol
+                """)
+                stocks = [dict(row) for row in cursor.fetchall()]
+                cursor.execute("""
+                    SELECT ts_code, as_of_trade_date, stock_return_vector
+                    FROM stock_calc_base
+                """)
+                calculations = {}
+                for row in cursor.fetchall():
+                    value = dict(row)
+                    value["stock_return_vector"] = self._json_value(value.get("stock_return_vector"), [])
+                    calculations[str(value["ts_code"])] = value
+                cursor.execute("""
+                    SELECT index_code, as_of_trade_date, index_return_vector
+                    FROM index_calc_base
+                """)
+                indexes = {}
+                for row in cursor.fetchall():
+                    value = dict(row)
+                    value["index_return_vector"] = self._json_value(value.get("index_return_vector"), [])
+                    indexes[str(value["index_code"])] = value
+        return stocks, calculations, indexes
+
     def job(self, job_name: str = "daily") -> Optional[Dict[str, Any]]:
         """读取后台更新状态。"""
 

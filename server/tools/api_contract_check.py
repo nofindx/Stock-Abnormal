@@ -46,6 +46,15 @@ def main() -> int:
     market_calc = (health.get("data") or {}).get("marketCalc") or {}
     for field in ("stockBasicCoverage", "predictionMigration"):
         assert field in market_calc, ("health.marketCalc", field, health)
+    status, coverage = request_json(f"{base}/api/market/history-coverage?offset=0&limit=5")
+    assert status == 200 and coverage.get("code") == 0, ("history-coverage", status, coverage)
+    coverage_data = coverage.get("data") or {}
+    for field in ("asOfTradeDate", "requiredReturnCount", "activeStockCount", "completeStockCount", "incompleteStockCount", "categoryCounts", "items", "pagination"):
+        assert field in coverage_data, ("history-coverage", field, coverage)
+    assert coverage_data["requiredReturnCount"] == 30, coverage_data
+    assert coverage_data["activeStockCount"] == coverage_data["completeStockCount"] + coverage_data["incompleteStockCount"], coverage_data
+    assert len(coverage_data["items"]) <= 5, coverage_data
+    assert all(not ({"close", "price", "daily"} & set(item)) for item in coverage_data["items"]), coverage_data
     for scope in ("today", "next_day"):
         status, payload = request_json(f"{base}/api/predictions?scope={scope}")
         if status in (503, 500) and payload.get("code") in (50301, 50302) and not args.require_data:

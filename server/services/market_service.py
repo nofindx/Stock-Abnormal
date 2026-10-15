@@ -29,7 +29,11 @@ BOARD_BY_MARKET = {"主板": Board.MAIN, "创业板": Board.CHINEXT, "科创板"
 SHANGHAI_TZ = ZoneInfo("Asia/Shanghai") if ZoneInfo else timezone(timedelta(hours=8))
 # 停牌/复牌重置、上涨同向计数和预测阶段切换属于同一套规则口径。
 # 版本变化会触发服务启动时从已确认收盘行情重建计算基础数据与预测集。
-PREDICTION_RULE_VERSION = "2026-10-upward-only-rule-cards-v28"
+PREDICTION_RULE_VERSION = "2026-10-unified-max-window-simulation-v29"
+
+
+class CalculationDataUnavailable(RuntimeError):
+    """单股正式计算依赖完整的 MySQL 收益率基线。"""
 
 # GBK 区位表不依赖第三方拼音包，适合云托管的轻量搜索场景。
 _PINYIN_RANGES = (
@@ -449,6 +453,164 @@ class MarketService:
         ranked.sort(key=lambda entry: (entry[0], entry[1]))
         return {"items": [entry[2] for entry in ranked[:limit]], "hasMore": len(ranked) > limit}
 
+    def history_coverage(self, offset: int = 0, limit: int = 100) -> Dict[str, Any]:
+        """只读检查活跃股票池最近 30 个共同收益区间的覆盖。"""
+
+        repository = self._calc_repository
+        if not repository.available:
+            raise CalculationDataUnavailable("MySQL 计算数据仓库不可用，无法审计历史覆盖")
+        try:
+            stocks, calculations, indexes = repository.history_coverage_snapshot()
+        except Exception as exc:  # noqa: BLE001
+            raise CalculationDataUnavailable("读取历史计算数据失败，覆盖审计未完成") from exc
+        if stocks is None or calculations is None or indexes is None:
+            raise CalculationDataUnavailable("历史计算数据不可读，覆盖审计未完成")
+
+        categories: Dict[str, int] = {}
+        findings: List[Dict[str, Any]] = []
+        complete_count = 0
+        special_stock_count = 0
+        index_dates_by_code = {
+            code: {self._date_key(item.get("date")) for item in self._vector_entries(item.get("index_return_vector")) if self._date_key(item.get("date"))}
+            for code, item in indexes.items()
+        }
+        latest_dates = [
+            self._date_key(item.get("as_of_trade_date"))
+            for item in indexes.values()
+            if self._date_key(item.get("as_of_trade_date"))
+        ]
+        latest_date = max(latest_dates, default="")
+        expected_market_dates = sorted({
+            date for dates in index_dates_by_code.values() for date in dates if date <= latest_date
+        })[-30:]
+        suspension_pairs = set()
+        suspension_source_available = False
+        if expected_market_dates and latest_date:
+            try:
+                suspension_rows = []
+                for start in range(0, len(expected_market_dates), 10):
+                    chunk = expected_market_dates[start:start + 10]
+                    suspension_frame = self.client.suspend_d(chunk[0], chunk[-1])
+                    chunk_rows = suspension_frame.to_dict("records") if hasattr(suspension_frame, "to_dict") else list(suspension_frame or [])
+                    if len(chunk_rows) >= 5000:
+                        raise RuntimeError("停复牌数据超过单次接口行数上限")
+                    suspension_rows.extend(chunk_rows)
+                suspension_pairs = {
+                    (str(row.get("ts_code") or "").upper(), self._date_key(row.get("trade_date")))
+                    for row in suspension_rows
+                    if str(row.get("suspend_type") or "").upper() == "S"
+                }
+                suspension_source_available = True
+            except Exception:  # noqa: BLE001 - 状态源不可用时保留明确的未判定结果
+                suspension_source_available = False
+
+        def record(stock: Dict[str, Any], category: str, details: Dict[str, Any]) -> None:
+            categories[category] = categories.get(category, 0) + 1
+            findings.append({
+                "ts_code": stock.get("ts_code", ""), "name": stock.get("name", ""),
+                "category": category, "listDate": self._date_key(stock.get("list_date")),
+                **details,
+            })
+
+        for stock in stocks:
+            if bool(stock.get("isST")) or stock.get("priceLimitEnabled") is False:
+                special_stock_count += 1
+            ts_code = str(stock.get("ts_code") or "")
+            calc = calculations.get(ts_code)
+            if not calc:
+                list_date = self._date_key(stock.get("list_date"))
+                listing_dates = [date for date in expected_market_dates if list_date and date >= list_date]
+                category = "recent_listing_short_history" if list_date and len(listing_dates) < 30 else "missing_stock_vector"
+                missing_dates = listing_dates if category == "recent_listing_short_history" else expected_market_dates
+                suspended_dates = [date for date in missing_dates if (ts_code.upper(), date) in suspension_pairs]
+                record(stock, category, {
+                    "stockReturns": 0,
+                    "commonReturns": 0,
+                    "expectedReturns": len(expected_market_dates),
+                    "missingDates": missing_dates,
+                    "suspendedDates": suspended_dates,
+                    "statusResolution": "Tushare suspend_d 已核验" if suspension_source_available else "停复牌状态源不可用，停牌与上游缺记录无法区分",
+                })
+                continue
+            index_code = _index_code_for_stock(stock)
+            index = indexes.get(index_code)
+            stock_vector = self._vector_entries(calc.get("stock_return_vector"))
+            if not index:
+                record(stock, "missing_index_vector", {
+                    "indexCode": index_code, "stockReturns": len(stock_vector), "commonReturns": 0,
+                })
+                continue
+
+            index_vector = self._vector_entries(index.get("index_return_vector"))
+            stock_dates = {self._date_key(item.get("date")) for item in stock_vector if self._date_key(item.get("date"))}
+            all_index_dates = index_dates_by_code.get(index_code, set())
+            expected_dates = expected_market_dates
+            common_dates = sorted(stock_dates & set(expected_dates))
+            stock_as_of = self._date_key(calc.get("as_of_trade_date"))
+            index_as_of = self._date_key(index.get("as_of_trade_date"))
+            missing_dates = [date for date in expected_dates if date not in stock_dates]
+
+            missing_index_dates = [date for date in expected_dates if date not in all_index_dates]
+            if len(expected_dates) < 30 or missing_index_dates:
+                category = "index_history_incomplete"
+            elif len(common_dates) >= 30 and stock_as_of == latest_date and index_as_of == latest_date:
+                complete_count += 1
+                continue
+            else:
+                list_date = self._date_key(stock.get("list_date"))
+                listing_dates = [date for date in expected_dates if list_date and date >= list_date]
+                if len(listing_dates) < 30 and (not list_date or list_date > expected_dates[0]):
+                    category = "recent_listing_short_history"
+                elif stock_as_of < latest_date:
+                    category = "tail_market_data_missing_unclassified"
+                elif stock_as_of != index_as_of:
+                    category = "stock_index_asof_mismatch"
+                else:
+                    category = "market_date_gap_unclassified"
+                suspended_dates = [
+                    date for date in missing_dates
+                    if (ts_code.upper(), date) in suspension_pairs
+                ]
+                source_missing_dates = [date for date in missing_dates if date not in suspended_dates]
+                if category not in {"recent_listing_short_history", "index_history_incomplete", "stock_index_asof_mismatch"} and missing_dates:
+                    if suspension_source_available and suspended_dates and not source_missing_dates:
+                        category = "suspended_history_short"
+                    elif suspension_source_available and suspended_dates and source_missing_dates:
+                        category = "suspension_and_source_gaps"
+                    elif suspension_source_available:
+                        category = "upstream_market_data_missing"
+                    else:
+                        category = "market_date_gap_unclassified"
+            record(stock, category, {
+                "indexCode": index_code,
+                "stockAsOf": stock_as_of,
+                "indexAsOf": index_as_of,
+                "stockReturns": len(stock_dates),
+                "indexReturns": len(expected_dates),
+                "commonReturns": len(common_dates),
+                "missingDates": missing_dates,
+                "missingIndexDates": missing_index_dates,
+                "suspendedDates": [date for date in missing_dates if (ts_code.upper(), date) in suspension_pairs],
+                "statusResolution": "Tushare suspend_d 已核验" if suspension_source_available else "停复牌状态源不可用，停牌与上游缺记录无法区分",
+            })
+
+        findings.sort(key=lambda item: (item["category"], item["ts_code"]))
+        start = max(0, int(offset))
+        page_size = max(1, min(500, int(limit)))
+        return {
+            "asOfTradeDate": latest_date,
+            "requiredReturnCount": 30,
+            "activeStockCount": len(stocks),
+            "completeStockCount": complete_count,
+            "incompleteStockCount": len(findings),
+            "specialStateStockCount": special_stock_count,
+            "suspensionStatusSource": "tushare.suspend_d" if suspension_source_available else "unavailable",
+            "categoryCounts": categories,
+            "classificationLimit": "停牌与上游缺记录需要独立停复牌状态源才能最终区分；本接口不猜测。",
+            "items": findings[start:start + page_size],
+            "pagination": {"offset": start, "limit": page_size, "total": len(findings)},
+        }
+
     def _market_context(self) -> Dict[str, Any]:
         """缓存最近 30 个交易日和板块指数，详情请求复用该上下文。"""
 
@@ -631,6 +793,19 @@ class MarketService:
         return {"stock": stock_returns[-30:], "index": index_returns[-30:]}
 
     @staticmethod
+    def _return_entries_from_bars(stock_bars: List[PriceBar], index_bars: List[PriceBar]) -> tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+        """把冷启动路径的收盘价转换成与计算仓库完全相同的日期化收益向量。"""
+
+        stock_entries: List[Dict[str, Any]] = []
+        index_entries: List[Dict[str, Any]] = []
+        for stock_previous, stock_current, index_previous, index_current in zip(stock_bars, stock_bars[1:], index_bars, index_bars[1:]):
+            if stock_current.trade_date != index_current.trade_date:
+                continue
+            stock_entries.append({"date": stock_current.trade_date.isoformat(), "return": (stock_current.close / stock_previous.close - 1) * 100})
+            index_entries.append({"date": index_current.trade_date.isoformat(), "return": (index_current.close / index_previous.close - 1) * 100})
+        return stock_entries[-30:], index_entries[-30:]
+
+    @staticmethod
     def _vector_entries(value: Any) -> List[Dict[str, Any]]:
         """统一解析数据库中的滚动收益率；新格式带日期，旧格式仍可读。"""
 
@@ -746,6 +921,56 @@ class MarketService:
         return "正常", "safe"
 
     @staticmethod
+    def _status_reason_for_metrics(deviations: Dict[int, Optional[float]], same_up: int, rule: Any) -> str:
+        reasons = []
+        if deviations.get(30) is not None and rule.severe_30d_threshold.triggered(deviations[30]):
+            reasons.append("30 日严重异动")
+        if deviations.get(10) is not None and rule.severe_10d_threshold.triggered(deviations[10]):
+            reasons.append("10 日严重异动")
+        if same_up >= rule.severe_same_direction_count:
+            reasons.append("10 日同向次数")
+        if deviations.get(3) is not None and deviations[3] >= rule.ordinary_deviation:
+            reasons.append("3 日普通异动")
+        return "、".join(f"{reason}已触发" for reason in reasons)
+
+    def _active_monitor_for_stock(self, stock: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """返回当前仍在监管期内的公告事实，不把监管状态混入行情异动计算。"""
+
+        if not self._monitor_provider:
+            return None
+        symbol = str(stock.get("symbol") or stock.get("ts_code") or "").split(".")[0]
+        today = self._now().strftime("%Y-%m-%d")
+        try:
+            snapshot = self._monitor_provider() or {}
+            matches = []
+            for item in snapshot.get("items", []):
+                item_symbol = str(item.get("symbol") or item.get("ts_code") or "").split(".")[0]
+                if item_symbol != symbol:
+                    continue
+                dates = {str(value)[:10] for value in (item.get("monitorDates") or [])}
+                end_date = str(item.get("monitorEndDate") or "")[:10]
+                if dates and today not in dates:
+                    continue
+                if not dates and end_date and end_date < today:
+                    continue
+                matches.append(item)
+            if not matches:
+                return None
+            item = sorted(matches, key=lambda value: str(value.get("monitorEndDate") or ""), reverse=True)[0]
+            return {
+                "active": True,
+                "monitorType": item.get("monitorType") or "重点监控",
+                "riskTone": item.get("riskTone") or "ordinary",
+                "title": item.get("title") or "",
+                "monitorStartDate": item.get("monitorStartDate") or "",
+                "monitorEndDate": item.get("monitorEndDate") or "",
+                "days": item.get("days"),
+                "daysTotal": item.get("daysTotal"),
+            }
+        except Exception:
+            return None
+
+    @staticmethod
     def _vector_numbers(entries: List[Dict[str, Any]]) -> List[float]:
         return [float(item["return"]) for item in entries]
 
@@ -778,8 +1003,8 @@ class MarketService:
         """计算最近有效窗口内的最大上涨偏离及实际窗口。
 
         10/30 日规则的“连续 N 个交易日内”是价格日回看上限：在最近 N 个共同
-        交易日内枚举以当前端点结束的 1..N-1 个连续有效收益率区间，取上涨偏离
-        最大值并返回实际窗口。3 日普通异动仍固定使用最近 3 个共同日。
+        交易日内枚举以当前端点结束的 1..N-1 个连续有效收益率区间；3 日规则
+        枚举 1..3 个区间。三项都只取最大上涨偏离并返回实际窗口。
         这必须与
         ``server.core.abnormal_rules._best_effective_deviation`` 保持一致，
         否则单股和预测会出现实际窗口分叉。
@@ -791,13 +1016,13 @@ class MarketService:
         dates = sorted(set(stock_map) & set(index_map))
         if len(dates) < 1:
             return None, None
-        # N 个交易日规则由 N 个价格点构成，因此收益率向量最多对应 N-1
-        # 个区间；卡片的 actualWindow 展示的是实际收益率区间长度。
+        # 10/30 日规则由价格日上限对应 N-1 个收益区间；3 日普通规则也
+        # 统一采用同一套“当前端点向前取最大上涨区间”算法，最多取 3 个区间。
         upper_limit = max_window - 1 if max_window in (10, 30) else max_window
         upper = min(upper_limit, len(dates))
         if upper < 1:
             return None, None
-        lower = 1 if max_window in (10, 30) else max_window
+        lower = 1
         windows = list(range(lower, upper + 1)) if upper >= lower else [upper]
         results = []
         for window in windows:
@@ -1020,6 +1245,11 @@ class MarketService:
             ) or same_count >= rule.severe_same_direction_count,
         )
         status, status_class = self._status_for_metrics(deviations, metrics["up"], rule)
+        status_reason = self._status_reason_for_metrics(deviations, metrics["up"], rule)
+        monitoring = self._active_monitor_for_stock(stock)
+        display_status = "监管中" if monitoring else ("状态安全" if status == "正常" else "状态异常")
+        display_status_class = "monitoring" if monitoring else status_class
+        market_status_display = f"已触发 · {status_reason}" if status_reason else "当前行情规则未触发"
         current_price = display_quote.get("current") if display_quote else calc.get("latest_close")
         if display_quote and display_quote.get("pctChg") is not None:
             current_change = display_quote.get("pctChg")
@@ -1034,16 +1264,22 @@ class MarketService:
             future_dates = []
         common_days = len(set(item.get("date") for item in stock_vector if item.get("date")) & set(item.get("date") for item in index_vector if item.get("date")))
         warnings = [
-            {"title": "3 日偏离", "value": _pct(deviations[3]), "target": f"上涨阈值 +{rule.ordinary_deviation:.0f}%" if deviations[3] is not None else "数据不足（需 3 个交易日）", "className": "risk" if deviations[3] is not None and deviations[3] >= rule.ordinary_deviation else "safe" if deviations[3] is not None else "neutral"},
-            {"title": "10 日偏离", "value": _pct(deviations[10]), "target": f"上涨阈值 +{rule.severe_10d_threshold.up:.0f}%" if deviations[10] is not None else f"数据不足（已有 {common_days} 个交易日，需 10 个）", "className": "risk" if deviations[10] is not None and rule.severe_10d_threshold.triggered(deviations[10]) else "safe" if deviations[10] is not None else "neutral"},
-            {"title": "30 日偏离", "value": _pct(deviations[30]), "target": f"上涨阈值 +{rule.severe_30d_threshold.up:.0f}%" if deviations[30] is not None else f"数据不足（已有 {common_days} 个交易日，需 30 个）", "className": "risk" if deviations[30] is not None and rule.severe_30d_threshold.triggered(deviations[30]) else "safe" if deviations[30] is not None else "neutral"},
+            {"title": "3 日偏离", "value": _pct(deviations[3]), "actualWindow": metrics["window_lengths"][3], "target": f"上涨阈值 +{rule.ordinary_deviation:.0f}%" if deviations[3] is not None else "数据不足（无有效共同收益区间）", "className": "risk" if deviations[3] is not None and deviations[3] >= rule.ordinary_deviation else "safe" if deviations[3] is not None else "neutral"},
+            {"title": "10 日偏离", "value": _pct(deviations[10]), "actualWindow": metrics["window_lengths"][10], "target": f"上涨阈值 +{rule.severe_10d_threshold.up:.0f}%" if deviations[10] is not None else "数据不足（无有效共同收益区间）", "className": "risk" if deviations[10] is not None and rule.severe_10d_threshold.triggered(deviations[10]) else "safe" if deviations[10] is not None else "neutral"},
+            {"title": "30 日偏离", "value": _pct(deviations[30]), "actualWindow": metrics["window_lengths"][30], "target": f"上涨阈值 +{rule.severe_30d_threshold.up:.0f}%" if deviations[30] is not None else "数据不足（无有效共同收益区间）", "className": "risk" if deviations[30] is not None and rule.severe_30d_threshold.triggered(deviations[30]) else "safe" if deviations[30] is not None else "neutral"},
             {"title": "10 日同向", "value": "", "up": str(metrics["up"]), "down": str(metrics["down"]), "target": f"阈值 {rule.severe_same_direction_count} 次", "className": "risk" if same_count >= rule.severe_same_direction_count else "safe"},
         ]
         return {
             **stock,
             "status": status,
-            "statusClass": status_class,
-            "statusIcon": "!" if status_class != "safe" else "✓",
+            "marketStatus": status,
+            "marketStatusClass": status_class,
+            "marketStatusDisplay": market_status_display,
+            "statusReason": status_reason,
+            "statusDisplay": display_status,
+            "statusClass": display_status_class,
+            "statusIcon": "!" if display_status_class != "safe" else "✓",
+            "monitoring": monitoring,
             "currentPrice": f"{float(current_price):.2f}" if current_price is not None else "--",
             "change": _pct(current_change),
             "tradeDate": latest_date,
@@ -1053,6 +1289,7 @@ class MarketService:
             "simulationBase": {"stock": self._vector_numbers(stock_vector), "index": self._vector_numbers(index_vector)},
             "calculationInput": {"stock": stock_vector, "index": index_vector, "ordinaryDeviation": rule.ordinary_deviation, "severe10": {"up": rule.severe_10d_threshold.up, "down": rule.severe_10d_threshold.down}, "severe30": {"up": rule.severe_30d_threshold.up, "down": rule.severe_30d_threshold.down}, "sameDirectionThreshold": rule.severe_same_direction_count, "ruleVersion": PREDICTION_RULE_VERSION},
             "simulationThresholds": {
+                "3": {"up": rule.ordinary_deviation},
                 "10": {"up": rule.severe_10d_threshold.up, "down": rule.severe_10d_threshold.down},
                 "30": {"up": rule.severe_30d_threshold.up, "down": rule.severe_30d_threshold.down},
             },
@@ -1064,13 +1301,11 @@ class MarketService:
                 "intraday": realtime,
                 "realtime": realtime,
                 "fallback": not realtime,
-                "isComplete": len(stock_vector) >= 30 and len(index_vector) >= 30,
+                "isComplete": common_days >= 30,
                 "suspensionResetDate": suspension.get("resetDate", ""),
                 "suspended": suspension.get("suspended", False),
                 "quoteUpdatedAt": display_quote.get("updatedAt", "") if display_quote else "",
-                "message": (
-                    "实时行情暂不可用" if not realtime else ""
-                ) if common_days >= 30 else f"复牌后重新累计，当前仅有 {common_days} 个有效交易日，10 日和 30 日偏离暂不可计算",
+                "message": "实时行情暂不可用" if not realtime else "",
             },
         }
 
@@ -1538,87 +1773,28 @@ class MarketService:
     def detail(self, ts_code: str) -> Dict[str, Any]:
         """返回单股当前状态、四项预警和模拟计算基础数据。"""
 
-        stock = self._stock(ts_code)
-        if self._calc_repository.available:
-            try:
-                stored = self._calc_repository.get_calc(stock["ts_code"])
-                if stored and stored.get("stock_return_vector"):
-                    result = self._detail_from_repository(stock, stored)
-                    if result:
-                        return result
-            except Exception as exc:  # noqa: BLE001 - 数据库不可用时回退已有 Tushare 链路
-                self._market_update_error = f"MySQL 读取失败：{exc}"
-        context = self._market_context()
-        latest = context["latest"]
-        start = context["start"]
-        stock_frame = self._daily(stock["ts_code"], start, latest)
-        index_code = _index_code_for_stock(stock)
-        index_frame = context["indexFrames"].get(index_code)
-        stock_all = self._bars(stock_frame, stock["ts_code"])
-        index_all = self._bars(index_frame, index_code)
-        stock_all, index_all, suspension = self._trim_bars_after_suspension(stock_all, index_all)
-        stock_by_date = {bar.trade_date: bar for bar in stock_all}
-        index_by_date = {bar.trade_date: bar for bar in index_all}
-        common_dates = sorted(set(stock_by_date) & set(index_by_date))
-        stock_bars = [stock_by_date[item] for item in common_dates]
-        index_bars = [index_by_date[item] for item in common_dates]
-        board = BOARD_BY_MARKET.get(stock["board"], Board.MAIN)
-        board_rule = BOARD_RULES[board]
-        quotes = self._realtime.fetch_many([stock["ts_code"], index_code])
-        quote = quotes.get(stock["ts_code"].upper())
-        index_quote = quotes.get(index_code.upper())
-        stock_bars, index_bars = self._merge_realtime_bars(stock_bars, index_bars, quote, index_quote)
-        common_days = len(stock_bars)
-        deviations: Dict[int, Optional[float]] = {}
-        for window in (3, 10, 30):
-            deviations[window] = None
-            if len(stock_bars) >= window + 1:
-                deviations[window] = calculate_deviation(stock_bars, index_bars, window).deviation
-        severe = detect_severe_abnormal(stock_bars, index_bars, board) if len(stock_bars) == len(index_bars) and len(stock_bars) >= 2 else None
-        status, status_class = self._status_for_metrics(
-            deviations,
-            severe.up_count if severe else 0,
-            board_rule,
-        )
-        latest_row = sorted(stock_frame.to_dict("records"), key=lambda item: str(item["trade_date"]))[-1] if not stock_frame.empty else {}
-        current_price = quote["current"] if quote else latest_row.get("close")
-        current_change = quote["pctChg"] if quote else latest_row.get("pct_chg")
-        return {
-            **stock,
-            "status": status,
-            "statusClass": status_class,
-            "statusIcon": "!" if status_class != "safe" else "✓",
-            "currentPrice": f"{float(current_price):.2f}" if current_price is not None else "--",
-            "change": _pct(current_change),
-            "tradeDate": latest,
-            "futureTradeDates": self._future_trade_dates(latest),
-            "warnings": [
-                {"title": "3 日偏离", "value": _pct(deviations[3]), "target": f"上涨阈值 +{board_rule.ordinary_deviation:.0f}%" if deviations[3] is not None else "数据不足（需 3 个交易日）", "className": "risk" if deviations[3] is not None and deviations[3] >= board_rule.ordinary_deviation else "safe" if deviations[3] is not None else "neutral"},
-                {"title": "10 日偏离", "value": _pct(deviations[10]), "target": f"上涨阈值 +{board_rule.severe_10d_threshold.up:.0f}%" if deviations[10] is not None else f"数据不足（已有 {common_days} 个交易日，需 10 个）", "className": "risk" if deviations[10] is not None and board_rule.severe_10d_threshold.triggered(deviations[10]) else "safe" if deviations[10] is not None else "neutral"},
-                {"title": "30 日偏离", "value": _pct(deviations[30]), "target": f"上涨阈值 +{board_rule.severe_30d_threshold.up:.0f}%" if deviations[30] is not None else f"数据不足（已有 {common_days} 个交易日，需 30 个）", "className": "risk" if deviations[30] is not None and board_rule.severe_30d_threshold.triggered(deviations[30]) else "safe" if deviations[30] is not None else "neutral"},
-                {"title": "10 日同向", "value": "", "up": str(severe.up_count if severe else 0), "down": str(severe.down_count if severe else 0), "target": f"阈值 {severe.same_direction_threshold if severe else 0} 次", "className": "risk" if severe and severe.same_direction_count else "safe"},
-            ],
-            "alerts": self._build_alerts(deviations, severe, board),
-            "simulationBase": self._simulation_returns(stock_bars, index_bars),
-            "calculationInput": {"stock": [{"date": bar.trade_date.isoformat(), "return": value} for bar, value in zip(stock_bars[1:], self._simulation_returns(stock_bars, index_bars)["stock"])], "index": [{"date": bar.trade_date.isoformat(), "return": value} for bar, value in zip(index_bars[1:], self._simulation_returns(stock_bars, index_bars)["index"])], "ordinaryDeviation": board_rule.ordinary_deviation, "severe10": {"up": board_rule.severe_10d_threshold.up, "down": board_rule.severe_10d_threshold.down}, "severe30": {"up": board_rule.severe_30d_threshold.up, "down": board_rule.severe_30d_threshold.down}, "sameDirectionThreshold": board_rule.severe_same_direction_count, "ruleVersion": PREDICTION_RULE_VERSION},
-            "simulationThresholds": {
-                "10": {"up": board_rule.severe_10d_threshold.up, "down": board_rule.severe_10d_threshold.down},
-                "30": {"up": board_rule.severe_30d_threshold.up, "down": board_rule.severe_30d_threshold.down},
-            },
-            "dataQuality": {
-                "source": "tushare+腾讯行情" if quote and index_quote else "tushare",
-                "tradeDate": latest,
-                "stage": "realtime" if quote and index_quote else "formal",
-                "isComplete": len(stock_bars) >= 31,
-                "intraday": bool(quote and index_quote),
-                "realtime": bool(quote and index_quote),
-                "fallback": not bool(quote and index_quote),
-                "quoteUpdatedAt": quote.get("updatedAt") if quote else "",
-                "suspensionResetDate": suspension.get("resetDate", ""),
-                "suspended": suspension.get("suspended", False),
-                "message": ("实时行情暂不可用" if not (quote and index_quote) else "") if common_days >= 30 else f"复牌后重新累计，当前仅有 {common_days} 个有效交易日，10 日和 30 日偏离暂不可计算",
-            },
-        }
+        if not self._calc_repository.available:
+            raise CalculationDataUnavailable("MySQL 计算数据仓库不可用，单股计算已停止")
+        try:
+            stored = self._calc_repository.get_calc(str(ts_code or "").strip().upper())
+        except Exception as exc:  # noqa: BLE001 - 不允许静默切换到另一套历史数据
+            self._market_update_error = f"MySQL 读取失败：{exc}"
+            raise CalculationDataUnavailable("MySQL 计算数据读取失败，单股计算已停止") from exc
+        if not stored:
+            raise CalculationDataUnavailable("数据库中缺少该股票的基础资料或历史计算基线，单股计算已停止")
+        stock = self._normalise_stock_row(stored)
+        if not stored.get("stock_return_vector"):
+            raise CalculationDataUnavailable("数据库中缺少该股票的历史收益向量，单股计算已停止")
+        try:
+            result = self._detail_from_repository(stock, stored)
+        except Exception as exc:  # noqa: BLE001 - 不允许静默切换到另一套历史数据
+            self._market_update_error = f"MySQL 读取失败：{exc}"
+            raise CalculationDataUnavailable("MySQL 计算数据读取失败，单股计算已停止") from exc
+        if not result:
+            raise CalculationDataUnavailable("数据库中的股票或指数基线缺失/日期不一致，单股计算已停止")
+        if not (result.get("dataQuality") or {}).get("isComplete"):
+            raise CalculationDataUnavailable("数据库收益向量不足完整 30 个共同交易区间，单股计算已停止")
+        return result
 
     def _compute_prediction_from_repository(self, scope: str, use_realtime: bool = False, target_trade_date: str = "") -> Optional[List[Dict[str, Any]]]:
         """从统一行情规则计算普通、同向和严重异动预测卡。"""

@@ -2,11 +2,12 @@
 const { searchStocks, getStockDetail } = require('../../utils/api')
 
 function createInputRows(days, dates = []) {
-  // 未来交易日假设行：股票涨幅和指数涨幅由用户输入，其余列由计算结果填充。
+  // 未来交易日默认按股票和指数均为 0% 计算，用户修改时即时重算。
   return Array.from({ length: Number(days) }, (_, index) => ({
     day: `T+${index + 1}`,
     date: dates[index] || '--',
-    stock: '', index: '', deviation3: '--', deviation10: '--', deviation30: '--', space: '--', deviationClass: ''
+    stock: '0', index: '0', stockSelectAll: false, indexSelectAll: false,
+    deviation3: '--', deviation10: '--', deviation30: '--', space: '--', deviationClass: ''
   }))
 }
 
@@ -37,7 +38,13 @@ function buildMatrixGroups(rows) {
         values: columns.map(column => ({
           value: rows[column.rowIndex] ? rows[column.rowIndex][field.key] : '',
           placeholder: column.placeholder,
-          className: rows[column.rowIndex] ? rows[column.rowIndex].deviationClass : '',
+          className: rows[column.rowIndex]
+            ? (rows[column.rowIndex][`${field.key}Class`] || rows[column.rowIndex].deviationClass || '')
+            : '',
+          selectionStart: rows[column.rowIndex] && rows[column.rowIndex][`${field.key}SelectAll`] ? 0 : -1,
+          selectionEnd: rows[column.rowIndex] && rows[column.rowIndex][`${field.key}SelectAll`]
+            ? String(rows[column.rowIndex][field.key] == null ? '' : rows[column.rowIndex][field.key]).length
+            : -1,
           rowIndex: column.rowIndex,
           field: field.key,
           editable: Boolean(field.editable) && !column.placeholder
@@ -65,11 +72,10 @@ function cumulativeReturn(values) {
 }
 
 function bestDeviation(stockValues, indexValues, maxWindow) {
-  // 与后端 _best_vector_deviation 保持一致：10/30 日规则按价格日上限
-  // 枚举以当前端点结束的有效收益区间，选择最大上涨偏离；3 日固定取 3 个区间。
+  // 与后端 _best_vector_deviation 保持一致：枚举规则窗口内当前端点的有效收益区间，取最大上涨偏离。
   const upperLimit = maxWindow === 10 || maxWindow === 30 ? maxWindow - 1 : maxWindow
   const upper = Math.min(upperLimit, stockValues.length, indexValues.length)
-  const lower = maxWindow === 10 || maxWindow === 30 ? 1 : maxWindow
+  const lower = 1
   if (upper < lower) return { value: null, window: null }
   const results = []
   for (let window = lower; window <= upper; window += 1) {
@@ -108,8 +114,21 @@ function calculateSimulationRows(rows, detail) {
     const deviation10 = metric10.value
     const deviation30 = metric30.value
     const display = value => value == null ? '--' : `${value >= 0 ? '+' : ''}${value.toFixed(2)}%`
-    const safety = deviation10 == null ? '--' : (deviation10 >= Number(thresholds['10'].up) ? '已触发' : `${Math.max(0, Number(thresholds['10'].up) - deviation10).toFixed(2)}%`)
+    const ordinaryThreshold = detail && detail.simulationThresholds && detail.simulationThresholds['3']
+      ? Number(detail.simulationThresholds['3'].up)
+      : detail && detail.calculationInput ? Number(detail.calculationInput.ordinaryDeviation) : NaN
+    const safetyMetrics = [
+      { deviation: deviation3, threshold: ordinaryThreshold },
+      { deviation: deviation10, threshold: thresholds['10'] && Number(thresholds['10'].up) },
+      { deviation: deviation30, threshold: thresholds['30'] && Number(thresholds['30'].up) }
+    ].filter(item => item.deviation != null && Number.isFinite(item.threshold))
+    const safety = safetyMetrics.length === 0
+      ? '--'
+      : safetyMetrics.some(item => item.deviation >= item.threshold)
+        ? '已触发'
+        : `${Math.min(...safetyMetrics.map(item => Math.max(0, item.threshold - item.deviation))).toFixed(2)}%`
     const currentDeviation = deviation10 == null ? (deviation3 == null ? 0 : deviation3) : deviation10
+    const deviationClass = value => value == null ? '' : value > 0 ? 'risk' : value < 0 ? 'safe' : ''
     return {
       ...row,
       deviation3: display(deviation3),
@@ -119,7 +138,10 @@ function calculateSimulationRows(rows, detail) {
       deviation3Window: metric3.window,
       deviation10Window: metric10.window,
       deviation30Window: metric30.window,
-      deviationClass: currentDeviation > 0 ? 'risk' : currentDeviation < 0 ? 'safe' : ''
+      deviation3Class: deviationClass(deviation3),
+      deviation10Class: deviationClass(deviation10),
+      deviation30Class: deviationClass(deviation30),
+      deviationClass: deviationClass(currentDeviation)
     }
   })
 }
@@ -160,7 +182,9 @@ function presentWarnings(warnings = []) {
       ? (progress >= 100 ? 'triggered' : progress >= 66.6667 ? 'warning' : 'safe')
       : (progress >= 100 ? 'triggered' : 'safe')
     const remaining = Math.max(0, up - Math.max(0, value))
-    return { ...item, currentText: `${value >= 0 ? '+' : ''}${value.toFixed(2)}%`, remainingText: tone === 'triggered' ? '已触及' : `还差 ${remaining.toFixed(2)}%`, ringText: tone === 'triggered' ? '已触及' : `${remaining.toFixed(2)}%`, progress: Number(progress.toFixed(2)), tone, toneColor: colors[tone] }
+    const actualWindow = Number(item.actualWindow)
+    const windowText = Number.isFinite(actualWindow) && actualWindow > 0 ? `${actualWindow} 日 ` : ''
+    return { ...item, currentText: `${windowText}${value >= 0 ? '+' : ''}${value.toFixed(2)}%`, remainingText: tone === 'triggered' ? '已触及' : `还差 ${remaining.toFixed(2)}%`, ringText: tone === 'triggered' ? '已触及' : `${remaining.toFixed(2)}%`, progress: Number(progress.toFixed(2)), tone, toneColor: colors[tone] }
   })
 }
 
@@ -226,7 +250,8 @@ Page({
       const rows = calculateSimulationRows(createInputRows(2, futureTradeDates), detail)
       const displayDetail = {
         ...detail,
-        statusDisplay: detail.status === '正常' ? '状态安全' : '状态异常',
+        statusDisplay: detail.statusDisplay || (detail.status === '正常' ? '状态安全' : '状态异常'),
+        marketStatusDisplay: detail.marketStatusDisplay || (detail.statusReason ? `已触发 · ${detail.statusReason}` : '当前行情规则未触发'),
         change: detail.change == null || detail.change === '' ? '--' : String(detail.change),
         changeClass: changeClass(detail.change),
         dataQuality: detail.dataQuality || {},
@@ -242,15 +267,31 @@ Page({
   expandSimulation() {
     if (this.data.simulationExpanded) return
     const nextRows = createInputRows(10, this.data.futureTradeDates)
-    const inputRows = calculateSimulationRows(nextRows.map((item, index) => ({ ...item, stock: this.data.inputRows[index] ? this.data.inputRows[index].stock : '', index: this.data.inputRows[index] ? this.data.inputRows[index].index : '' })), this.data.detail)
+    const inputRows = calculateSimulationRows(nextRows.map((item, index) => ({ ...item, stock: this.data.inputRows[index] ? this.data.inputRows[index].stock : item.stock, index: this.data.inputRows[index] ? this.data.inputRows[index].index : item.index })), this.data.detail)
     this.setData({ simulationExpanded: true, visibleDays: 10, inputRows, matrixGroups: buildMatrixGroups(inputRows) })
   },
   editRow(event) {
     const { row, field } = event.currentTarget.dataset
     const value = event.detail.value
-    const rows = this.data.inputRows.map((item, index) => index === Number(row) ? { ...item, [field]: value } : item)
+    const rows = this.data.inputRows.map((item, index) => index === Number(row)
+      ? { ...item, [field]: value, stockSelectAll: false, indexSelectAll: false }
+      : item)
     const calculatedRows = calculateSimulationRows(rows, this.data.detail)
     this.setData({ inputRows: calculatedRows, matrixGroups: buildMatrixGroups(calculatedRows) })
+  },
+  selectInput(event) {
+    const { row, field } = event.currentTarget.dataset
+    const rows = this.data.inputRows.map((item, index) => index === Number(row)
+      ? { ...item, stockSelectAll: field === 'stock', indexSelectAll: field === 'index' }
+      : item)
+    this.setData({ inputRows: rows, matrixGroups: buildMatrixGroups(rows) })
+  },
+  blurInput(event) {
+    const { row } = event.currentTarget.dataset
+    const rows = this.data.inputRows.map((item, index) => index === Number(row)
+      ? { ...item, stockSelectAll: false, indexSelectAll: false }
+      : item)
+    this.setData({ inputRows: rows, matrixGroups: buildMatrixGroups(rows) })
   },
   clearInputs() {
     const inputRows = calculateSimulationRows(createInputRows(this.data.visibleDays, this.data.futureTradeDates), this.data.detail)

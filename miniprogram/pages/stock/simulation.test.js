@@ -18,10 +18,22 @@ const result = calculateSimulationRows(rows, detail)
 assert.strictEqual(result[0].deviation3, '+32.60%')
 assert.strictEqual(result[0].deviation10, '+49.55%')
 assert.strictEqual(result[0].deviation30, '+200.68%')
-assert.strictEqual(result[0].space, '50.45%')
+assert.strictEqual(result[0].space, '已触发')
 assert.strictEqual(result[0].deviation10Window, 9)
 assert.strictEqual(result[0].deviation30Window, 23)
-assert.strictEqual(result[1].deviation10, '--')
-assert.strictEqual(result[1].stock, '')
+assert.notStrictEqual(result[1].deviation10, '--')
+assert.strictEqual(result[1].stock, '0')
+assert.strictEqual(result[1].index, '0')
 
 console.log('stock simulation tests passed')
+
+const ordinaryOnlyDetail = {
+  simulationBase: { stock: Array(29).fill(0), index: Array(29).fill(0) },
+  simulationThresholds: { '3': { up: 20 }, '10': { up: 100 }, '30': { up: 200 } }
+}
+const ordinaryOnlyRows = createInputRows(1)
+ordinaryOnlyRows[0].stock = '25'
+const ordinaryOnlyResult = calculateSimulationRows(ordinaryOnlyRows, ordinaryOnlyDetail)
+assert.strictEqual(ordinaryOnlyResult[0].deviation3, '+25.00%')
+assert.strictEqual(ordinaryOnlyResult[0].deviation10, '+25.00%')
+assert.strictEqual(ordinaryOnlyResult[0].space, '已触发')

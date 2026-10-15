@@ -375,16 +375,16 @@ def _best_effective_deviation(
     """在规则回看上限内选择当前端点的最大上涨偏离。
 
     10/30 日规则枚举最近 N 个共同交易日内以当前端点结束的 1..N-1 个
-    连续有效收益率区间，返回最大正向偏离及其实际窗口；3 日普通异动仍
-    固定使用最近 3 个共同交易日（历史不足时使用全部可用交易日）。
+    连续有效收益率区间；3 日规则枚举 1..3 个区间。三项均返回最大正向
+    偏离及其实际窗口（历史不足时使用全部可用交易日）。
     """
 
     _validate_bars(stock_bars, index_bars)
-    # N 个交易日规则由 N 个价格点构成，收益率区间最多为 N-1 个；3 日
-    # 普通异动仍按 3 个收益率区间处理，保持历史普通异动口径不变。
+    # 10/30 日规则由 N 个价格点构成，收益率区间最多为 N-1 个；3 日
+    # 规则最多取 3 个收益率区间，三项统一选择当前端点的最大上涨区间。
     upper_limit = max_window - 1 if max_window in (10, 30) else max_window
     upper = min(upper_limit, len(stock_bars) - 1)
-    lower = 1 if max_window in (10, 30) else max_window
+    lower = 1
     if upper < lower:
         return None
     results = [

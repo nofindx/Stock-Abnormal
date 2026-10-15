@@ -190,6 +190,16 @@ class TushareClient:
         key = "daily:" + json.dumps(params, ensure_ascii=False, sort_keys=True)
         return self._cached(key, 300 if trade_date else 900, lambda: self.call("daily", **params))
 
+    def suspend_d(self, start_date: str, end_date: str):
+        """读取停复牌状态，用于解释计算向量中的市场日期缺口，不保存原始行情。"""
+
+        key = f"suspend_d:{start_date}:{end_date}"
+        return self._cached(
+            key,
+            3600,
+            lambda: self.call("suspend_d", start_date=start_date, end_date=end_date),
+        )
+
     def index_daily(self, ts_code: Optional[str] = None, trade_date: Optional[str] = None, start_date: Optional[str] = None, end_date: Optional[str] = None):
         """读取指数日行情；指数数据必须使用 index_daily 接口。"""
 

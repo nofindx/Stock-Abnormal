@@ -3,7 +3,7 @@ from datetime import datetime
 from types import SimpleNamespace
 
 from server.services.market_calc_repository import MarketCalcRepository
-from server.services.market_service import MarketService, _index_code_for_stock
+from server.services.market_service import CalculationDataUnavailable, MarketService, _index_code_for_stock
 from server.core.abnormal_rules import BOARD_RULES, Board
 
 
@@ -15,6 +15,73 @@ class MarketVectorTests(unittest.TestCase):
 
     def tearDown(self):
         self.service.close()
+
+    def test_single_stock_detail_fails_instead_of_fetching_daily_when_database_unavailable(self):
+        service = self.service
+        service._stock = lambda _code: self.fail("must fail before querying stock data")
+        service._calc_repository = SimpleNamespace(available=False)
+        service._market_context = lambda: self.fail("must not fall back to remote daily data")
+
+        with self.assertRaisesRegex(CalculationDataUnavailable, "MySQL 计算数据仓库不可用"):
+            service.detail("000001.SZ")
+
+    def test_single_stock_detail_fails_when_database_baseline_is_missing(self):
+        service = self.service
+        service._stock = lambda _code: self.fail("must not fall back to another stock source")
+        service._calc_repository = SimpleNamespace(available=True, get_calc=lambda _code: {
+            "ts_code": "000001.SZ", "symbol": "000001", "name": "测试股票",
+            "market": "SZSE", "board": "主板", "stock_return_vector": [],
+        })
+        service._market_context = lambda: self.fail("must not fall back to remote daily data")
+
+        with self.assertRaisesRegex(CalculationDataUnavailable, "缺少该股票的历史收益向量"):
+            service.detail("000001.SZ")
+
+    def test_history_coverage_classifies_missing_recent_listing_and_unresolved_gaps(self):
+        service = self.service
+        dates = [f"202608{day:02d}" for day in range(1, 31)]
+        vector = [{"date": value, "return": 0.0} for value in dates]
+        stocks = [
+            {"ts_code": "000001.SZ", "name": "完整", "market": "SSE", "board": "主板", "list_date": "20000101", "isST": False, "priceLimitEnabled": True},
+            {"ts_code": "000002.SZ", "name": "新股", "market": "SSE", "board": "主板", "list_date": dates[-5], "isST": False, "priceLimitEnabled": True},
+            {"ts_code": "000003.SZ", "name": "缺日", "market": "SSE", "board": "主板", "list_date": "20000101", "isST": False, "priceLimitEnabled": True},
+            {"ts_code": "000004.SZ", "name": "缺向量", "market": "SSE", "board": "主板", "list_date": "20000101", "isST": False, "priceLimitEnabled": True},
+            {"ts_code": "000005.SZ", "name": "源缺记录", "market": "SSE", "board": "主板", "list_date": "20000101", "isST": False, "priceLimitEnabled": True},
+        ]
+        calculations = {
+            "000001.SZ": {"as_of_trade_date": dates[-1], "stock_return_vector": vector},
+            "000002.SZ": {"as_of_trade_date": dates[-1], "stock_return_vector": vector[-5:]},
+            "000003.SZ": {"as_of_trade_date": dates[-1], "stock_return_vector": [item for index, item in enumerate(vector) if index != 12]},
+            "000005.SZ": {"as_of_trade_date": dates[-1], "stock_return_vector": [item for index, item in enumerate(vector) if index != 14]},
+        }
+        service._calc_repository = SimpleNamespace(
+            available=True,
+            history_coverage_snapshot=lambda: (
+                stocks,
+                calculations,
+                {"000001.SH": {"as_of_trade_date": dates[-1], "index_return_vector": vector}},
+            ),
+        )
+        service.client.suspend_d = lambda *_args: SimpleNamespace(to_dict=lambda *_args, **_kwargs: [
+            {"ts_code": "000003.SZ", "trade_date": dates[12], "suspend_type": "S"},
+        ])
+
+        result = service.history_coverage(limit=2)
+
+        self.assertEqual(result["asOfTradeDate"], dates[-1])
+        self.assertEqual(result["requiredReturnCount"], 30)
+        self.assertEqual(result["activeStockCount"], 5)
+        self.assertEqual(result["completeStockCount"], 1)
+        self.assertEqual(result["incompleteStockCount"], 4)
+        self.assertEqual(result["suspensionStatusSource"], "tushare.suspend_d")
+        self.assertEqual(result["categoryCounts"], {
+            "recent_listing_short_history": 1,
+            "suspended_history_short": 1,
+            "missing_stock_vector": 1,
+            "upstream_market_data_missing": 1,
+        })
+        self.assertEqual(len(result["items"]), 2)
+        self.assertEqual(result["pagination"]["total"], 4)
 
     def test_compound_return_uses_composite_formula(self):
         self.assertAlmostEqual(MarketService._compound([10.0, 10.0]), 21.0)
@@ -166,6 +233,35 @@ class MarketVectorTests(unittest.TestCase):
         self.assertEqual(result["calculationInput"]["stock"][-1]["date"], "20261013")
         self.assertEqual(result["calculationInput"]["index"][-1]["date"], "20261013")
         self.assertAlmostEqual(result["calculationInput"]["stock"][-1]["return"], 6.19, places=6)
+
+    def test_detail_keeps_monitoring_fact_and_market_trigger_visible_together(self):
+        service = self.service
+        dates = [f"202610{day:02d}" for day in range(1, 16)]
+        stock_vector = [{"date": day, "return": 150.0 if day == dates[-1] else 0.0} for day in dates]
+        index_vector = [{"date": day, "return": 0.0} for day in dates]
+        service._calc_repository = SimpleNamespace(get_index=lambda _code: {
+            "index_code": "000001.SH", "latest_close": 10.0, "as_of_trade_date": dates[-1],
+            "index_return_vector": index_vector,
+        })
+        service._realtime = SimpleNamespace(fetch_many=lambda _codes: {})
+        service._clock = lambda: datetime(2026, 10, 15)
+        service._future_trade_dates = lambda *_args: []
+        service.set_monitor_provider(lambda: {"items": [{
+            "symbol": "600000", "monitorType": "10日严重异动", "title": "严重异常波动",
+            "monitorDates": ["2026-10-15"], "monitorEndDate": "2026-10-20",
+        }]})
+        stock = {"ts_code": "600000.SH", "symbol": "600000", "name": "测试股票", "market": "SSE", "board": "主板", "isST": False}
+        calc = {"latest_close": 10.0, "as_of_trade_date": dates[-1], "data_stage": "formal", "stock_return_vector": stock_vector}
+
+        result = service._detail_from_repository(stock, calc)
+
+        self.assertEqual(result["statusDisplay"], "监管中")
+        self.assertEqual(result["statusClass"], "monitoring")
+        self.assertEqual(result["statusIcon"], "!")
+        self.assertTrue(result["monitoring"])
+        self.assertIn("已触发", result["marketStatusDisplay"])
+        self.assertIn("10 日严重异动", result["statusReason"])
+        self.assertIn("3 日普通异动", result["statusReason"])
 
     def test_detail_does_not_mix_unpaired_realtime_quotes_into_calculation(self):
         service = self.service
@@ -424,11 +520,11 @@ class MarketVectorTests(unittest.TestCase):
         self.assertEqual(window, 1)
         self.assertGreaterEqual(value, 100.0)
 
-    def test_fixed_window_uses_latest_sessions_not_best_historical_subwindow(self):
+    def test_three_day_window_uses_maximum_interval_ending_at_latest_date(self):
         stock = [{"date": f"2026-09-{index:02d}", "return": value} for index, value in enumerate([80.0, 0.0, 0.0, 0.0, 0.0], 1)]
         index = [{"date": item["date"], "return": 0.0} for item in stock]
         value, window = MarketService._best_vector_deviation(stock, index, 3)
-        self.assertEqual(window, 3)
+        self.assertEqual(window, 1)
         self.assertAlmostEqual(value, 0.0)
 
     def test_index_mapping_uses_market_benchmarks(self):

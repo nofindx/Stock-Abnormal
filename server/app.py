@@ -16,7 +16,7 @@ from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, quote, urlparse
 
-from .services.market_service import MarketService, SHANGHAI_TZ
+from .services.market_service import CalculationDataUnavailable, MarketService, SHANGHAI_TZ
 from .services.announcement_service import AnnouncementService
 from .services.monitor_service import OfficialMonitorService
 from .services.tushare_client import TushareUnavailable
@@ -218,7 +218,16 @@ class ApiHandler(BaseHTTPRequestHandler):
                 else:
                     self._respond(health_payload)
                 return
-            if parsed.path == "/api/market/status":
+            if parsed.path == "/api/market/history-coverage":
+                try:
+                    offset = int(query.get("offset", ["0"])[0])
+                    limit = int(query.get("limit", ["100"])[0])
+                except ValueError as exc:
+                    raise ApiError(40001, "offset 和 limit 必须是整数", 400) from exc
+                if offset < 0 or limit < 1:
+                    raise ApiError(40001, "offset 必须不小于 0，limit 必须大于 0", 400)
+                data = SERVICE.history_coverage(offset=offset, limit=limit)
+            elif parsed.path == "/api/market/status":
                 latest = SERVICE.client.latest_trade_date()
                 data = {"latestTradeDate": latest, "source": "tushare", "intraday": False}
             elif parsed.path == "/api/stocks/search":
@@ -284,6 +293,8 @@ class ApiHandler(BaseHTTPRequestHandler):
             self._respond({"code": exc.code, "data": None, "message": str(exc)}, status=exc.status)
         except TushareUnavailable as exc:
             self._respond({"code": 50301, "data": None, "message": str(exc)}, status=503)
+        except CalculationDataUnavailable as exc:
+            self._respond({"code": 50302, "data": None, "message": str(exc)}, status=503)
         except ValueError as exc:
             code, status = (40401, 404) if "未找到" in str(exc) else (40001, 400)
             self._respond({"code": code, "data": None, "message": str(exc)}, status=status)
