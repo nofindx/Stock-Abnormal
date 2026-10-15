@@ -29,7 +29,7 @@ BOARD_BY_MARKET = {"主板": Board.MAIN, "创业板": Board.CHINEXT, "科创板"
 SHANGHAI_TZ = ZoneInfo("Asia/Shanghai") if ZoneInfo else timezone(timedelta(hours=8))
 # 停牌/复牌重置、上涨同向计数和预测阶段切换属于同一套规则口径。
 # 版本变化会触发服务启动时从已确认收盘行情重建计算基础数据与预测集。
-PREDICTION_RULE_VERSION = "2026-10-upward-only-rule-cards-v25"
+PREDICTION_RULE_VERSION = "2026-10-upward-only-rule-cards-v26"
 
 # GBK 区位表不依赖第三方拼音包，适合云托管的轻量搜索场景。
 _PINYIN_RANGES = (
@@ -2230,8 +2230,9 @@ class MarketService:
             },
         }
 
-    def _refresh_existing_prediction_scope(self, source_scope: str) -> List[Dict[str, Any]]:
+    def _refresh_existing_prediction_scope(self, source_scope: str, forecast_scope: str = "") -> List[Dict[str, Any]]:
         """只刷新已有预测池，不重新扫描全市场，也不保存盘中结果。"""
+        forecast_scope = forecast_scope or source_scope
         persistent = self._calc_repository.get_prediction(source_scope) if self._calc_repository.available else None
         base_items = list(self._merge_prediction_items(
             (persistent or {}).get("items") or [],
@@ -2288,7 +2289,7 @@ class MarketService:
                         index_vector,
                         actual_window,
                         threshold,
-                        forecast_scope=source_scope,
+                        forecast_scope=forecast_scope,
                     )
                     item["deviation"] = f"{actual_window}日 {_pct(deviation)}"
                     item["deviationLabel"] = item["deviation"]
@@ -2300,6 +2301,8 @@ class MarketService:
                 if deviation is not None:
                     item["alertText"] = "已触发" if item["triggered"] else ""
                     item["cardTone"] = "triggered" if item["triggered"] else ""
+            if forecast_scope == "today":
+                item["scope"] = "当日"
             item.pop("currentPrice", None)
             output.append(item)
         return output
@@ -2321,7 +2324,11 @@ class MarketService:
             with self._intraday_refresh_lock:
                 future = self._intraday_refresh_futures.get(source_scope)
                 if future is None or future.done():
-                    future = self._prediction_executor.submit(self._refresh_existing_prediction_scope, source_scope)
+                    future = self._prediction_executor.submit(
+                        self._refresh_existing_prediction_scope,
+                        source_scope,
+                        requested_scope,
+                    )
                     self._intraday_refresh_futures[source_scope] = future
             items: List[Dict[str, Any]] = []
             refresh_succeeded = False

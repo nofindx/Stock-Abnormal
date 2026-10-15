@@ -629,7 +629,7 @@ class MarketVectorTests(unittest.TestCase):
         service = self.service
         service._calc_repository = SimpleNamespace(
             available=True,
-            get_prediction=lambda scope: {"scope": scope, "items": [{"ts_code": "001216.SZ", "ruleKey": "severe_10d", "predictionWindow": 10, "deviation": "10日 +95.00%", "currentPrice": "28.00", "change": "+1.00%", "trigger": "10日偏离达到 +100.00%", "triggerCondition": "10日偏离达到 +100.00%", "triggerValue": "+100.00%", "triggered": True, "cardTone": "triggered"}]},
+            get_prediction=lambda scope: {"scope": scope, "items": [{"ts_code": "001216.SZ", "ruleKey": "severe_10d", "predictionWindow": 10, "scope": "次日", "deviation": "10日 +95.00%", "currentPrice": "28.00", "change": "+1.00%", "trigger": "10日偏离达到 +100.00%", "triggerCondition": "10日偏离达到 +100.00%", "triggerValue": "+100.00%", "triggered": True, "cardTone": "triggered"}]},
             all_calculations=lambda: {"001216.SZ": {"ts_code": "001216.SZ", "latest_close": 28.0, "stock_return_vector": [{"date": f"2026-09-{index:02d}", "return": 0.0} for index in range(1, 31)]}},
             all_indexes=lambda: {"399107.SZ": {"index_code": "399107.SZ", "latest_close": 10.0, "index_return_vector": [{"date": f"2026-09-{index:02d}", "return": 0.0} for index in range(1, 31)]}},
         )
@@ -648,6 +648,9 @@ class MarketVectorTests(unittest.TestCase):
         self.assertEqual(result[0]["trigger"], "10日偏离达到 +100.00%")
         self.assertNotEqual(result[0]["deviation"], "10日 +95.00%")
         self.assertTrue(result[0]["deviation"].endswith("-0.29%"))
+        today_result = service._refresh_existing_prediction_scope("next_day", "today")
+        self.assertEqual(today_result[0]["scope"], "当日")
+        self.assertNotEqual(today_result[0]["triggerValue"], result[0]["triggerValue"])
         quote_state["current"] = 60.0
         recovered = service._refresh_existing_prediction_scope("next_day")
         self.assertTrue(recovered[0]["triggered"])
