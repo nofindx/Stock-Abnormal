@@ -426,35 +426,48 @@ class MarketService:
             # 保持本地旧仓储适配器和测试替身可用。
             return getter(scope)
 
-    def search(self, query: str, limit: int = 5) -> Dict[str, Any]:
-        """按代码、完整名称、名称首字母和名称包含排序，只返回首屏。"""
+    def search(self, query: str, limit: int = 20) -> Dict[str, Any]:
+        """按代码、名称和首字母做归一化匹配，并按匹配质量稳定排序。"""
 
-        value = (query or "").strip().lower()
+        # 搜索输入可能来自微信复制文本，统一去掉空白、连接符和点号，避免
+        # ``601881.SH``、``601881 SH``、``601881`` 被分成不同匹配结果。
+        value = re.sub(r"[\s._-]+", "", str(query or "")).casefold()
         if not value:
-            return {"items": [], "hasMore": False}
+            return {"items": [], "hasMore": False, "total": 0}
         ranked = []
         for index, item in enumerate(self._stock_rows()):
-            symbol = item["symbol"].lower()
-            ts_code = item["ts_code"].lower()
-            name = item["name"].lower()
-            initials = item["nameInitials"].lower()
-            rank = None
-            if value in (symbol, ts_code):
-                rank = 0
-            elif symbol.startswith(value) or ts_code.startswith(value):
-                rank = 1
-            elif name == value:
-                rank = 2
-            elif initials == value:
-                rank = 3
-            elif initials.startswith(value):
-                rank = 4
-            elif value in name:
-                rank = 5
-            if rank is not None:
-                ranked.append((rank, index, item))
-        ranked.sort(key=lambda entry: (entry[0], entry[1]))
-        return {"items": [entry[2] for entry in ranked[:limit]], "hasMore": len(ranked) > limit}
+            symbol = re.sub(r"[\s._-]+", "", str(item.get("symbol") or "")).casefold()
+            ts_code = re.sub(r"[\s._-]+", "", str(item.get("ts_code") or "")).casefold()
+            name = re.sub(r"\s+", "", str(item.get("name") or "")).casefold()
+            initials = re.sub(r"\s+", "", str(item.get("nameInitials") or "")).casefold()
+            # 代码精确、名称精确、首字母精确优先；再按前缀、包含关系降级。
+            candidates = []
+            if value == symbol or value == ts_code:
+                candidates.append((0, 0, symbol))
+            if value == name:
+                candidates.append((1, 0, name))
+            if value == initials:
+                candidates.append((2, 0, initials))
+            if symbol.startswith(value) or ts_code.startswith(value):
+                candidates.append((3, min(symbol.find(value), ts_code.find(value)), symbol))
+            if initials.startswith(value):
+                candidates.append((4, 0, initials))
+            if name.startswith(value):
+                candidates.append((5, 0, name))
+            if value in initials:
+                candidates.append((6, initials.find(value), initials))
+            if value in name:
+                candidates.append((7, name.find(value), name))
+            if not candidates:
+                continue
+            rank, position, matched = min(candidates)
+            ranked.append((rank, position, len(matched), symbol, str(item.get("name") or ""), index, item))
+        ranked.sort(key=lambda entry: entry[:6])
+        return {
+            "items": [entry[6] for entry in ranked[:limit]],
+            "hasMore": len(ranked) > limit,
+            "total": len(ranked),
+        }
 
     def history_coverage(self, offset: int = 0, limit: int = 100) -> Dict[str, Any]:
         """只读检查活跃股票池最近 30 个共同收益区间的覆盖。"""
@@ -1329,11 +1342,15 @@ class MarketService:
         index_vector = self._vector_entries(index.get("index_return_vector"))
         stored_stock_date = self._date_key(calc.get("as_of_trade_date"))
         stored_index_date = self._date_key(index.get("as_of_trade_date"))
+        stock_vector_date = self._vector_latest_date(stock_vector)
+        index_vector_date = self._vector_latest_date(index_vector)
         if (
             not stored_stock_date
             or stored_stock_date != stored_index_date
-            or self._vector_latest_date(stock_vector) != stored_stock_date
-            or self._vector_latest_date(index_vector) != stored_index_date
+            # 新上市首个交易日可能还没有收益率点；保留空向量，详情页展示
+            # 股票/指数和“暂无足够交易日”的预警，而不是把整张详情页判为不可用。
+            or (stock_vector_date and stock_vector_date != stored_stock_date)
+            or (index_vector_date and index_vector_date != stored_index_date)
         ):
             return None
         stock_vector, index_vector, suspension = self._trim_vectors_after_suspension(stock_vector, index_vector)
@@ -1420,10 +1437,15 @@ class MarketService:
                 "realtime": realtime,
                 "fallback": not realtime,
                 "isComplete": common_days >= 30,
+                "commonDays": common_days,
+                "requiredCommonDays": 30,
                 "suspensionResetDate": suspension.get("resetDate", ""),
                 "suspended": suspension.get("suspended", False),
                 "quoteUpdatedAt": display_quote.get("updatedAt", "") if display_quote else "",
-                "message": "实时行情暂不可用" if not realtime else "",
+                "message": (
+                    f"历史数据覆盖 {common_days} 个共同交易日，按现有数据计算"
+                    if common_days < 30 else ""
+                ) + ("；实时行情暂不可用" if not realtime else ""),
             },
         }
 
@@ -1901,7 +1923,9 @@ class MarketService:
         if not stored:
             raise CalculationDataUnavailable("数据库中缺少该股票的基础资料或历史计算基线，单股计算已停止")
         stock = self._normalise_stock_row(stored)
-        if not stored.get("stock_return_vector"):
+        if "stock_return_vector" not in stored or (
+            not stored.get("stock_return_vector") and not stored.get("as_of_trade_date")
+        ):
             raise CalculationDataUnavailable("数据库中缺少该股票的历史收益向量，单股计算已停止")
         try:
             result = self._detail_from_repository(stock, stored)
@@ -1910,8 +1934,6 @@ class MarketService:
             raise CalculationDataUnavailable("MySQL 计算数据读取失败，单股计算已停止") from exc
         if not result:
             raise CalculationDataUnavailable("数据库中的股票或指数基线缺失/日期不一致，单股计算已停止")
-        if not (result.get("dataQuality") or {}).get("isComplete"):
-            raise CalculationDataUnavailable("数据库收益向量不足完整 30 个共同交易区间，单股计算已停止")
         return result
 
     def _compute_prediction_from_repository(self, scope: str, use_realtime: bool = False, target_trade_date: str = "") -> Optional[List[Dict[str, Any]]]:

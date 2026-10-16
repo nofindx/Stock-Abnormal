@@ -267,9 +267,11 @@ Page({
       }
       const dataUpdatedAt = formatUpdatedAt((detail.dataQuality || {}).quoteUpdatedAt || detail.tradeDate)
       this.setData({ selected: { ...stock, ...detail }, detail: displayDetail, detailLoading: false, detailError: '', dataUpdatedAt, futureTradeDates, inputRows: rows, matrixGroups: buildMatrixGroups(rows), query: `${detail.name} ${detail.symbol}` })
-    }).catch(() => {
+    }).catch((error) => {
       if (requestId !== this.detailRequestId) return
-      this.setData({ detailLoading: false, detailError: '行情暂时不可用，请稍后重试' })
+      const message = error && error.message ? String(error.message) : ''
+      const isDataError = /数据库|收益向量|基线|交易区间|共同交易/.test(message)
+      this.setData({ detailLoading: false, detailError: isDataError ? message : '行情暂时不可用，请稍后重试' })
     })
   },
   expandSimulation() {

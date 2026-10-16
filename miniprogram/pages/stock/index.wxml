@@ -15,7 +15,7 @@
   </view>
   <view wx:if="{{dataUpdatedAt}}" class="stock-update-row"><text class="stock-update-text">数据更新于 {{dataUpdatedAt}}</text></view>
 
-  <block wx:if="{{!detail}}">
+  <block wx:if="{{!detail && !detailError && !detailLoading}}">
     <view class="guide-card card">
       <view class="guide-target" aria-label="异动计算引导图"><view class="guide-ring guide-ring-outer"><view class="guide-ring guide-ring-middle"><view class="guide-ring guide-ring-inner"><view class="guide-pointer"></view></view></view></view></view>
       <view class="guide-line guide-line-primary">搜索你想查询的股票</view>
