@@ -50,7 +50,7 @@
 .suggestion-name { color: #1C1C1E; font-size: 27rpx; font-weight: 550; }
 .suggestion-code, .stock-meta { color: #8E8E93; font-size: 21rpx; font-variant-numeric: tabular-nums; }
 .st-badge { padding: 2rpx 7rpx; border-radius: 6rpx; background: #FCEBEA; color: #C83A36; font-size: 18rpx; font-weight: 600; line-height: 24rpx; }
-.suggestion-hint { padding: 14rpx 0 16rpx; color: #8E8E93; font-size: 20rpx; line-height: 28rpx; text-align: center; }
+.suggestion-hint { padding: 14rpx 0 16rpx; color: #8E8E93; font-size: 20rpx; line-height: 28rpx; text-align: left; }
 .inline-error { margin-top: 10rpx; color: #C83A36; font-size: 20rpx; line-height: 28rpx; }
 .stock-update-row { display: flex; height: 48rpx; min-height: 48rpx; align-items: center; margin-top: 12rpx; color: #6B7280; font-size: 22rpx; line-height: 30rpx; white-space: nowrap; }
 .stock-update-text { overflow: hidden; text-overflow: ellipsis; }
