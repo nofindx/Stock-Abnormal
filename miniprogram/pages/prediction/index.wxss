@@ -131,8 +131,8 @@
 .prediction-page .refresh-button.loading { border-color: #D1D5DB !important; background: #F2F3F5 !important; color: #6B7280 !important; }
 .prediction-page .error-state { color: #4B5563 !important; }
 .prediction-page .snapshot-summary { width: 100%; }
-.prediction-page .snapshot-updated { margin-left: auto; text-align: right; }
-.prediction-page .prediction-refresh { border-color: #9BC2E8 !important; background: #EAF3FC !important; color: #1F5F99 !important; box-shadow: none !important; }
+.prediction-page .snapshot-updated { margin-left: 0; text-align: left; }
+.prediction-page .prediction-refresh { margin-left: auto; border-color: #9BC2E8 !important; background: #EAF3FC !important; color: #1F5F99 !important; box-shadow: none !important; }
 .prediction-page .prediction-deviation-tag { border-color: #D93025 !important; background: #FFF5F5 !important; color: #D93025 !important; }
 .prediction-page .prediction-deviation-tag .prediction-rule-label { color: #D93025 !important; }
 

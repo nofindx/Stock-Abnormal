@@ -252,6 +252,7 @@ Page({
       ? this.data.suggestions[eventOrStock.currentTarget.dataset.index]
       : eventOrStock
     if (!stock || !stock.ts_code) return
+    wx.navigateTo({ url: `/pages/stock/detail?ts_code=${encodeURIComponent(stock.ts_code)}` })
     getApp().globalData.lastStock = stock
     const inputRows = createInputRows(2, this.data.futureTradeDates)
     this.detailRequestId = (this.detailRequestId || 0) + 1

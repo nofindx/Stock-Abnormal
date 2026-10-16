@@ -32,7 +32,6 @@
   <view wx:if="{{detailError}}" class="card error-state">{{detailError}}</view>
 
   <block wx:if="{{detail}}">
-    <view class="stock-detail-toolbar"><button class="stock-back-button" hover-class="button-press" bindtap="goBack">返回</button></view>
     <view class="status-banner card status-{{detail.statusClass}}">
       <view class="status-icon">{{detail.statusIcon}}</view>
       <view class="status-main">

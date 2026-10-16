@@ -70,7 +70,6 @@ Page({
   openStock(event) {
     const stock = this.data.items.find(item => item.ts_code === event.currentTarget.dataset.code)
     if (!stock) return
-    getApp().globalData.pendingStock = stock
-    wx.switchTab({ url: '/pages/stock/index' })
+    wx.navigateTo({ url: `/pages/stock/detail?ts_code=${encodeURIComponent(stock.ts_code)}` })
   },
 })

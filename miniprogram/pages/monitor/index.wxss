@@ -99,10 +99,10 @@
 .monitor-page .error-state { border-color: #D1D5DB !important; background: #F2F3F5 !important; color: #4B5563 !important; }
 
 .monitor-page .snapshot-summary { width: 100%; }
-.monitor-page .snapshot-updated { margin-left: auto; text-align: right; }
-.monitor-page .monitor-refresh { border-color: #9BC2E8 !important; background: #EAF3FC !important; color: #1F5F99 !important; }
+.monitor-page .snapshot-updated { margin-left: 0; text-align: left; }
+.monitor-page .monitor-refresh { margin-left: auto; border-color: #9BC2E8 !important; background: #EAF3FC !important; color: #1F5F99 !important; }
 .monitor-page .source-link { color: #2F80ED !important; }
 .monitor-page .badge-ordinary,
 .monitor-page .badge-severe-10d,
-.monitor-page .badge-severe-30d { border: 1rpx solid #D93025 !important; background: #FFF5F5 !important; color: #D93025 !important; }
+.monitor-page .badge-severe-30d { padding: 2rpx 10rpx !important; border: 2rpx solid #D93025 !important; border-radius: 8rpx; background: #FFF5F5 !important; color: #D93025 !important; line-height: 30rpx; }
 .monitor-page .days-number { color: #D93025 !important; }
