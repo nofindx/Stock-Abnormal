@@ -13,6 +13,7 @@
       <view wx:if="{{suggestionHint}}" class="suggestion-hint">结果较多，请继续输入</view>
     </view>
   </view>
+  <view wx:if="{{dataUpdatedAt}}" class="stock-update-row"><text class="stock-update-text">数据更新于 {{dataUpdatedAt}}</text></view>
 
   <block wx:if="{{!detail}}">
     <view class="guide-card card">

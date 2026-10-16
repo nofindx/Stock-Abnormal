@@ -67,6 +67,13 @@ function changeClass(value) {
   return text[0] === '-' ? 'down' : 'up'
 }
 
+function formatUpdatedAt(value) {
+  const text = String(value == null ? '' : value).trim()
+  if (!text) return ''
+  if (/^\d{8}$/.test(text)) return `${text.slice(0, 4)}-${text.slice(4, 6)}-${text.slice(6)} 15:00`
+  return text.replace('T', ' ').replace(/\.\d+(Z)?$/, '').slice(0, 16)
+}
+
 function cumulativeReturn(values) {
   return values.reduce((total, value) => (1 + total / 100) * (1 + value / 100) * 100 - 100, 0)
 }
@@ -191,7 +198,7 @@ function presentWarnings(warnings = []) {
 Page({
   data: {
     query: '', suggestions: [], suggestionHint: false, selected: null, detail: null,
-    detailLoading: false, detailError: '', searchError: '', searchFocused: false,
+    detailLoading: false, detailError: '', searchError: '', searchFocused: false, dataUpdatedAt: '',
     futureTradeDates: [],
     dayOptions: ['10'], simulationExpanded: false, visibleDays: 2,
     inputRows: createInputRows(2), matrixGroups: buildMatrixGroups(createInputRows(2))
@@ -211,7 +218,7 @@ Page({
     if (this.searchTimer) clearTimeout(this.searchTimer)
     this.searchRequestId = (this.searchRequestId || 0) + 1
     const requestId = this.searchRequestId
-    this.setData({ query, suggestions: [], suggestionHint: false, searchError: '', selected: null, detail: null, detailError: '' })
+    this.setData({ query, suggestions: [], suggestionHint: false, searchError: '', selected: null, detail: null, detailError: '', dataUpdatedAt: '' })
     if (!query.trim()) return
     this.searchTimer = setTimeout(() => {
       searchStocks(query).then((result) => {
@@ -228,7 +235,7 @@ Page({
   clearQuery() {
     if (this.searchTimer) clearTimeout(this.searchTimer)
     this.searchRequestId = (this.searchRequestId || 0) + 1
-    this.setData({ query: '', suggestions: [], suggestionHint: false, searchError: '', selected: null, detail: null, detailError: '' })
+    this.setData({ query: '', suggestions: [], suggestionHint: false, searchError: '', selected: null, detail: null, detailError: '', dataUpdatedAt: '' })
   },
   loadStockByCode(tsCode) {
     if (!tsCode) return
@@ -243,7 +250,7 @@ Page({
     const inputRows = createInputRows(2, this.data.futureTradeDates)
     this.detailRequestId = (this.detailRequestId || 0) + 1
     const requestId = this.detailRequestId
-    this.setData({ selected: stock, detail: null, detailLoading: true, detailError: '', query: stock.name === '正在加载' ? stock.ts_code : `${stock.name} ${stock.symbol}`, suggestions: [], suggestionHint: false, inputRows, matrixGroups: buildMatrixGroups(inputRows), simulationExpanded: false, visibleDays: 2 })
+    this.setData({ selected: stock, detail: null, detailLoading: true, detailError: '', dataUpdatedAt: '', query: stock.name === '正在加载' ? stock.ts_code : `${stock.name} ${stock.symbol}`, suggestions: [], suggestionHint: false, inputRows, matrixGroups: buildMatrixGroups(inputRows), simulationExpanded: false, visibleDays: 2 })
     getStockDetail(stock.ts_code).then((detail) => {
       if (requestId !== this.detailRequestId) return
       const futureTradeDates = detail.futureTradeDates || []
@@ -258,7 +265,8 @@ Page({
         warnings: presentWarnings(detail.warnings),
         alerts: presentAlerts(detail.alerts)
       }
-      this.setData({ selected: { ...stock, ...detail }, detail: displayDetail, detailLoading: false, detailError: '', futureTradeDates, inputRows: rows, matrixGroups: buildMatrixGroups(rows), query: `${detail.name} ${detail.symbol}` })
+      const dataUpdatedAt = formatUpdatedAt((detail.dataQuality || {}).quoteUpdatedAt || detail.tradeDate)
+      this.setData({ selected: { ...stock, ...detail }, detail: displayDetail, detailLoading: false, detailError: '', dataUpdatedAt, futureTradeDates, inputRows: rows, matrixGroups: buildMatrixGroups(rows), query: `${detail.name} ${detail.symbol}` })
     }).catch(() => {
       if (requestId !== this.detailRequestId) return
       this.setData({ detailLoading: false, detailError: '行情暂时不可用，请稍后重试' })
