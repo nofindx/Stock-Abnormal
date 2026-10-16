@@ -61,15 +61,16 @@ class MarketVectorTests(unittest.TestCase):
         service = self.service
         service._stock_rows = lambda: [
             {"ts_code": "601881.SH", "symbol": "601881", "name": "中国银河", "nameInitials": "ZGYH"},
+            {"ts_code": "601988.SH", "symbol": "601988", "name": "中国银行", "nameInitials": "ZGYH"},
             {"ts_code": "601999.SH", "symbol": "601999", "name": "出口银行", "nameInitials": "CKYH"},
             {"ts_code": "000001.SZ", "symbol": "000001", "name": "平安银行", "nameInitials": "PAYH"},
         ]
 
         result = service.search("  zgyh ")
 
-        self.assertEqual(result["total"], 1)
+        self.assertEqual(result["total"], 2)
         self.assertFalse(result["hasMore"])
-        self.assertEqual(result["items"][0]["name"], "中国银河")
+        self.assertEqual([item["name"] for item in result["items"]], ["中国银河", "中国银行"])
 
     def test_history_coverage_classifies_missing_recent_listing_and_unresolved_gaps(self):
         service = self.service

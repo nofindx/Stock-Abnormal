@@ -197,7 +197,7 @@ function presentWarnings(warnings = []) {
 
 Page({
   data: {
-    query: '', suggestions: [], suggestionHint: false, selected: null, detail: null,
+    query: '', suggestions: [], suggestionHint: false, suggestionTotal: 0, selected: null, detail: null,
     detailLoading: false, detailError: '', searchError: '', searchFocused: false, dataUpdatedAt: '',
     futureTradeDates: [],
     dayOptions: ['10'], simulationExpanded: false, visibleDays: 2,
@@ -218,15 +218,15 @@ Page({
     if (this.searchTimer) clearTimeout(this.searchTimer)
     this.searchRequestId = (this.searchRequestId || 0) + 1
     const requestId = this.searchRequestId
-    this.setData({ query, suggestions: [], suggestionHint: false, searchError: '', selected: null, detail: null, detailError: '', dataUpdatedAt: '' })
+    this.setData({ query, suggestions: [], suggestionHint: false, suggestionTotal: 0, searchError: '', selected: null, detail: null, detailError: '', dataUpdatedAt: '' })
     if (!query.trim()) return
     this.searchTimer = setTimeout(() => {
       searchStocks(query).then((result) => {
         if (requestId !== this.searchRequestId) return
-        this.setData({ suggestions: result.items || [], suggestionHint: Boolean(result.hasMore), searchError: '' })
+        this.setData({ suggestions: result.items || [], suggestionHint: Boolean(result.hasMore), suggestionTotal: Number(result.total || 0), searchError: '' })
       }).catch(() => {
         if (requestId !== this.searchRequestId) return
-        this.setData({ suggestions: [], suggestionHint: false, searchError: '搜索失败，请稍后重试' })
+        this.setData({ suggestions: [], suggestionHint: false, suggestionTotal: 0, searchError: '搜索失败，请稍后重试' })
       })
     }, 250)
   },
@@ -235,7 +235,7 @@ Page({
   clearQuery() {
     if (this.searchTimer) clearTimeout(this.searchTimer)
     this.searchRequestId = (this.searchRequestId || 0) + 1
-    this.setData({ query: '', suggestions: [], suggestionHint: false, searchError: '', selected: null, detail: null, detailError: '', dataUpdatedAt: '' })
+    this.setData({ query: '', suggestions: [], suggestionHint: false, suggestionTotal: 0, searchError: '', selected: null, detail: null, detailError: '', dataUpdatedAt: '' })
   },
   loadStockByCode(tsCode) {
     if (!tsCode) return

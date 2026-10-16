@@ -49,8 +49,16 @@ _PINYIN_RANGES = (
 def _name_initials(value: str) -> str:
     """返回中文名称首字母，例如“博杰股份” -> “BJGF”。"""
 
+    # GBK 区位表无法判断多音字；股票简称中“银行”是高频固定词组，
+    # ``银行`` 的拼音首字母是 ``YH``，不能被区位表误判为 ``YX``。
+    text = str(value or "")
+    bank_suffix = "银行"
+    suffix_index = text.find(bank_suffix)
+    if suffix_index >= 0:
+        return _name_initials(text[:suffix_index]) + "YH" + _name_initials(text[suffix_index + len(bank_suffix):])
+
     result: List[str] = []
-    for char in str(value or ""):
+    for char in text:
         if "A" <= char.upper() <= "Z":
             result.append(char.upper())
             continue
@@ -426,7 +434,7 @@ class MarketService:
             # 保持本地旧仓储适配器和测试替身可用。
             return getter(scope)
 
-    def search(self, query: str, limit: int = 20) -> Dict[str, Any]:
+    def search(self, query: str, limit: int = 5) -> Dict[str, Any]:
         """按代码、名称和首字母做归一化匹配，并按匹配质量稳定排序。"""
 
         # 搜索输入可能来自微信复制文本，统一去掉空白、连接符和点号，避免
