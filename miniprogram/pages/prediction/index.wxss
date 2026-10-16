@@ -24,7 +24,7 @@
   border-radius: 0;
   background: transparent;
 }
-.prediction-controls { display: flex; height: 80rpx; min-height: 80rpx; align-items: center; justify-content: space-between; gap: 14rpx; margin-top: 12rpx; }
+.prediction-controls { display: flex; height: 80rpx; min-height: 80rpx; align-items: center; justify-content: flex-start; gap: 14rpx; margin-top: 12rpx; }
 .prediction-page .prediction-controls .segmented { width: 66.666%; flex: 0 0 66.666%; margin-top: 0; }
 .prediction-refresh { position: static; flex: 0 0 120rpx; width: 120rpx; min-width: 120rpx; max-width: 120rpx; height: 48rpx; min-height: 48rpx; padding: 0 !important; border: 1rpx solid #9BC2E8; border-radius: 10rpx; background: #EAF3FC; color: #1F5F99; font-size: 20rpx; line-height: 46rpx; transform: none; }
 .prediction-page .segment {
