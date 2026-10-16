@@ -1,7 +1,6 @@
 {
   "pages": [
     "pages/stock/index",
-    "pages/stock/detail",
     "pages/monitor/index",
     "pages/prediction/index",
     "pages/rules/index",

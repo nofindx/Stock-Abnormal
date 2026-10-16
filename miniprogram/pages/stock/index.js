@@ -209,12 +209,6 @@ Page({
     const pending = getApp().globalData.pendingStock
     if (pending) { getApp().globalData.pendingStock = null; this.chooseStock(pending) }
   },
-  goBack() {
-    wx.navigateBack({
-      delta: 1,
-      fail: () => wx.switchTab({ url: '/pages/prediction/index' })
-    })
-  },
   syncTabBar() {
     const tabBar = this.getTabBar && this.getTabBar()
     if (tabBar) tabBar.setData({ selected: 0 })
@@ -252,7 +246,6 @@ Page({
       ? this.data.suggestions[eventOrStock.currentTarget.dataset.index]
       : eventOrStock
     if (!stock || !stock.ts_code) return
-    wx.navigateTo({ url: `/pages/stock/detail?ts_code=${encodeURIComponent(stock.ts_code)}` })
     getApp().globalData.lastStock = stock
     const inputRows = createInputRows(2, this.data.futureTradeDates)
     this.detailRequestId = (this.detailRequestId || 0) + 1

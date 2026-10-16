@@ -103,7 +103,9 @@ Page({
   openStock(event) {
     const tsCode = event.currentTarget.dataset.code
     if (!tsCode) return
-    wx.navigateTo({ url: `/pages/stock/detail?ts_code=${encodeURIComponent(tsCode)}` })
+    const stock = this.data.items.find(item => item.ts_code === tsCode)
+    getApp().globalData.pendingStock = stock || { ts_code: tsCode, symbol: tsCode.split('.')[0], name: '' }
+    wx.switchTab({ url: '/pages/stock/index' })
   },
   openSource(event) {
     const url = event.currentTarget.dataset.url
