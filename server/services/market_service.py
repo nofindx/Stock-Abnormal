@@ -29,7 +29,7 @@ BOARD_BY_MARKET = {"主板": Board.MAIN, "创业板": Board.CHINEXT, "科创板"
 SHANGHAI_TZ = ZoneInfo("Asia/Shanghai") if ZoneInfo else timezone(timedelta(hours=8))
 # 停牌/复牌重置、上涨同向计数和预测阶段切换属于同一套规则口径。
 # 版本变化会触发服务启动时从已确认收盘行情重建计算基础数据与预测集。
-PREDICTION_RULE_VERSION = "2026-10-unified-max-window-simulation-v31-rule-reset"
+PREDICTION_RULE_VERSION = "2026-10-unified-max-window-simulation-v32-issuer-reset"
 
 
 class CalculationDataUnavailable(RuntimeError):
@@ -1135,6 +1135,8 @@ class MarketService:
                 # 公告后的首个监管交易日是新的监管事实起点；规则累计从
                 # 该日起的下一个有效收益区间开始，不能把公告前涨幅跨周期带入。
                 "monitorDates": [str(value)[:10] for value in (item.get("monitorDates") or [])],
+                "sourceType": item.get("sourceType") or "",
+                "sourceRole": item.get("sourceRole") or "",
                 "days": item.get("days"),
                 "daysTotal": item.get("daysTotal"),
             }
@@ -1168,6 +1170,10 @@ class MarketService:
                 item_symbol = str(item.get("symbol") or item.get("ts_code") or "").split(".")[0]
                 if item_symbol != symbol or str(item.get("riskTone") or "") not in {"severe-10d", "severe-30d"}:
                     continue
+                # 18.cn 的风险提示是监管事实，不等同于交易所正文中的
+                # “严重异常波动公告”；只有正文公告事实才会重置行情累计。
+                if str(item.get("sourceType") or item.get("sourceRole") or "") != "issuer-disclosure":
+                    continue
                 matches.append(item)
             if not matches:
                 return None
@@ -1178,6 +1184,7 @@ class MarketService:
             return {
                 "riskTone": item.get("riskTone") or "",
                 "monitorDates": [str(value)[:10] for value in (item.get("monitorDates") or [])],
+                "sourceType": item.get("sourceType") or "",
             }
         except Exception:
             return None

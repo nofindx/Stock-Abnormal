@@ -684,6 +684,21 @@ class MarketVectorTests(unittest.TestCase):
         self.assertEqual(metrics["window_lengths"][30], 1)
         self.assertAlmostEqual(metrics["deviations"][30], 20.0)
 
+    def test_broker_risk_alert_does_not_reset_market_window(self):
+        """18.cn 风险提示不是交易所正文公告，不得截断行情累计。"""
+        service = self.service
+        service._clock = lambda: datetime(2026, 10, 10)
+        service.set_monitor_provider(lambda: {"items": [{
+            "symbol": "688137", "riskTone": "severe-10d",
+            "sourceType": "broker-risk-alert",
+            "monitorDates": ["2026-10-08", "2026-10-09", "2026-10-12"],
+            "monitorEndDate": "2026-10-21",
+        }]})
+        stock = {"ts_code": "688137.SH", "symbol": "688137"}
+        values = [{"date": "2026-10-08", "return": 1.0}, {"date": "2026-10-09", "return": 2.0}]
+        _, _, meta, _ = service._rule_vectors_for_stock(stock, values, [{"date": x["date"], "return": 0.0} for x in values])
+        self.assertEqual(meta["ruleResetDate"], "")
+
     def test_tail_suspension_is_not_predicted(self):
         """最新交易日仍停牌时不能把停牌前结果伪装成次日候选。"""
         stock = [{"date": day, "return": 5.0} for day in ("2026-09-21", "2026-09-22")]
