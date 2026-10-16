@@ -36,7 +36,8 @@
       <view class="status-icon">{{detail.statusIcon}}</view>
       <view class="status-main">
         <view class="status-heading"><text class="status-state">{{detail.statusDisplay}}</text><text class="status-board">{{detail.board}}</text></view>
-        <view wx:if="{{detail.monitoring}}" class="monitoring-reason">监管事实：{{detail.monitoring.monitorType}} · {{detail.monitoring.title}}</view>
+        <view class="monitoring-status">监管状态：{{detail.monitoringStatusDisplay || (detail.monitoring ? '监管中' : '未在监管期')}}</view>
+        <view wx:if="{{detail.monitoring}}" class="monitoring-reason">监管事实：{{detail.monitoring.monitorType}} · {{detail.monitoring.title}}<text wx:if="{{detail.monitoring.monitorEndDate}}"> · 至 {{detail.monitoring.monitorEndDate}}</text></view>
         <view class="market-status-reason">行情规则：{{detail.marketStatusDisplay || detail.statusReason || '当前行情规则未触发'}}</view>
         <view class="status-stock-line"><view class="stock-identity"><text class="status-name">{{detail.name}}</text><text class="status-symbol">{{detail.symbol}}</text></view><view class="quote-line"><text class="status-price">{{detail.currentPrice}}</text><text class="change {{detail.changeClass}}">{{detail.change}}</text></view></view>
       </view>

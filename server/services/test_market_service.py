@@ -336,10 +336,13 @@ class MarketVectorTests(unittest.TestCase):
         self.assertEqual(result["statusDisplay"], "监管中")
         self.assertEqual(result["statusClass"], "monitoring")
         self.assertEqual(result["statusIcon"], "!")
+        self.assertEqual(result["monitoringStatus"], "active")
+        self.assertEqual(result["monitoringStatusDisplay"], "监管中")
         self.assertTrue(result["monitoring"])
         self.assertIn("已触发", result["marketStatusDisplay"])
         self.assertIn("10 日严重异动", result["statusReason"])
         self.assertIn("3 日普通异动", result["statusReason"])
+        self.assertTrue(all("上涨阈值" not in item["target"] for item in result["warnings"]))
 
     def test_detail_does_not_mix_unpaired_realtime_quotes_into_calculation(self):
         service = self.service

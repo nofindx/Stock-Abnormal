@@ -932,7 +932,7 @@ class MarketService:
             alerts.append({
                 "title": f"{days} 日偏离",
                 "forecast": "已触发" if triggered else (f"还差 {distance:.2f}%" if distance is not None else "数据不足"),
-                "detail": f"当前 {_pct(value)}，上涨阈值 +{up:.0f}%" if value is not None else "暂无足够交易日数据",
+                "detail": f"当前 {_pct(value)}，阈值 +{up:.0f}%" if value is not None else "暂无足够交易日数据",
                 "progressStyle": f"width:{progress:.1f}%",
                 "className": "risk" if triggered else "safe" if value is not None else "neutral",
             })
@@ -1520,9 +1520,9 @@ class MarketService:
             future_dates = []
         common_days = len(set(item.get("date") for item in stock_vector if item.get("date")) & set(item.get("date") for item in index_vector if item.get("date")))
         warnings = [
-            {"title": "3 日偏离", "value": _pct(deviations[3]), "actualWindow": metrics["window_lengths"][3], "target": f"上涨阈值 +{rule.ordinary_deviation:.0f}%" if deviations[3] is not None else "数据不足（无有效共同收益区间）", "className": "risk" if deviations[3] is not None and deviations[3] >= rule.ordinary_deviation else "safe" if deviations[3] is not None else "neutral"},
-            {"title": "10 日偏离", "value": _pct(deviations[10]), "actualWindow": metrics["window_lengths"][10], "target": f"上涨阈值 +{rule.severe_10d_threshold.up:.0f}%" if deviations[10] is not None else "数据不足（无有效共同收益区间）", "className": "risk" if deviations[10] is not None and rule.severe_10d_threshold.triggered(deviations[10]) else "safe" if deviations[10] is not None else "neutral"},
-            {"title": "30 日偏离", "value": _pct(deviations[30]), "actualWindow": metrics["window_lengths"][30], "target": f"上涨阈值 +{rule.severe_30d_threshold.up:.0f}%" if deviations[30] is not None else "数据不足（无有效共同收益区间）", "className": "risk" if deviations[30] is not None and rule.severe_30d_threshold.triggered(deviations[30]) else "safe" if deviations[30] is not None else "neutral"},
+            {"title": "3 日偏离", "value": _pct(deviations[3]), "actualWindow": metrics["window_lengths"][3], "target": f"阈值 +{rule.ordinary_deviation:.0f}%" if deviations[3] is not None else "数据不足（无有效共同收益区间）", "className": "risk" if deviations[3] is not None and deviations[3] >= rule.ordinary_deviation else "safe" if deviations[3] is not None else "neutral"},
+            {"title": "10 日偏离", "value": _pct(deviations[10]), "actualWindow": metrics["window_lengths"][10], "target": f"阈值 +{rule.severe_10d_threshold.up:.0f}%" if deviations[10] is not None else "数据不足（无有效共同收益区间）", "className": "risk" if deviations[10] is not None and rule.severe_10d_threshold.triggered(deviations[10]) else "safe" if deviations[10] is not None else "neutral"},
+            {"title": "30 日偏离", "value": _pct(deviations[30]), "actualWindow": metrics["window_lengths"][30], "target": f"阈值 +{rule.severe_30d_threshold.up:.0f}%" if deviations[30] is not None else "数据不足（无有效共同收益区间）", "className": "risk" if deviations[30] is not None and rule.severe_30d_threshold.triggered(deviations[30]) else "safe" if deviations[30] is not None else "neutral"},
             {"title": "10 日同向", "value": "", "up": str(metrics["up"]), "down": str(metrics["down"]), "target": f"阈值 {rule.severe_same_direction_count} 次", "className": "risk" if same_count >= rule.severe_same_direction_count else "safe"},
         ]
         return {
@@ -1535,6 +1535,8 @@ class MarketService:
             "statusDisplay": display_status,
             "statusClass": display_status_class,
             "statusIcon": "!" if display_status_class != "safe" else "✓",
+            "monitoringStatus": "active" if monitoring else "inactive",
+            "monitoringStatusDisplay": "监管中" if monitoring else "未在监管期",
             "monitoring": monitoring,
             "currentPrice": f"{float(current_price):.2f}" if current_price is not None else "--",
             "change": _pct(current_change),
