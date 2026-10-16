@@ -100,6 +100,11 @@ Page({
     filtered.sort((left, right) => Number(left.days == null ? 9999 : left.days) - Number(right.days == null ? 9999 : right.days))
     this.setData({ items: filtered, visibleCount: filtered.length })
   },
+  openStock(event) {
+    const tsCode = event.currentTarget.dataset.code
+    if (!tsCode) return
+    wx.navigateTo({ url: `/pages/stock/detail?ts_code=${encodeURIComponent(tsCode)}` })
+  },
   openSource(event) {
     const url = event.currentTarget.dataset.url
     if (!url) return
