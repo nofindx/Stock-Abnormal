@@ -178,6 +178,20 @@ class MonitorWindowTests(unittest.TestCase):
         self.assertEqual(OfficialMonitorService._monitor_type("股票交易严重异常波动公告", "连续10个交易日涨幅偏离值累计达到100%"), ("10日严重异动", "severe-10d"))
         self.assertEqual(OfficialMonitorService._monitor_type("股票交易异常波动公告", "连续30个交易日涨幅偏离值累计达到200%"), ("30日严重异动", "severe-30d"))
 
+    def test_issuer_repurchase_risk_prompt_is_monitor_fact_without_severe_reset(self):
+        title = "关于股票交易停牌核查结果、股票交易风险提示暨复牌的公告"
+        body = "公司股票将于2026年10月16日开市起复牌，敬请投资者关注交易风险。"
+        self.assertEqual(OfficialMonitorService._issuer_monitor_type(title, body), ("风险提示", "ordinary"))
+
+    def test_monitor_read_adds_standard_ts_code_for_stock_detail_navigation(self):
+        snapshot = {"snapshotId": "x", "snapshotDate": "2026-10-17", "updatedAt": "2026-10-17 00:00", "items": [{
+            "monitorKey": "x", "symbol": "600825", "name": "新华传媒", "monitorEndDate": "2026-10-29",
+            "riskTone": "ordinary", "monitorDates": [], "monitorType": "风险提示",
+        }], "dataQuality": {}}
+        self.service.repository.active_snapshot = lambda: snapshot
+        result = self.service.read("current", "all")
+        self.assertEqual(result["items"][0]["ts_code"], "600825.SH")
+
     def test_bse_negative_severe_deviation_is_not_monitor_record(self):
         body = "股票连续4个交易日内日收盘价跌幅偏离值累计达到-61.39%，属于股票交易严重异常波动情形。"
         self.assertEqual(

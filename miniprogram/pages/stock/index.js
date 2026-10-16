@@ -179,7 +179,7 @@ function presentWarnings(warnings = []) {
     }
     const rawValue = String(item.value || '').replace('%', '')
     const value = Number.parseFloat(rawValue)
-    if (!Number.isFinite(value)) return { ...item, currentText: '数据不足', remainingText: '暂不可判定', ringText: '--', progress: 0, tone: 'unknown', toneColor: colors.unknown }
+    if (!Number.isFinite(value)) return { ...item, currentText: '数据不足', remainingText: '暂不可判定', ringText: '--', progress: 0, tone: 'unknown', toneColor: colors.unknown, valueClass: '' }
     const thresholds = String(item.target || '').match(/[+-]?\d+(?:\.\d+)?/g) || []
     const up = Math.abs(Number(thresholds[0] || 0))
     // 负向偏离仅作为原始值展示，不参与上涨规则的进度、触发或剩余距离。
@@ -191,7 +191,7 @@ function presentWarnings(warnings = []) {
     const remaining = Math.max(0, up - Math.max(0, value))
     const actualWindow = Number(item.actualWindow)
     const windowText = Number.isFinite(actualWindow) && actualWindow > 0 ? `${actualWindow} 日 ` : ''
-    return { ...item, currentText: `${windowText}${value >= 0 ? '+' : ''}${value.toFixed(2)}%`, remainingText: tone === 'triggered' ? '已触及' : `还差 ${remaining.toFixed(2)}%`, ringText: tone === 'triggered' ? '已触及' : `${remaining.toFixed(2)}%`, progress: Number(progress.toFixed(2)), tone, toneColor: colors[tone] }
+    return { ...item, currentText: `${windowText}${value >= 0 ? '+' : ''}${value.toFixed(2)}%`, remainingText: tone === 'triggered' ? '已触及' : `还差 ${remaining.toFixed(2)}%`, ringText: tone === 'triggered' ? '已触及' : `${remaining.toFixed(2)}%`, progress: Number(progress.toFixed(2)), tone, toneColor: colors[tone], valueClass: Math.abs(value) >= 100 ? 'metric-current-compact' : '' }
   })
 }
 

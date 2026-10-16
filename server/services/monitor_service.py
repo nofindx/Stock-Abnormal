@@ -306,6 +306,26 @@ class OfficialMonitorService:
         return OfficialMonitorService._classify_monitor_text(title, body)
 
     @staticmethod
+    def _issuer_monitor_type(title: str, body: str) -> tuple[str, str]:
+        """分类发行人/交易所正文中的监管事实。
+
+        发行人公告有时只写“股票交易风险提示暨复牌”，不重复“异常波动”
+        字样，但正文明确说明停牌核查、复牌和交易风险。这类公告进入监管事实，
+        不满足严重异动阈值时只归为风险提示，不触发行情累计重置。
+        """
+
+        monitor_type, risk_tone = OfficialMonitorService._classify_monitor_text(title, body)
+        if risk_tone:
+            return monitor_type, risk_tone
+        text = re.sub(r"\s+", "", body or "")
+        title_text = str(title or "")
+        issuer_risk = (
+            "风险提示" in title_text
+            and ("停牌核查" in title_text or "交易风险" in text or "复牌" in title_text)
+        )
+        return ("风险提示", "ordinary") if issuer_risk else ("", "")
+
+    @staticmethod
     def _broker_monitor_type(title: str, body: str) -> tuple[str, str]:
         return OfficialMonitorService._classify_monitor_text(title, body)
 
@@ -386,6 +406,17 @@ class OfficialMonitorService:
             or normalized.startswith("*ST")
             or "退" in normalized
         )
+
+    @staticmethod
+    def _standard_ts_code(symbol: Any) -> str:
+        """把公告源六位代码补成单股详情接口需要的标准代码。"""
+
+        match = re.search(r"\d{6}", str(symbol or ""))
+        if not match:
+            return ""
+        code = match.group(0)
+        suffix = ".BJ" if code.startswith(("4", "8", "9")) else ".SH" if code.startswith("6") else ".SZ"
+        return code + suffix
 
     @staticmethod
     def _event_end_date(announcement_date: str, body: str) -> str:
@@ -576,11 +607,8 @@ class OfficialMonitorService:
                 title = announcement["title"]
                 if self._is_noise_stock(announcement.get("stockCode", ""), announcement.get("stockName", "")):
                     continue
-                # 一般性的公司风险提示不等于交易所重点监控提示；后者单独使用 18.cn 券商公告源。
-                if "异常波动" not in title:
-                    continue
                 body = self.announcements.extract_pdf_text(announcement["url"])
-                monitor_type, risk_tone = self._monitor_type(title, body)
+                monitor_type, risk_tone = self._issuer_monitor_type(title, body)
                 # 巨潮资讯是备源：必须按同一正文语义规则确认风险类型，普通公司风险公告丢弃。
                 if not risk_tone:
                     continue
@@ -728,7 +756,7 @@ class OfficialMonitorService:
                     continue
             # 页面展示“还剩几天”按自然日计算；monitorDates 仍保留用于审计监管交易日序列。
             remaining = self._remaining_natural_days(end_date, today)
-            row = {**item, "days": remaining}
+            row = {**item, "ts_code": item.get("ts_code") or self._standard_ts_code(item.get("symbol", "")), "days": remaining}
             if item.get("riskTone") in ("severe-10d", "severe-30d"):
                 row["pdfCached"] = bool(self.announcement_pdf_path(str(item.get("monitorKey") or "")))
             items.append(row)

@@ -13,8 +13,6 @@
       <view wx:if="{{suggestionHint}}" class="suggestion-hint">匹配到 {{suggestionTotal}} 条，仅显示前 5 条，请继续输入</view>
     </view>
   </view>
-  <view wx:if="{{dataUpdatedAt}}" class="stock-update-row"><text class="stock-update-text">数据更新于 {{dataUpdatedAt}}</text></view>
-
   <block wx:if="{{!detail && !detailError && !detailLoading}}">
     <view class="guide-card card">
       <view class="guide-target" aria-label="异动计算引导图"><view class="guide-ring guide-ring-outer"><view class="guide-ring guide-ring-middle"><view class="guide-ring guide-ring-inner"><view class="guide-pointer"></view></view></view></view></view>
@@ -46,7 +44,7 @@
 
     <view class="metric-grid">
       <view wx:for="{{detail.warnings}}" wx:key="title" wx:for-index="metricIndex" class="card metric-card metric-card-{{metricIndex}} metric-tone-{{item.tone}}">
-        <view class="metric-copy"><text class="metric-title">{{item.title}}</text><text class="metric-current" style="color: {{item.toneColor}};">{{item.currentText}}</text><text class="metric-target">{{item.target}}</text></view>
+        <view class="metric-copy"><text class="metric-title">{{item.title}}</text><text class="metric-current {{item.valueClass || ''}}" style="color: {{item.toneColor}};">{{item.currentText}}</text><text class="metric-target">{{item.target}}</text></view>
         <view class="metric-ring" style="background: conic-gradient({{item.toneColor}} {{item.progress}}%, #DCEBFA 0);"><view class="metric-ring-inner"><text class="metric-ring-value" style="color: {{item.toneColor}};">{{item.ringText}}</text></view></view>
       </view>
     </view>

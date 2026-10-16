@@ -1,9 +1,9 @@
 .stock-page { padding-top: 24rpx; padding-bottom: 220rpx; }
-.search-wrap { position: relative; z-index: 2; display: flex; height: 80rpx; flex-direction: column; align-items: center; justify-content: center; margin-top: 12rpx; }
+.search-wrap { position: relative; z-index: 2; display: flex; height: 128rpx; flex-direction: column; align-items: center; justify-content: center; margin-top: 12rpx; }
 .search-box {
   display: flex;
   width: 100%;
-  height: 60rpx;
+  height: 76rpx;
   align-items: center;
   padding: 0 16rpx;
   border: 1rpx solid #E5E5EA;
@@ -31,12 +31,12 @@
   content: '';
   transform: rotate(45deg);
 }
-.search-input { min-width: 0; height: 58rpx; flex: 1; color: #1C1C1E; font-size: 23rpx; }
+.search-input { min-width: 0; height: 74rpx; flex: 1; color: #1C1C1E; font-size: 23rpx; }
 .clear-icon { padding: 8rpx 2rpx 8rpx 14rpx; color: #8E8E93; font-size: 30rpx; }
 .suggestions {
   position: absolute;
   z-index: 10;
-  top: 70rpx;
+  top: 86rpx;
   right: 0;
   left: 0;
   overflow: hidden;
@@ -133,6 +133,7 @@
 .metric-ring-inner { display: flex; width: 92rpx; height: 92rpx; flex-direction: column; align-items: center; justify-content: center; border-radius: 50%; background: #FFFFFF; }
 .metric-ring-value { font-size: 22rpx; font-weight: 700; line-height: 26rpx; font-variant-numeric: tabular-nums; text-align: center; white-space: nowrap; }
 .metric-current { display: block; margin-top: 0; font-size: 31rpx; line-height: 38rpx; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.metric-current-compact { font-size: 24rpx; letter-spacing: 0; }
 .metric-target { display: block; margin-top: 0; color: #6B7280; font-size: 18rpx; line-height: 26rpx; white-space: normal; }
 .metric-remaining { display: none; }
 
