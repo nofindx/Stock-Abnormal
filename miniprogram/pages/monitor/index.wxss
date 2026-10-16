@@ -106,3 +106,26 @@
 .monitor-page .badge-severe-10d,
 .monitor-page .badge-severe-30d { padding: 2rpx 10rpx !important; border: 2rpx solid #D93025 !important; border-radius: 8rpx; background: #FFF5F5 !important; color: #D93025 !important; line-height: 30rpx; }
 .monitor-page .days-number { color: #D93025 !important; }
+
+/* Refresh control contract shared with the prediction page. */
+.monitor-page .monitor-refresh {
+  flex: 0 0 120rpx;
+  width: 120rpx;
+  min-width: 120rpx;
+  max-width: 120rpx;
+  height: 60rpx;
+  min-height: 60rpx;
+  margin-left: auto !important;
+  margin-right: 0 !important;
+  padding: 0 !important;
+  align-self: center;
+  border: 1rpx solid #9BC2E8 !important;
+  border-radius: 10rpx;
+  background: #EAF3FC !important;
+  color: #1F5F99 !important;
+  font-size: 20rpx;
+  font-weight: 400;
+  line-height: 58rpx;
+  box-shadow: none;
+  transform: none;
+}

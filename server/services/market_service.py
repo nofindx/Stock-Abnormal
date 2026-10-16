@@ -29,7 +29,7 @@ BOARD_BY_MARKET = {"主板": Board.MAIN, "创业板": Board.CHINEXT, "科创板"
 SHANGHAI_TZ = ZoneInfo("Asia/Shanghai") if ZoneInfo else timezone(timedelta(hours=8))
 # 停牌/复牌重置、上涨同向计数和预测阶段切换属于同一套规则口径。
 # 版本变化会触发服务启动时从已确认收盘行情重建计算基础数据与预测集。
-PREDICTION_RULE_VERSION = "2026-10-unified-max-window-simulation-v30"
+PREDICTION_RULE_VERSION = "2026-10-unified-max-window-simulation-v31-rule-reset"
 
 
 class CalculationDataUnavailable(RuntimeError):
@@ -1132,11 +1132,87 @@ class MarketService:
                 "title": item.get("title") or "",
                 "monitorStartDate": item.get("monitorStartDate") or "",
                 "monitorEndDate": item.get("monitorEndDate") or "",
+                # 公告后的首个监管交易日是新的监管事实起点；规则累计从
+                # 该日起的下一个有效收益区间开始，不能把公告前涨幅跨周期带入。
+                "monitorDates": [str(value)[:10] for value in (item.get("monitorDates") or [])],
                 "days": item.get("days"),
                 "daysTotal": item.get("daysTotal"),
             }
         except Exception:
             return None
+
+    @staticmethod
+    def _monitor_rule_reset_date(monitoring: Optional[Dict[str, Any]]) -> str:
+        """返回严重异动公告后的规则累计起点。
+
+        监管交易日序列的第一个日期是公告后首个交易日，下一交易日才是
+        新一轮偏离累计的首个有效收益日，因此取 ``monitorDates[1]``。
+        风险提示不改变行情规则累计起点。
+        """
+
+        if not monitoring or str(monitoring.get("riskTone") or "") not in {"severe-10d", "severe-30d"}:
+            return ""
+        dates = [str(value).replace("-", "")[:8] for value in (monitoring.get("monitorDates") or []) if value]
+        return dates[1] if len(dates) >= 2 else ""
+
+    def _latest_rule_monitor_for_stock(self, stock: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """读取该股票最近一条严重异动公告事实（不受当前监管期过滤）。"""
+
+        if not self._monitor_provider:
+            return None
+        symbol = str(stock.get("symbol") or stock.get("ts_code") or "").split(".")[0]
+        try:
+            snapshot = self._monitor_provider() or {}
+            matches = []
+            for item in snapshot.get("items", []):
+                item_symbol = str(item.get("symbol") or item.get("ts_code") or "").split(".")[0]
+                if item_symbol != symbol or str(item.get("riskTone") or "") not in {"severe-10d", "severe-30d"}:
+                    continue
+                matches.append(item)
+            if not matches:
+                return None
+            item = max(matches, key=lambda value: (
+                str(value.get("announcementDate") or value.get("monitorStartDate") or ""),
+                str(value.get("monitorEndDate") or ""),
+            ))
+            return {
+                "riskTone": item.get("riskTone") or "",
+                "monitorDates": [str(value)[:10] for value in (item.get("monitorDates") or [])],
+            }
+        except Exception:
+            return None
+
+    @classmethod
+    def _trim_vectors_after_rule_reset(
+        cls,
+        stock: List[Dict[str, Any]],
+        index: List[Dict[str, Any]],
+        reset_date: str,
+    ) -> tuple[List[Dict[str, Any]], List[Dict[str, Any]], Dict[str, Any]]:
+        """应用公告后的统一规则重置，并保留审计元数据。"""
+
+        if not reset_date:
+            return stock, index, {"ruleResetDate": ""}
+        stock_trimmed = [item for item in stock if cls._date_key(item.get("date")) >= reset_date]
+        index_trimmed = [item for item in index if cls._date_key(item.get("date")) >= reset_date]
+        return stock_trimmed, index_trimmed, {"ruleResetDate": reset_date}
+
+    def _rule_vectors_for_stock(
+        self,
+        stock: Dict[str, Any],
+        stock_vector: List[Dict[str, Any]],
+        index_vector: List[Dict[str, Any]],
+    ) -> tuple[List[Dict[str, Any]], List[Dict[str, Any]], Dict[str, Any], Optional[Dict[str, Any]]]:
+        """统一应用停牌重置和严重异动公告后的规则重置。"""
+
+        stock_vector, index_vector, suspension = self._trim_vectors_after_suspension(stock_vector, index_vector)
+        monitoring = self._active_monitor_for_stock(stock)
+        reset_monitor = self._latest_rule_monitor_for_stock(stock) or monitoring
+        reset_date = self._monitor_rule_reset_date(reset_monitor)
+        stock_vector, index_vector, rule_reset = self._trim_vectors_after_rule_reset(
+            stock_vector, index_vector, reset_date
+        )
+        return stock_vector, index_vector, {**suspension, **rule_reset}, monitoring
 
     @staticmethod
     def _vector_numbers(entries: List[Dict[str, Any]]) -> List[float]:
@@ -1390,7 +1466,9 @@ class MarketService:
             or (index_vector_date and index_vector_date != stored_index_date)
         ):
             return None
-        stock_vector, index_vector, suspension = self._trim_vectors_after_suspension(stock_vector, index_vector)
+        stock_vector, index_vector, suspension, monitoring = self._rule_vectors_for_stock(
+            stock, stock_vector, index_vector
+        )
         board = BOARD_BY_MARKET.get(stock["board"], Board.MAIN)
         rule = BOARD_RULES[board]
         quotes = self._realtime.fetch_many([stock["ts_code"], index_code])
@@ -1418,7 +1496,6 @@ class MarketService:
         )
         status, status_class = self._status_for_metrics(deviations, metrics["up"], rule)
         status_reason = self._status_reason_for_metrics(deviations, metrics["up"], rule)
-        monitoring = self._active_monitor_for_stock(stock)
         display_status = "监管中" if monitoring else ("状态安全" if status == "正常" else "状态异常")
         display_status_class = "monitoring" if monitoring else status_class
         market_status_display = f"已触发 · {status_reason}" if status_reason else "当前行情规则未触发"
@@ -1477,12 +1554,13 @@ class MarketService:
                 "commonDays": common_days,
                 "requiredCommonDays": 30,
                 "suspensionResetDate": suspension.get("resetDate", ""),
+                "ruleResetDate": suspension.get("ruleResetDate", ""),
                 "suspended": suspension.get("suspended", False),
                 "quoteUpdatedAt": display_quote.get("updatedAt", "") if display_quote else "",
                 "message": (
                     f"历史数据覆盖 {common_days} 个共同交易日，按现有数据计算"
                     if common_days < 30 else ""
-                ) + ("；实时行情暂不可用" if not realtime else ""),
+                ) + (("；" if common_days < 30 else "") + "实时行情暂不可用" if not realtime else ""),
             },
         }
 
@@ -1999,7 +2077,8 @@ class MarketService:
                 stats["excludedByDataQuality"] += 1
                 continue
             board_rule = BOARD_RULES[BOARD_BY_MARKET.get(stock["board"], Board.MAIN)]
-            stock_vector, index_vector, suspension = self._trim_vectors_after_suspension(
+            stock_vector, index_vector, suspension, monitoring = self._rule_vectors_for_stock(
+                stock,
                 self._vector_entries(calc.get("stock_return_vector")),
                 self._vector_entries(index.get("index_return_vector")),
             )
@@ -2111,6 +2190,7 @@ class MarketService:
                         if str(calc.get("as_of_trade_date") or "") else ""
                     ),
                     "suspensionResetDate": suspension.get("resetDate", ""),
+                    "ruleResetDate": suspension.get("ruleResetDate", ""),
                     "triggered": triggered,
                     "alertText": "已触发" if triggered else "",
                     "cardTone": "triggered" if triggered else "",
@@ -2659,7 +2739,9 @@ class MarketService:
             if paired_quote and calc and index:
                 stock_vector = self._apply_quote_to_vector(self._vector_entries(calc.get("stock_return_vector")), calc.get("latest_close"), quote)
                 index_vector = self._apply_quote_to_vector(self._vector_entries(index.get("index_return_vector")), index.get("latest_close"), index_quote)
-                stock_vector, index_vector, suspension = self._trim_vectors_after_suspension(stock_vector, index_vector)
+                stock_vector, index_vector, suspension, _monitoring = self._rule_vectors_for_stock(
+                    stock, stock_vector, index_vector
+                )
                 if suspension.get("suspended"):
                     continue
                 rule = BOARD_RULES[BOARD_BY_MARKET.get(stock.get("board"), Board.MAIN)]

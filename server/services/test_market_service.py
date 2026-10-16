@@ -658,6 +658,32 @@ class MarketVectorTests(unittest.TestCase):
         self.assertEqual(meta["resetDate"], "20260925")
         self.assertFalse(meta["suspended"])
 
+    def test_severe_announcement_reset_keeps_partial_windows_calculable(self):
+        """公告重置后历史不足完整 10/30 日时，仍按现有有效区间计算。"""
+        service = self.service
+        service._clock = lambda: datetime(2026, 10, 10)
+        service.set_monitor_provider(lambda: {"items": [{
+            "symbol": "301190", "riskTone": "severe-30d",
+            "monitorDates": ["2026-10-09", "2026-10-10", "2026-10-13"],
+            "monitorEndDate": "2026-10-22",
+        }]})
+        stock = {"ts_code": "301190.SZ", "symbol": "301190"}
+        stock_vector = [
+            {"date": "2026-10-08", "return": 80.0},
+            {"date": "2026-10-09", "return": 10.0},
+            {"date": "2026-10-10", "return": 20.0},
+        ]
+        index_vector = [{"date": item["date"], "return": 0.0} for item in stock_vector]
+        trimmed_stock, trimmed_index, meta, monitoring = service._rule_vectors_for_stock(
+            stock, stock_vector, index_vector
+        )
+        self.assertEqual(meta["ruleResetDate"], "20261010")
+        self.assertEqual([item["date"] for item in trimmed_stock], ["2026-10-10"])
+        self.assertEqual(monitoring["riskTone"], "severe-30d")
+        metrics = service._vector_metrics(trimmed_stock, trimmed_index, BOARD_RULES[Board.CHINEXT])
+        self.assertEqual(metrics["window_lengths"][30], 1)
+        self.assertAlmostEqual(metrics["deviations"][30], 20.0)
+
     def test_tail_suspension_is_not_predicted(self):
         """最新交易日仍停牌时不能把停牌前结果伪装成次日候选。"""
         stock = [{"date": day, "return": 5.0} for day in ("2026-09-21", "2026-09-22")]
