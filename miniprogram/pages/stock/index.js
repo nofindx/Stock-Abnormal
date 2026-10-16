@@ -166,7 +166,7 @@ function presentAlerts(alerts = []) {
 }
 
 function presentWarnings(warnings = []) {
-  const colors = { safe: '#4B5563', warning: '#6B7280', triggered: '#1C1C1E', unknown: '#9CA3AF' }
+  const colors = { safe: '#4A90E2', warning: '#4A90E2', triggered: '#4A90E2', unknown: '#BFD9F5' }
   return warnings.map((item) => {
     if (item.title === '10 日同向') {
       const up = Number(item.up || 0)
@@ -208,6 +208,12 @@ Page({
     this.syncTabBar()
     const pending = getApp().globalData.pendingStock
     if (pending) { getApp().globalData.pendingStock = null; this.chooseStock(pending) }
+  },
+  goBack() {
+    wx.navigateBack({
+      delta: 1,
+      fail: () => wx.switchTab({ url: '/pages/prediction/index' })
+    })
   },
   syncTabBar() {
     const tabBar = this.getTabBar && this.getTabBar()

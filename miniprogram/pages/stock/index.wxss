@@ -55,6 +55,7 @@
 .suggestion-hint { padding: 14rpx 0 16rpx; color: #8E8E93; font-size: 20rpx; line-height: 28rpx; text-align: left; }
 .inline-error { margin-top: 10rpx; color: #C83A36; font-size: 20rpx; line-height: 28rpx; }
 .stock-update-row { display: flex; height: 48rpx; min-height: 48rpx; align-items: center; margin-top: 12rpx; color: #6B7280; font-size: 22rpx; line-height: 30rpx; white-space: nowrap; }
+.stock-update-row { justify-content: flex-end; text-align: right; }
 .stock-update-text { overflow: hidden; text-overflow: ellipsis; }
 .loading-state, .error-state { margin-top: 20rpx; padding: 34rpx 24rpx; color: #8E8E93; text-align: center; }
 .error-state { color: #C83A36; }
@@ -84,6 +85,8 @@
 .guide-ring-middle { width: 120rpx; height: 120rpx; border-width: 9rpx; }
 .guide-ring-inner { width: 64rpx; height: 64rpx; border-width: 8rpx; position: relative; }
 .guide-pointer { position: absolute; width: 96rpx; height: 12rpx; left: 37rpx; top: 25rpx; border-radius: 12rpx; background: #C65B3B; transform: rotate(-22deg); transform-origin: left center; }
+.stock-detail-toolbar { display: flex; justify-content: flex-start; margin-top: 12rpx; }
+.stock-back-button { width: 112rpx; height: 48rpx; padding: 0; border: 1rpx solid #9CA3AF; border-radius: 10rpx; background: #FFFFFF; color: #1C1C1E; font-size: 21rpx; line-height: 46rpx; }
 .guide-line { display: block; line-height: 38rpx; }
 .guide-line-primary { color: #1C1C1E; font-size: 29rpx; font-weight: 650; text-align: center; }
 .guide-lines { display: flex; width: 100%; flex-direction: column; align-items: center; margin-top: 16rpx; }
@@ -176,17 +179,17 @@
 .matrix-count-5 .matrix-head, .matrix-count-5 .matrix-row { grid-template-columns: 118rpx repeat(5, minmax(0, 1fr)); }
 .matrix-head { min-height: 70rpx; background: #F8F8FA; text-align: center; }
 .matrix-row { min-height: 70rpx; border-top: 1rpx solid #F2F2F7; }
-.matrix-label { padding: 0 5rpx; color: #636366; font-size: 19rpx; line-height: 25rpx; text-align: center; }
+.matrix-label { padding: 0 5rpx; color: #636366; font-size: 21rpx; line-height: 28rpx; text-align: center; }
 .matrix-head .matrix-label { color: #636366; font-weight: 600; }
 .matrix-column { display: flex; flex-direction: column; align-items: center; gap: 1rpx; }
 .matrix-column .day-badge { padding: 0; border: 0; background: transparent; color: #1C1C1E; font-size: 21rpx; font-weight: 600; line-height: 28rpx; }
-.table-date { color: #8E8E93; font-size: 16rpx; line-height: 21rpx; }
+.table-date { color: #8E8E93; font-size: 18rpx; line-height: 23rpx; }
 .matrix-cell { display: flex; min-width: 0; align-items: center; justify-content: center; }
 .matrix-input-wrap { display: inline-flex; width: 92%; height: 44rpx; align-items: center; justify-content: center; border: 1rpx solid #D1D1D6; border-radius: 8rpx; background: #FFFFFF; }
 .matrix-suffix { flex: 0 0 auto; color: #8E8E93; font-size: 17rpx; line-height: 42rpx; }
-.matrix-input { width: 38rpx; height: 42rpx; min-width: 0; flex: 0 0 38rpx; padding: 0; border: 0; background: transparent; color: #1C1C1E; font-size: 18rpx; font-variant-numeric: tabular-nums; text-align: right; }
+.matrix-input { width: 38rpx; height: 42rpx; min-width: 0; flex: 0 0 38rpx; padding: 0; border: 0; background: transparent; color: #1C1C1E; font-size: 20rpx; font-variant-numeric: tabular-nums; text-align: right; }
 .matrix-placeholder { color: #C7C7CC; font-size: 20rpx; }
-.matrix-value { color: #1C1C1E; font-size: 19rpx; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.matrix-value { color: #1C1C1E; font-size: 21rpx; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .matrix-value.risk { color: #D94A45; }
 .matrix-value.safe { color: #16835D; }
 .matrix-value.safety-value { color: #1C1C1E; font-weight: 600; }
@@ -203,12 +206,13 @@
 .stock-page .text-button { color: #4B5563 !important; }
 .stock-page .quote-line .change.up { color: #D93025 !important; }
 .stock-page .quote-line .change.down { color: #16835D !important; }
-.stock-page .guide-pointer { background: #6B7280 !important; }
+.stock-page .guide-ring { border-color: #F5C542 !important; }
+.stock-page .guide-pointer { background: #D93025 !important; }
 .stock-page .status-safe,
 .stock-page .status-risk,
 .stock-page .status-severe,
 .stock-page .status-monitoring,
-.stock-page .status-neutral { border-color: #D1D5DB !important; background: #F2F3F5 !important; color: #1C1C1E !important; }
+.stock-page .status-neutral { border-color: #D1D5DB !important; background: #FFFFFF !important; color: #1C1C1E !important; }
 .stock-page .status-safe .status-state,
 .stock-page .status-risk .status-state,
 .stock-page .status-severe .status-state,
@@ -228,6 +232,8 @@
 .stock-page .alert-forecast.risk,
 .stock-page .alert-forecast.severe,
 .stock-page .alert-forecast.safe { background: transparent !important; }
+.stock-page .matrix-value.risk,
+.stock-page .matrix-value.safe { color: #1C1C1E !important; background: transparent !important; }
 .stock-page .day-option,
 .stock-page .day-option.active { border-color: #9CA3AF !important; background: #F2F3F5 !important; color: #1C1C1E !important; box-shadow: none !important; }
 .stock-page .button-press { background: #E5E7EB !important; }
@@ -250,6 +256,6 @@
   .alert-caption { font-size: 17rpx; }
   .matrix-count-2 .matrix-head, .matrix-count-2 .matrix-row { grid-template-columns: 112rpx repeat(2, minmax(0, 1fr)); }
   .matrix-count-5 .matrix-head, .matrix-count-5 .matrix-row { grid-template-columns: 106rpx repeat(5, minmax(0, 1fr)); }
-  .matrix-label, .matrix-value, .matrix-input { font-size: 16rpx; }
+  .matrix-label, .matrix-value, .matrix-input { font-size: 18rpx; }
   .matrix-input-wrap { width: 94%; }
 }

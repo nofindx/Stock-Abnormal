@@ -3,8 +3,8 @@ const { getPredictions, refreshPredictions } = require('../../utils/api')
 
 function normalizeItems(items = [], scope = 'today') {
   const ruleLabels = {
-    severe_30d: '30日严重异动',
-    severe_10d: '10日严重异动',
+    severe_30d: '30日异动',
+    severe_10d: '10日异动',
     ordinary_3d: '普通异动',
   }
   return items.map((item, index) => {

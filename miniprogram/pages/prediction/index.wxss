@@ -1,7 +1,7 @@
 .prediction-page { padding-top: 24rpx; padding-bottom: 220rpx; }
 .prediction-page .page-header { display: none; }
 .prediction-page .segmented { height: 80rpx; align-items: center; margin-top: 12rpx; }
-.prediction-snapshot-row { position: relative; display: flex; height: 48rpx; min-height: 48rpx; align-items: center; margin-top: 12rpx; padding-right: 120rpx; box-sizing: border-box; }
+.prediction-snapshot-row { position: relative; display: flex; height: 48rpx; min-height: 48rpx; align-items: center; margin-top: 12rpx; padding-right: 0; box-sizing: border-box; }
 .prediction-snapshot-row .snapshot-summary { display: flex; min-width: 0; max-width: 100%; align-items: baseline; gap: 10rpx; color: #6B7280; font-size: 22rpx; line-height: 30rpx; white-space: nowrap; overflow: hidden; }
 .prediction-snapshot-row .snapshot-count { color: #1A1A1A; font-size: 28rpx; font-weight: 700; font-variant-numeric: tabular-nums; }
 .prediction-snapshot-row .snapshot-dot { color: #9CA3AF; }
@@ -24,6 +24,9 @@
   border-radius: 0;
   background: transparent;
 }
+.prediction-controls { display: flex; height: 80rpx; min-height: 80rpx; align-items: center; justify-content: space-between; gap: 14rpx; margin-top: 12rpx; }
+.prediction-page .prediction-controls .segmented { width: 66.666%; flex: 0 0 66.666%; margin-top: 0; }
+.prediction-refresh { position: static; flex: 0 0 120rpx; width: 120rpx; min-width: 120rpx; max-width: 120rpx; height: 48rpx; min-height: 48rpx; padding: 0 !important; border: 1rpx solid #9BC2E8; border-radius: 10rpx; background: #EAF3FC; color: #1F5F99; font-size: 20rpx; line-height: 46rpx; transform: none; }
 .prediction-page .segment {
   flex: 1;
   height: 60rpx;
@@ -127,6 +130,11 @@
 .prediction-page .refresh-button { border-color: #9CA3AF !important; background: #FFFFFF !important; color: #1C1C1E !important; box-shadow: none !important; }
 .prediction-page .refresh-button.loading { border-color: #D1D5DB !important; background: #F2F3F5 !important; color: #6B7280 !important; }
 .prediction-page .error-state { color: #4B5563 !important; }
+.prediction-page .snapshot-summary { width: 100%; }
+.prediction-page .snapshot-updated { margin-left: auto; text-align: right; }
+.prediction-page .prediction-refresh { border-color: #9BC2E8 !important; background: #EAF3FC !important; color: #1F5F99 !important; box-shadow: none !important; }
+.prediction-page .prediction-deviation-tag { border-color: #D93025 !important; background: #FFF5F5 !important; color: #D93025 !important; }
+.prediction-page .prediction-deviation-tag .prediction-rule-label { color: #D93025 !important; }
 
 @media (max-width: 390px) {
   .prediction-page .badge { padding: 0 8rpx; font-size: 18rpx; }
