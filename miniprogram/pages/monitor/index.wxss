@@ -36,7 +36,7 @@
 .snapshot-refresh { position: absolute; top: 50%; right: 0; display: flex; width: 120rpx; min-width: 120rpx; max-width: 120rpx; height: 48rpx; align-items: center; justify-content: center; margin: 0; padding: 0 !important; border: 1rpx solid #DDE3EA; border-radius: 11rpx; background: #FFFFFF; color: #405A78; font-size: 20rpx; font-weight: 600; line-height: 1; transform: translateY(-50%); }
 .snapshot-refresh::after { display: none; }
 .snapshot-refresh-disabled { opacity: .56; }
-.monitor-refresh { position: static; flex: 0 0 120rpx; width: 120rpx; min-width: 120rpx; max-width: 120rpx; height: 48rpx; min-height: 48rpx; padding: 0 !important; border: 1rpx solid #9BC2E8; border-radius: 10rpx; background: #EAF3FC; color: #1F5F99; font-size: 20rpx; line-height: 46rpx; transform: none; }
+.monitor-refresh { position: static; flex: 0 0 120rpx; width: 120rpx; min-width: 120rpx; max-width: 120rpx; height: 60rpx; min-height: 60rpx; padding: 0 !important; border: 1rpx solid #9BC2E8; border-radius: 10rpx; background: #EAF3FC; color: #1F5F99; font-size: 20rpx; line-height: 58rpx; transform: none; }
 .monitor-list { margin-top: 24rpx; }
 .monitor-row { position: relative; margin-top: 12rpx; padding: 18rpx; border: 1rpx solid #EBEDF0; border-radius: 14rpx; background: #FFFFFF; box-shadow: 0 2rpx 8rpx rgba(26, 26, 26, .025); }
 .monitor-tone-ordinary, .monitor-tone-severe-10d, .monitor-tone-severe-30d { background: #FFFFFF; }
