@@ -37,6 +37,40 @@ class MarketVectorTests(unittest.TestCase):
         with self.assertRaisesRegex(CalculationDataUnavailable, "缺少该股票的历史收益向量"):
             service.detail("000001.SZ")
 
+    def test_single_stock_detail_accepts_partial_common_history(self):
+        service = self.service
+        service._calc_repository = SimpleNamespace(get_index=lambda _code: {
+            "index_code": "399102.SZ", "latest_close": 100.0, "as_of_trade_date": "20261015",
+            "index_return_vector": [{"date": "20261015", "return": 0.0}],
+        })
+        service._realtime = SimpleNamespace(fetch_many=lambda _codes: {})
+        service._future_trade_dates = lambda *_args: []
+        stock = {"ts_code": "301686.SZ", "symbol": "301686", "name": "中塑股份", "market": "SZSE", "board": "创业板", "isST": False}
+        calc = {
+            "latest_close": 20.0, "as_of_trade_date": "20261015", "data_stage": "formal",
+            "stock_return_vector": [{"date": "20261015", "return": 1.0}],
+        }
+
+        result = service._detail_from_repository(stock, calc)
+
+        self.assertEqual(result["dataQuality"]["commonDays"], 1)
+        self.assertFalse(result["dataQuality"]["isComplete"])
+        self.assertEqual(result["warnings"][0]["value"], "+1.00%")
+
+    def test_search_normalises_input_and_returns_total_matches(self):
+        service = self.service
+        service._stock_rows = lambda: [
+            {"ts_code": "601881.SH", "symbol": "601881", "name": "中国银河", "nameInitials": "ZGYH"},
+            {"ts_code": "601999.SH", "symbol": "601999", "name": "出口银行", "nameInitials": "CKYH"},
+            {"ts_code": "000001.SZ", "symbol": "000001", "name": "平安银行", "nameInitials": "PAYH"},
+        ]
+
+        result = service.search("  zgyh ")
+
+        self.assertEqual(result["total"], 1)
+        self.assertFalse(result["hasMore"])
+        self.assertEqual(result["items"][0]["name"], "中国银河")
+
     def test_history_coverage_classifies_missing_recent_listing_and_unresolved_gaps(self):
         service = self.service
         dates = [f"202608{day:02d}" for day in range(1, 31)]
