@@ -4,7 +4,7 @@ import unittest
 from datetime import date, datetime, timedelta
 from unittest.mock import Mock
 
-from server.services.monitor_service import OfficialMonitorService, SHANGHAI_TZ
+from server.services.monitor_service import MONITOR_RULE_VERSION, OfficialMonitorService, SHANGHAI_TZ
 from server.services.announcement_service import AnnouncementService
 
 
@@ -198,6 +198,9 @@ class MonitorWindowTests(unittest.TestCase):
             OfficialMonitorService._monitor_type("股票交易严重异常波动公告", body),
             ("10日严重异动", "severe-10d"),
         )
+
+    def test_monitor_rule_version_requires_refresh_after_direction_change(self):
+        self.assertIn("upward-only", MONITOR_RULE_VERSION)
 
     def test_broker_alert_requires_security_monitoring_wording(self):
         self.assertFalse(OfficialMonitorService._is_accepted_broker_alert("关于股票交易风险提示的公告", "将视情况从重采取被列为重点监控账户措施"))

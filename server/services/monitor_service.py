@@ -39,7 +39,7 @@ MONITOR_PERIOD_TRADING_DAYS = {
 MONITOR_WINDOW_TRADING_DAYS = MONITOR_PERIOD_TRADING_DAYS
 # 公告分类口径变化时，启动任务主动重采一次当前快照；避免必须等到次日
 # 00:00 才让修复后的北交所严重异动进入重点监控。
-MONITOR_RULE_VERSION = "2026-10-monitor-source-and-noise-v5"
+MONITOR_RULE_VERSION = "2026-10-monitor-source-and-noise-v6-upward-only"
 
 
 class MonitorRepository:
