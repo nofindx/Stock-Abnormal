@@ -261,7 +261,9 @@ class OfficialMonitorService:
         has_10_window = "10个交易日" in text
         def deviation_values(window: str) -> List[float]:
             values: List[float] = []
-            pattern = rf"{window}个交易日.{{0,220}}?(?:涨幅|偏离值).{{0,60}}?(?:达到|超过|为)[^\d+%]?(\d+(?:\.\d+)?)%"
+            # 只接受上涨/正值。负号不能被当作“可选分隔符”，否则
+            # “跌幅偏离值累计达到-61.39%”会被误判成严重异动。
+            pattern = rf"{window}个交易日.{{0,220}}?(?:涨幅|偏离值).{{0,60}}?(?:达到|超过|为)\+?(\d+(?:\.\d+)?)%"
             for match in re.finditer(pattern, text):
                 try:
                     values.append(float(match.group(1)))
@@ -285,12 +287,12 @@ class OfficialMonitorService:
         # 固定 10 日判定窗口；负向偏离不在本产品规则范围内。
         has_severe_title = "严重异常波动" in str(title or "") or "严重异常波动" in text
         has_positive_deviation = bool(re.search(
-            r"(?:涨幅|偏离值累计).{0,30}(?:达到|超过|为)[^\d+%]?(?:1\d{2}|[2-9]\d{2})(?:\.\d+)?%",
+            r"(?:涨幅|偏离值累计).{0,30}(?:达到|超过|为)\+?(?:1\d{2}|[2-9]\d{2})(?:\.\d+)?%",
             text,
         ))
         has_actual_window = bool(re.search(r"连续\d+个交易日", text))
         has_explicit_deviation = bool(re.search(
-            r"(?:涨幅|跌幅|涨跌幅).*?偏离值累计(?:达到|超过|为)[-+]?\d+(?:\.\d+)?%",
+            r"涨幅.*?偏离值累计(?:达到|超过|为)\+?\d+(?:\.\d+)?%",
             text,
         ))
         if has_severe_title and has_actual_window and (has_positive_deviation or has_explicit_deviation):

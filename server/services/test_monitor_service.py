@@ -178,17 +178,24 @@ class MonitorWindowTests(unittest.TestCase):
         self.assertEqual(OfficialMonitorService._monitor_type("股票交易严重异常波动公告", "连续10个交易日涨幅偏离值累计达到100%"), ("10日严重异动", "severe-10d"))
         self.assertEqual(OfficialMonitorService._monitor_type("股票交易异常波动公告", "连续30个交易日涨幅偏离值累计达到200%"), ("30日严重异动", "severe-30d"))
 
-    def test_bse_severe_deviation_with_actual_short_window_is_monitor_record(self):
+    def test_bse_negative_severe_deviation_is_not_monitor_record(self):
         body = "股票连续4个交易日内日收盘价跌幅偏离值累计达到-61.39%，属于股票交易严重异常波动情形。"
         self.assertEqual(
             OfficialMonitorService._monitor_type("股票交易严重异常波动公告", body),
-            ("10日严重异动", "severe-10d"),
+            ("", ""),
         )
         self.assertEqual(
             OfficialMonitorService._monitor_type(
                 "郑州新世纪数码科技股份有限公司股票交易严重异常波动公告",
                 "连续4个交易日内日收盘价跌幅偏离值累计达到-61.39%，属于股票交易严重异常波动情形。",
             ),
+            ("", ""),
+        )
+
+    def test_bse_positive_severe_deviation_with_actual_short_window_is_monitor_record(self):
+        body = "股票连续4个交易日内日收盘价涨幅偏离值累计达到105.39%，属于股票交易严重异常波动情形。"
+        self.assertEqual(
+            OfficialMonitorService._monitor_type("股票交易严重异常波动公告", body),
             ("10日严重异动", "severe-10d"),
         )
 
