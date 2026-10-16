@@ -133,6 +133,24 @@ def _index_code_for_stock(stock: Dict[str, Any]) -> str:
     return INDEX_BY_MARKET.get(str(stock.get("market") or ""), "000001.SH")
 
 
+def _subsequence_positions(query: str, candidate: str) -> Optional[List[int]]:
+    """返回 query 在 candidate 中按顺序匹配的位置；不匹配返回 None。"""
+
+    positions: List[int] = []
+    start = 0
+    for char in query:
+        position = candidate.find(char, start)
+        if position < 0:
+            return None
+        positions.append(position)
+        start = position + 1
+    return positions
+
+
+def _market_label(value: Any) -> str:
+    return {"SSE": "沪市", "SZSE": "深市", "BSE": "北交所"}.get(str(value or "").upper(), str(value or ""))
+
+
 class MarketService:
     """把 Tushare 数据转为产品 API。"""
 
@@ -397,6 +415,7 @@ class MarketService:
             "symbol": symbol,
             "name": name,
             "market": exchange,
+            "marketLabel": _market_label(exchange),
             "board": board,
             "isST": bool(item.get("isST", name.upper().startswith("ST") or name.startswith("*ST"))),
             "nameInitials": computed_initials or str(item.get("nameInitials") or item.get("name_initials") or ""),
@@ -448,31 +467,41 @@ class MarketService:
             ts_code = re.sub(r"[\s._-]+", "", str(item.get("ts_code") or "")).casefold()
             name = re.sub(r"\s+", "", str(item.get("name") or "")).casefold()
             initials = re.sub(r"\s+", "", str(item.get("nameInitials") or "")).casefold()
-            # 代码精确、名称精确、首字母精确优先；再按前缀、包含关系降级。
+            # 代码支持截图所示的顺序模糊匹配，例如 302 可匹配 603020；
+            # 但连续代码、精确代码始终优先于跨位匹配。
             candidates = []
-            if value == symbol or value == ts_code:
-                candidates.append((0, 0, symbol))
-            if value == name:
-                candidates.append((1, 0, name))
-            if value == initials:
-                candidates.append((2, 0, initials))
-            if symbol.startswith(value) or ts_code.startswith(value):
-                candidates.append((3, min(symbol.find(value), ts_code.find(value)), symbol))
-            if initials.startswith(value):
-                candidates.append((4, 0, initials))
-            if name.startswith(value):
-                candidates.append((5, 0, name))
-            if value in initials:
-                candidates.append((6, initials.find(value), initials))
-            if value in name:
-                candidates.append((7, name.find(value), name))
+            for candidate in (symbol, ts_code):
+                positions = _subsequence_positions(value, candidate)
+                if positions is None:
+                    continue
+                contiguous = value in candidate
+                prefix = candidate.startswith(value)
+                if value == candidate:
+                    rank = 0
+                elif prefix:
+                    rank = 1
+                elif contiguous:
+                    rank = 2
+                else:
+                    rank = 3
+                span = positions[-1] - positions[0] if positions else 0
+                candidates.append((rank, positions[0] if positions else 0, span, candidate))
+            for candidate, base_rank in ((name, 4), (initials, 5)):
+                positions = _subsequence_positions(value, candidate)
+                if positions is None:
+                    continue
+                contiguous = value in candidate
+                prefix = candidate.startswith(value)
+                rank = base_rank - 2 if prefix else base_rank - 1 if contiguous else base_rank
+                span = positions[-1] - positions[0] if positions else 0
+                candidates.append((rank, positions[0] if positions else 0, span, candidate))
             if not candidates:
                 continue
-            rank, position, matched = min(candidates)
-            ranked.append((rank, position, len(matched), symbol, str(item.get("name") or ""), index, item))
-        ranked.sort(key=lambda entry: entry[:6])
+            rank, position, span, matched = min(candidates)
+            ranked.append((rank, position, span, len(matched), symbol, str(item.get("name") or ""), index, item))
+        ranked.sort(key=lambda entry: entry[:7])
         return {
-            "items": [entry[6] for entry in ranked[:limit]],
+            "items": [entry[7] for entry in ranked[:limit]],
             "hasMore": len(ranked) > limit,
             "total": len(ranked),
         }

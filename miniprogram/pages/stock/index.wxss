@@ -44,11 +44,13 @@
   border-radius: 11rpx;
   box-shadow: 0 8rpx 24rpx rgba(28, 28, 30, .12);
 }
-.suggestion { display: flex; min-height: 82rpx; align-items: center; justify-content: space-between; border-bottom: 1rpx solid #F2F2F7; }
+.suggestion { display: flex; min-height: 82rpx; align-items: center; justify-content: space-between; gap: 14rpx; border-bottom: 1rpx solid #F2F2F7; }
 .suggestion:last-child { border-bottom: 0; }
 .suggestion-identity { display: flex; min-width: 0; align-items: center; gap: 8rpx; }
 .suggestion-name { color: #1C1C1E; font-size: 27rpx; font-weight: 550; }
-.suggestion-code, .stock-meta { color: #8E8E93; font-size: 21rpx; font-variant-numeric: tabular-nums; }
+.suggestion-code { flex: 0 0 122rpx; color: #1C1C1E; font-size: 27rpx; font-variant-numeric: tabular-nums; }
+.suggestion-market { flex: 0 0 86rpx; color: #1C1C1E; font-size: 24rpx; text-align: right; }
+.stock-meta { color: #8E8E93; font-size: 21rpx; font-variant-numeric: tabular-nums; }
 .st-badge { padding: 2rpx 7rpx; border-radius: 6rpx; background: #FCEBEA; color: #C83A36; font-size: 18rpx; font-weight: 600; line-height: 24rpx; }
 .suggestion-hint { padding: 14rpx 0 16rpx; color: #8E8E93; font-size: 20rpx; line-height: 28rpx; text-align: left; }
 .inline-error { margin-top: 10rpx; color: #C83A36; font-size: 20rpx; line-height: 28rpx; }

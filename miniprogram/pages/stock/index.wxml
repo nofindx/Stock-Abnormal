@@ -8,7 +8,7 @@
     <view wx:if="{{searchError}}" class="inline-error">{{searchError}}</view>
     <view wx:if="{{suggestions.length || suggestionHint}}" class="suggestions card">
       <view wx:for="{{suggestions}}" wx:key="ts_code" class="suggestion" hover-class="tap-feedback" hover-stay-time="80" bindtap="chooseStock" data-index="{{index}}">
-        <view class="suggestion-identity"><text class="suggestion-name">{{item.name}}</text><text wx:if="{{item.isST}}" class="st-badge">ST</text></view><text class="suggestion-code">{{item.symbol}}</text>
+        <text class="suggestion-code">{{item.symbol}}</text><view class="suggestion-identity"><text class="suggestion-name">{{item.name}}</text><text wx:if="{{item.isST}}" class="st-badge">ST</text></view><text class="suggestion-market">{{item.marketLabel}}</text>
       </view>
       <view wx:if="{{suggestionHint}}" class="suggestion-hint">匹配到 {{suggestionTotal}} 条，仅显示前 5 条，请继续输入</view>
     </view>
