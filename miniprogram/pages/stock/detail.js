@@ -1,5 +1,5 @@
 // 单股查询页：基础行情与当前状态来自后端，未来假设输入在本地即时重算。
-const { searchStocks, getStockDetail } = require('../../../utils/api')
+const { searchStocks, getStockDetail } = require('../../utils/api')
 
 function createInputRows(days, dates = []) {
   // 未来交易日默认按股票和指数均为 0% 计算，用户修改时即时重算。
