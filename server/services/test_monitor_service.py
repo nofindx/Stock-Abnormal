@@ -250,6 +250,11 @@ class MonitorWindowTests(unittest.TestCase):
             self.assertFalse(response["refreshing"])
             self.assertEqual(len(response["items"]), 1)
             self.assertEqual(response["dataQuality"]["activeSource"], "issuer_disclosure_backup")
+            item = response["items"][0]
+            self.assertEqual(item["sourceType"], "issuer-disclosure")
+            self.assertEqual(item["sourceRole"], "issuer_disclosure_backup")
+            self.assertEqual(item["confirmationStatus"], "issuer-disclosure-confirmed")
+            self.assertEqual(item["riskTone"], "severe-10d")
         finally:
             service.close()
 
