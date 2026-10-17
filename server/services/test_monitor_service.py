@@ -141,6 +141,17 @@ class MonitorWindowTests(unittest.TestCase):
         self.assertEqual(risk["monitorEndDate"], "2026-10-31")
         self.assertEqual(severe_result["monitorEndDate"], "2026-10-14")
 
+    def test_xinhua_severe_notice_and_ordinary_risk_prompt_coexist(self):
+        severe = self.event("2026-10-10", "2026-10-23", "severe-10d")
+        severe.update({"symbol": "600825", "name": "新华传媒", "monitorType": "10日严重异动"})
+        risk = self.event("2026-10-16", "2026-10-29", "ordinary")
+        risk.update({"symbol": "600825", "name": "新华传媒", "monitorType": "风险提示"})
+
+        result = self.service._collapse_by_stock([severe, risk], "2026-10-17")
+
+        self.assertEqual({item["riskTone"] for item in result}, {"severe-10d", "ordinary"})
+        self.assertEqual({item["monitorType"] for item in result}, {"10日严重异动", "风险提示"})
+
     def test_delisting_period_description_survives_snapshot_collapse(self):
         event = self.event("2026-09-23", "2026-10-27", "delisting-warning")
         event.update({
@@ -368,12 +379,26 @@ class MonitorWindowTests(unittest.TestCase):
         self.assertEqual(OfficialMonitorService._severe_event_direction("严重异常波动，未披露方向"), "")
 
     def test_monitor_rule_version_requires_refresh_after_direction_change(self):
-        self.assertIn("zts-strict-risk", MONITOR_RULE_VERSION)
+        self.assertIn("zts-effective-date", MONITOR_RULE_VERSION)
 
-    def test_zts_announcement_is_not_rule_reset_source(self):
+    def test_zts_risk_period_starts_on_announcement_date(self):
+        dates = [
+            "2026-10-09", "2026-10-12", "2026-10-13", "2026-10-14", "2026-10-15",
+            "2026-10-16", "2026-10-19", "2026-10-20", "2026-10-21", "2026-10-22",
+            "2026-10-23", "2026-10-26", "2026-10-27", "2026-10-28", "2026-10-29", "2026-10-30",
+        ]
+        self.service._trade_dates = lambda source_date, days: dates
         self.assertEqual(
-            self.service._monitor_period_dates("2026-10-16", "zts-risk-alert", "ordinary"),
-            self.service._monitor_period_dates("2026-10-17", "issuer-disclosure", "ordinary"),
+            self.service._monitor_period("2026-10-09", "zts-risk-alert", "ordinary"),
+            ("2026-10-09", "2026-10-22"),
+        )
+        self.assertEqual(
+            self.service._monitor_period("2026-10-15", "zts-risk-alert", "ordinary"),
+            ("2026-10-15", "2026-10-28"),
+        )
+        self.assertEqual(
+            self.service._monitor_period("2026-10-16", "zts-risk-alert", "ordinary"),
+            ("2026-10-16", "2026-10-29"),
         )
 
     def test_broker_alert_requires_security_monitoring_wording(self):

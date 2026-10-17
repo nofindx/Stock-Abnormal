@@ -1306,7 +1306,7 @@ class MarketService:
         return values
 
     @classmethod
-    def _required_up_percent(
+    def _required_change_percent(
         cls,
         stock: List[Dict[str, Any]],
         index: List[Dict[str, Any]],
@@ -1316,8 +1316,9 @@ class MarketService:
         rule_window: Optional[int] = None,
         rule_reset_date: str = "",
         reset_window: Optional[int] = None,
+        direction: str = "up",
     ) -> Optional[float]:
-        """反推目标交易日股票需要达到的理论日涨幅。
+        """反推达到目标偏离阈值所需的目标日股票涨跌幅。
 
         ``today`` 卡是在当前交易日收盘前反推：最新股票日收益是待求的
         未知量，所以对每个可能起点都只使用目标日前的股票收益，指数最新日
@@ -1364,8 +1365,115 @@ class MarketService:
             stock_total = cls._compound(stock_map[day] for day in stock_dates)
             index_total = cls._compound(index_map[day] for day in interval_dates)
             distance = ((1.0 + (index_total + target_deviation) / 100.0) / (1.0 + stock_total / 100.0) - 1.0) * 100.0
-            distances.append(max(0.0, distance))
-        return min(distances) if distances else None
+            distances.append(distance)
+        if not distances:
+            return None
+        if direction == "down":
+            return max(min(0.0, value) for value in distances)
+        return min(max(0.0, value) for value in distances)
+
+    @classmethod
+    def _required_up_percent(
+        cls,
+        stock: List[Dict[str, Any]],
+        index: List[Dict[str, Any]],
+        actual_window: int,
+        target_deviation: float,
+        forecast_scope: str = "next_day",
+        rule_window: Optional[int] = None,
+        rule_reset_date: str = "",
+        reset_window: Optional[int] = None,
+    ) -> Optional[float]:
+        return cls._required_change_percent(
+            stock, index, actual_window, target_deviation, forecast_scope,
+            rule_window, rule_reset_date, reset_window, "up",
+        )
+
+    @classmethod
+    def _required_down_percent(
+        cls,
+        stock: List[Dict[str, Any]],
+        index: List[Dict[str, Any]],
+        actual_window: int,
+        target_deviation: float,
+        forecast_scope: str = "next_day",
+        rule_window: Optional[int] = None,
+        rule_reset_date: str = "",
+        reset_window: Optional[int] = None,
+    ) -> Optional[float]:
+        return cls._required_change_percent(
+            stock, index, actual_window, target_deviation, forecast_scope,
+            rule_window, rule_reset_date, reset_window, "down",
+        )
+
+    @classmethod
+    def _next_day_rule_candidates(
+        cls,
+        stock: List[Dict[str, Any]],
+        index: List[Dict[str, Any]],
+        rule: Any,
+        next_trade_date: str,
+        metrics: Dict[str, Any],
+        rule_reset_date: str = "",
+        reset_window: Optional[int] = None,
+        limit_price_ratio: Optional[float] = None,
+    ) -> List[Dict[str, str]]:
+        """按对应板块阈值列出下一交易日可能触及的上涨、下跌和同向规则。"""
+        stock_map = {item.get("date"): float(item.get("return")) for item in stock if item.get("date")}
+        index_map = {item.get("date"): float(item.get("return")) for item in index if item.get("date")}
+        common_dates = sorted(set(stock_map) & set(index_map))
+        if not common_dates or not next_trade_date:
+            return []
+        limit = float(limit_price_ratio or rule.limit_price_ratio or 10.0)
+        candidates: List[Dict[str, str]] = []
+        rule_specs = (
+            ("ordinary_3d", 3, rule.ordinary_deviation, -rule.ordinary_deviation, "3日"),
+            ("severe_10d", 10, rule.severe_10d_threshold.up, rule.severe_10d_threshold.down, "10日"),
+            ("severe_30d", 30, rule.severe_30d_threshold.up, rule.severe_30d_threshold.down, "30日"),
+        )
+        for rule_key, window, up_target, down_target, label in rule_specs:
+            up_current = metrics.get("up_deviations", {}).get(window)
+            if up_current is not None and up_current < up_target:
+                distance = cls._required_up_percent(
+                    stock, index, min(window, len(common_dates)), up_target,
+                    rule_window=window, rule_reset_date=rule_reset_date, reset_window=reset_window,
+                )
+                if distance is not None and 0.0 <= distance <= limit:
+                    candidates.append({
+                        "ruleKey": rule_key, "direction": "up",
+                        "rule": f"连续{label}个交易日内收盘价涨幅偏离值累计达到 +{up_target:.0f}%",
+                    })
+            down_current = metrics.get("down_deviations", {}).get(window)
+            if down_current is not None and down_current > down_target:
+                distance = cls._required_down_percent(
+                    stock, index, min(window, len(common_dates)), down_target,
+                    rule_window=window, rule_reset_date=rule_reset_date, reset_window=reset_window,
+                )
+                if distance is not None and -limit <= distance <= 0.0:
+                    candidates.append({
+                        "ruleKey": rule_key, "direction": "down",
+                        "rule": f"连续{label}个交易日内收盘价涨幅偏离值累计达到 {down_target:.0f}%",
+                    })
+
+        same_threshold = int(rule.severe_same_direction_count)
+        scenario_specs = (
+            ("up", limit, int(metrics.get("up", 0) or 0), "上涨"),
+            ("down", -limit, int(metrics.get("down", 0) or 0), "下跌"),
+        )
+        for direction, daily_return, current_count, direction_label in scenario_specs:
+            if current_count >= same_threshold:
+                continue
+            latest_source_date = str(stock[-1].get("date") or "") if stock else ""
+            projected_date = next_trade_date if "-" in latest_source_date else cls._date_key(next_trade_date)
+            projected_stock = stock + [{"date": projected_date, "return": daily_return}]
+            projected_index = index + [{"date": projected_date, "return": 0.0}]
+            projected = cls._vector_metrics(projected_stock, projected_index, rule, rule_reset_date, reset_window == 30)
+            if int(projected.get(direction, 0) or 0) >= same_threshold:
+                candidates.append({
+                    "ruleKey": "same_direction_10d", "direction": direction,
+                    "rule": f"10个交易日内出现{same_threshold}次{direction_label}同向普通异动",
+                })
+        return candidates
 
     @classmethod
     def _vector_metrics(
@@ -1558,6 +1666,8 @@ class MarketService:
         stock_vector, index_vector, suspension, monitoring = self._rule_vectors_for_stock(
             stock, stock_vector, index_vector
         )
+        forecast_stock_vector = list(stock_vector)
+        forecast_index_vector = list(index_vector)
         board = BOARD_BY_MARKET.get(stock["board"], Board.MAIN)
         rule = BOARD_RULES[board]
         quotes = self._realtime.fetch_many([stock["ts_code"], index_code])
@@ -1608,6 +1718,24 @@ class MarketService:
             future_dates = self._future_trade_dates(latest_date.replace("-", ""), 10)
         except Exception:
             future_dates = []
+        forecast_base_date = self._date_key(calc.get("as_of_trade_date"))
+        latest_date_key = self._date_key(latest_date)
+        if latest_date_key > forecast_base_date:
+            forecast_target_date = latest_date
+        else:
+            forecast_target_date = future_dates[0] if future_dates else ""
+        forecast_metrics = self._vector_metrics(
+            forecast_stock_vector, forecast_index_vector, rule,
+            suspension.get("ruleResetDate", ""),
+            suspension.get("ruleResetWindow") == 30,
+        )
+        is_st = str(stock.get("isST") or "").strip().lower() in {"1", "true", "yes", "y"}
+        forecast_limit = 5.0 if is_st else rule.limit_price_ratio
+        next_day_rules = self._next_day_rule_candidates(
+            forecast_stock_vector, forecast_index_vector, rule, forecast_target_date,
+            forecast_metrics, suspension.get("ruleResetDate", ""),
+            30 if suspension.get("ruleResetWindow") == 30 else None, forecast_limit,
+        )
         common_days = len(set(item.get("date") for item in stock_vector if item.get("date")) & set(item.get("date") for item in index_vector if item.get("date")))
         warnings = [
             self._single_warning(3, metrics["up_deviations"][3], down_deviations[3], metrics["up_window_lengths"][3], metrics["down_window_lengths"][3], rule.ordinary_deviation, -rule.ordinary_deviation),
@@ -1632,6 +1760,12 @@ class MarketService:
             "change": _pct(current_change),
             "tradeDate": latest_date,
             "futureTradeDates": future_dates,
+            "nextDayForecast": {
+                "baseTradeDate": forecast_base_date,
+                "targetTradeDate": forecast_target_date,
+                "available": bool(forecast_base_date and forecast_target_date and self._vector_latest_date(forecast_stock_vector) == forecast_base_date and self._vector_latest_date(forecast_index_vector) == forecast_base_date),
+                "rules": next_day_rules,
+            },
             "warnings": warnings,
             "alerts": self._build_alerts(deviations, severe, board),
             "simulationBase": {

@@ -66,8 +66,9 @@
 .prediction-page .stock-name { min-width: 0; overflow: hidden; color: #1A1A1A; font-size: 30rpx; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
 .prediction-page .stock-meta { flex: 0 0 auto; margin-left: 0; color: #6B7280; font-size: 20rpx; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .prediction-quote, .trigger-field { display: flex; flex: 0 0 192rpx; width: 192rpx; align-items: center; white-space: nowrap; }
-.prediction-quote .prediction-change-prefix, .trigger-field .prediction-label { flex: 0 0 80rpx; width: 80rpx; margin-right: 12rpx; color: #6B7280; font-size: 20rpx; line-height: 28rpx; text-align: right; white-space: nowrap; }
-.prediction-change-value, .trigger-value { flex: 0 0 100rpx; width: 100rpx; color: #D93025; font-size: 24rpx; font-weight: 700; line-height: 30rpx; text-align: right; font-variant-numeric: tabular-nums; }
+.prediction-metric-control { position: relative; left: -10rpx; flex-basis: 202rpx; width: 202rpx; }
+.prediction-quote .prediction-change-prefix, .trigger-field .prediction-label { flex: 0 0 90rpx; width: 90rpx; margin-right: 12rpx; color: #6B7280; font-size: 20rpx; line-height: 28rpx; text-align: right; white-space: nowrap; }
+.prediction-change-value, .trigger-value { flex: 0 0 100rpx; width: 100rpx; color: #D93025; font-size: 24rpx; font-weight: 700; line-height: 30rpx; text-align: left; font-variant-numeric: tabular-nums; }
 .prediction-change-value.change.up { color: #D93025; }
 .prediction-change-value.change.down { color: #0E9F6E; }
 .badge-today { background: #F2F2F7; color: #636366; }

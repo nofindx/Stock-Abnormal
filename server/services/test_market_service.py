@@ -179,7 +179,7 @@ class MarketVectorTests(unittest.TestCase):
             "index_return_vector": [{"date": "20261015", "return": 0.0}],
         })
         service._realtime = SimpleNamespace(fetch_many=lambda _codes: {})
-        service._future_trade_dates = lambda *_args: []
+        service._future_trade_dates = lambda *_args: ["2026-10-16"]
         stock = {"ts_code": "301686.SZ", "symbol": "301686", "name": "中塑股份", "market": "SZSE", "board": "创业板", "isST": False}
         calc = {
             "latest_close": 20.0, "as_of_trade_date": "20261015", "data_stage": "formal",
@@ -191,6 +191,9 @@ class MarketVectorTests(unittest.TestCase):
         self.assertEqual(result["dataQuality"]["commonDays"], 1)
         self.assertFalse(result["dataQuality"]["isComplete"])
         self.assertEqual(result["warnings"][0]["value"], "+1.00%")
+        self.assertEqual(result["nextDayForecast"]["baseTradeDate"], "20261015")
+        self.assertEqual(result["nextDayForecast"]["targetTradeDate"], "2026-10-16")
+        self.assertTrue(result["nextDayForecast"]["available"])
 
     def test_search_normalises_input_and_returns_total_matches(self):
         service = self.service
@@ -628,6 +631,36 @@ class MarketVectorTests(unittest.TestCase):
             "market": "OTHER", "exchange": "OTHER", "list_status": "L",
         })
         self.assertIsNone(row["priceLimitEnabled"])
+
+    def test_single_stock_next_day_candidates_include_upside_and_downside_rules(self):
+        dates = [f"2026-09-{day:02d}" for day in range(1, 31)]
+        index = [{"date": day, "return": 0.0} for day in dates]
+        up_stock = [{"date": day, "return": 0.0} for day in dates]
+        down_stock = [{"date": day, "return": 0.0} for day in dates]
+        up_stock[-2]["return"] = up_stock[-1]["return"] = 8.0
+        down_stock[-2]["return"] = down_stock[-1]["return"] = -8.0
+        rule = BOARD_RULES[Board.MAIN]
+        up_metrics = MarketService._vector_metrics(up_stock, index, rule)
+        down_metrics = MarketService._vector_metrics(down_stock, index, rule)
+
+        upside = MarketService._next_day_rule_candidates(up_stock, index, rule, "2026-10-01", up_metrics, limit_price_ratio=10)
+        downside = MarketService._next_day_rule_candidates(down_stock, index, rule, "2026-10-01", down_metrics, limit_price_ratio=10)
+
+        self.assertIn(("ordinary_3d", "up"), {(item["ruleKey"], item["direction"]) for item in upside})
+        self.assertIn(("ordinary_3d", "down"), {(item["ruleKey"], item["direction"]) for item in downside})
+
+    def test_single_stock_next_day_candidates_include_same_direction_rule(self):
+        stock = [{"date": f"2026-09-{day:02d}", "return": 10.0} for day in range(1, 9)]
+        index = [{"date": item["date"], "return": 0.0} for item in stock]
+        rule = BOARD_RULES[Board.CHINEXT]
+        metrics = MarketService._vector_metrics(stock, index, rule)
+
+        candidates = MarketService._next_day_rule_candidates(
+            stock, index, rule, "2026-09-09", metrics, limit_price_ratio=20,
+        )
+
+        self.assertEqual(metrics["up"], 2)
+        self.assertIn(("same_direction_10d", "up"), {(item["ruleKey"], item["direction"]) for item in candidates})
 
     def test_prediction_checks_ten_day_line_for_next_day_scope(self):
         """次日预测不能只检查 30 日线，10 日接近 +100% 也必须入选。"""

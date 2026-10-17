@@ -8,10 +8,17 @@
     <view wx:if="{{searchError}}" class="inline-error">{{searchError}}</view>
     <view wx:if="{{suggestions.length || suggestionHint}}" class="suggestions card">
       <view wx:for="{{suggestions}}" wx:key="ts_code" class="suggestion" hover-class="tap-feedback" hover-stay-time="80" bindtap="chooseStock" data-index="{{index}}">
-        <text class="suggestion-code">{{item.symbol}}</text><view class="suggestion-identity"><text class="suggestion-name">{{item.name}}</text><text wx:if="{{item.isST}}" class="st-badge">ST</text></view><text class="suggestion-market">{{item.marketLabel}}</text>
+        <view class="suggestion-identity"><text class="suggestion-name">{{item.name}}</text><text class="suggestion-code">{{item.symbol}}</text><text wx:if="{{item.isST}}" class="st-badge">ST</text></view><text class="suggestion-market">{{item.marketLabel}}</text>
       </view>
       <view wx:if="{{suggestionHint}}" class="suggestion-hint">匹配到 {{suggestionTotal}} 条，仅显示前 5 条，请继续输入</view>
     </view>
+  </view>
+  <view class="history-row">
+    <view class="history-title-wrap"><view class="history-clock"><view class="clock-hand clock-hand-hour"></view><view class="clock-hand clock-hand-minute"></view></view><text class="history-label">历史:</text></view>
+    <scroll-view class="history-scroll" scroll-x="true" enable-flex="true" show-scrollbar="false">
+      <view class="history-items"><view wx:if="{{!recentStocks.length}}" class="history-empty">暂无历史记录</view><view wx:for="{{recentStocks}}" wx:key="ts_code" class="history-chip" hover-class="tap-feedback" data-index="{{index}}" bindtap="chooseRecent">{{item.name}}</view></view>
+    </scroll-view>
+    <view class="history-clear" hover-class="history-clear-pressed" aria-label="清空搜索历史" bindtap="clearHistory"><view class="history-trash"><view class="trash-lid"></view><view class="trash-can"><view></view><view></view></view></view><text>清空</text></view>
   </view>
   <block wx:if="{{!detail && !detailError && !detailLoading}}">
     <view class="guide-card card">
@@ -31,20 +38,22 @@
 
   <block wx:if="{{detail}}">
     <view class="status-banner card status-{{detail.statusClass}}">
-      <view class="status-icon">{{detail.statusIcon}}</view>
       <view class="status-main">
-        <view class="status-heading"><text class="status-state">{{detail.statusDisplay}}</text><text class="status-board">{{detail.board}}</text></view>
-        <view class="monitoring-status">监管状态：{{detail.monitoringStatusDisplay || (detail.monitoring ? '监管中' : '未在监管期')}}</view>
-        <view wx:if="{{detail.monitoring}}" class="monitoring-reason">监管事实：{{detail.monitoring.monitorType}} · {{detail.monitoring.title}}<text wx:if="{{detail.monitoring.monitorEndDate}}"> · 至 {{detail.monitoring.monitorEndDate}}</text></view>
-        <view class="market-status-reason">行情规则：{{detail.marketStatusDisplay || detail.statusReason || '当前行情规则未触发'}}</view>
-        <view class="status-stock-line"><view class="stock-identity"><text class="status-name">{{detail.name}}</text><text class="status-symbol">{{detail.symbol}}</text></view><view class="quote-line"><text class="status-price">{{detail.currentPrice}}</text><text class="change {{detail.changeClass}}">{{detail.change}}</text></view></view>
+        <view class="summary-top"><view class="stock-identity"><text class="status-name">{{detail.name}}</text><text class="status-symbol">{{detail.symbol}}</text></view><view class="quote-line"><text class="status-price change {{detail.changeClass}}">{{detail.currentPrice}}</text><text class="change {{detail.changeClass}}">{{detail.change}}</text></view></view>
+        <view class="status-label-divider"></view>
+        <view class="status-stock-line">
+          <text class="status-pill status-pill-{{detail.summaryTone}}">{{detail.summaryStatus}}</text>
+          <view class="next-day-forecast">
+            <text wx:if="{{nextDayForecastLine}}" class="next-day-forecast-date">{{nextDayForecastLine}}</text>
+            <text class="next-day-forecast-result">{{nextDayForecastText}}</text>
+          </view>
+        </view>
       </view>
     </view>
-    <view wx:if="{{detail.dataQuality.message}}" class="data-quality-notice">{{detail.dataQuality.message}}</view>
 
     <view class="metric-grid">
       <view wx:for="{{detail.warnings}}" wx:key="title" wx:for-index="metricIndex" class="card metric-card metric-card-{{metricIndex}} metric-tone-{{item.tone}}">
-        <view class="metric-copy"><text class="metric-title">{{item.title}}</text><text class="metric-current {{item.valueClass || ''}}" style="color: {{item.toneColor}};">{{item.currentText}}</text><text class="metric-target">{{item.target}}</text></view>
+        <view class="metric-copy"><text class="metric-title">{{item.title}}</text><text class="metric-current {{item.valueClass || ''}}">{{item.currentText}}</text><text class="metric-target">{{item.target}}</text></view>
         <view class="metric-ring" style="background: conic-gradient({{item.toneColor}} {{item.progress}}%, #DCEBFA 0);"><view class="metric-ring-inner"><text class="metric-ring-value" style="color: {{item.toneColor}};">{{item.ringText}}</text></view></view>
       </view>
     </view>

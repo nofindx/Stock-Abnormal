@@ -1,7 +1,30 @@
 const assert = require('assert')
 
 global.Page = () => {}
-const { bestDeviation, calculateSimulationRows, createInputRows, presentWarnings } = require('./index')
+const { bestDeviation, buildNextDayForecast, calculateSimulationRows, createInputRows, presentWarnings, summaryStatus } = require('./index')
+
+const forecastBase = { baseTradeDate: '20261016', targetTradeDate: '20261019', available: true }
+assert.deepStrictEqual(buildNextDayForecast({ ...forecastBase, rules: [] }), {
+  line: '按 2026-10-16 收盘数据预测 2026-10-19',
+  text: '未发现下一交易日可触发的异动条件'
+})
+assert.deepStrictEqual(buildNextDayForecast({ ...forecastBase, rules: [
+  { ruleKey: 'ordinary_3d', direction: 'up', rule: '连续3个交易日内收盘价涨幅偏离值累计达到 +20%' },
+  { ruleKey: 'same_direction_10d', direction: 'down', rule: '10个交易日内出现4次下跌同向普通异动' },
+  { ruleKey: 'severe_30d', direction: 'up', rule: '连续30个交易日内收盘价涨幅偏离值累计达到 +200%' }
+] }), {
+  line: '按 2026-10-16 收盘数据预测 2026-10-19',
+  text: '下一交易日可能触发：连续3个交易日内收盘价涨幅偏离值累计达到 +20%；10个交易日内出现4次下跌同向普通异动；连续30个交易日内收盘价涨幅偏离值累计达到 +200%'
+})
+assert.deepStrictEqual(buildNextDayForecast({ ...forecastBase, available: false, rules: [] }), {
+  line: '', text: '次日预测暂不可用'
+})
+assert.strictEqual(buildNextDayForecast({ ...forecastBase, rules: [
+  { ruleKey: 'severe_10d' }
+] }).text, '次日预测规则说明暂不可用')
+assert.strictEqual(buildNextDayForecast({}).text, '预测数据版本未同步')
+assert.deepStrictEqual(summaryStatus({ status: '正常', monitoring: { monitorType: '严重异动' } }), { text: '暂无异动风险', tone: 'safe' })
+assert.deepStrictEqual(summaryStatus({ status: '触及', monitoring: null }), { text: '存在异动风险', tone: 'risk' })
 
 const maxTrailingInterval = bestDeviation([10, 10, 0, 0, 0, 0, 0, 0, -50, 10], Array(10).fill(0), 10)
 assert.strictEqual(maxTrailingInterval.window, 1)

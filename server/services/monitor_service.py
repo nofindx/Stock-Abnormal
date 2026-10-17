@@ -40,7 +40,7 @@ MONITOR_PERIOD_TRADING_DAYS = {
 MONITOR_WINDOW_TRADING_DAYS = MONITOR_PERIOD_TRADING_DAYS
 # 公告分类口径变化时，启动任务主动重采一次当前快照；避免必须等到次日
 # 00:00 才让修复后的北交所严重异动进入重点监控。
-MONITOR_RULE_VERSION = "2026-10-monitor-zts-strict-risk-monitoring-wording-event-direction-v14"
+MONITOR_RULE_VERSION = "2026-10-monitor-zts-effective-date-event-direction-v15"
 
 
 class MonitorRepository:
@@ -468,14 +468,15 @@ class OfficialMonitorService:
         dates = self._trade_dates(source_date, window)
         if not dates:
             return []
-        # 18.cn 风险提示通常在收盘后发布，监管期从其后的首个交易日开始。
-        # 北交所严重异动公告也在收盘后披露；公告写明的最后一个异常交易日
-        # 仍是触发日，因此监管期同样从下一个交易日开始。沪深巨潮公告保持
-        # 公告日作为起点，避免改变已有的其他监管记录。
+        # 来源采用不同的生效日口径：18.cn 从公告后的下一交易日起算；
+        # 中泰提示按其公告日期起算。严重公告正文明确事实截止日时，
+        # 不论公告源，均从事实截止日后的首个交易日起算。
         is_bse = bool(re.match(r"^(?:4|8|9)\d{5}", str(symbol or "")))
         # 公告正文明确异动事实最后交易日时，监管从其后的首个交易日开始。
         # 这能处理公告发布日期晚于异动结束日的情况，例如近岸蛋白。
-        starts_next_trade_day = source_type in ("broker-risk-alert", "zts-risk-alert") or bool(event_end_date) or (is_bse and risk_tone in ("severe-10d", "severe-30d"))
+        # BSE severe notices are also published after the trigger session;
+        # their period begins on the next trading session.
+        starts_next_trade_day = source_type == "broker-risk-alert" or bool(event_end_date) or (is_bse and risk_tone in ("severe-10d", "severe-30d"))
         comparator = (lambda value: value > source_date) if starts_next_trade_day else (lambda value: value >= source_date)
         start_index = next((index for index, value in enumerate(dates) if comparator(value)), 0)
         end_index = min(start_index + window - 1, len(dates) - 1)

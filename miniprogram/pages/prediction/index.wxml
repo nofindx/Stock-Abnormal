@@ -7,7 +7,7 @@
   <view class="prediction-list"><view wx:for="{{items}}" wx:key="predictionKey" class="prediction-row {{item.cardTone === 'triggered' ? 'prediction-row-triggered' : ''}}" hover-class="tap-feedback" bindtap="openStock" data-code="{{item.ts_code}}">
     <view class="prediction-top">
       <view class="prediction-stock"><view class="stock-line"><text class="stock-name">{{item.name}}</text><text class="stock-meta">{{item.symbol}}</text></view></view>
-      <view wx:if="{{item.showCurrentChange}}" class="prediction-quote"><text class="prediction-change-prefix">当前涨幅</text><text class="prediction-change-value change {{item.changeClass}}">{{item.change}}</text></view>
+      <view wx:if="{{item.showCurrentChange}}" class="prediction-quote prediction-metric-control"><text class="prediction-change-prefix">当前涨幅</text><text class="prediction-change-value change {{item.changeClass}}">{{item.change}}</text></view>
     </view>
     <view class="prediction-middle">
       <view class="deviation-field">
@@ -15,7 +15,7 @@
         <text class="prediction-tag prediction-deviation-tag">{{item.deviationLabel}}</text>
         <text wx:if="{{item.triggered}}" class="prediction-tag prediction-triggered-badge">已触发</text>
       </view>
-      <view class="trigger-field"><text class="prediction-label">触发条件</text><text class="trigger-value">{{item.triggerValue}}</text></view>
+      <view class="trigger-field prediction-metric-control"><text class="prediction-label">触发条件</text><text class="trigger-value">{{item.triggerValue}}</text></view>
     </view>
   </view></view>
   <view wx:if="{{!items.length && !loading && !refreshing}}" class="card empty">当前范围暂无候选股票</view>
