@@ -29,7 +29,7 @@ BOARD_BY_MARKET = {"主板": Board.MAIN, "创业板": Board.CHINEXT, "科创板"
 SHANGHAI_TZ = ZoneInfo("Asia/Shanghai") if ZoneInfo else timezone(timedelta(hours=8))
 # 停牌/复牌重置、上涨同向计数和预测阶段切换属于同一套规则口径。
 # 版本变化会触发服务启动时从已确认收盘行情重建计算基础数据与预测集。
-PREDICTION_RULE_VERSION = "2026-10-unified-max-contiguous-window-v43"
+PREDICTION_RULE_VERSION = "2026-10-endpoint-anchored-max-window-v44"
 
 
 class CalculationDataUnavailable(RuntimeError):
@@ -1261,14 +1261,10 @@ class MarketService:
 
     @classmethod
     def _best_vector_deviation(cls, stock: List[Dict[str, Any]], index: List[Dict[str, Any]], max_window: int) -> tuple[Optional[float], Optional[int]]:
-        """计算规则回看范围内所有连续区间的最大上涨偏离及实际窗口。
+        """计算截至最新共同交易日的最大上涨偏离及实际窗口。
 
-        10/30 日规则的“连续 N 个交易日内”最多使用 N 个共同日收益区间。
-        区间可以在回看范围内任意位置结束，
-        不要求最新交易日必须落在区间内。3 日规则最多检查 3 个收益区间。
-        这必须与
-        ``server.core.abnormal_rules._best_effective_deviation`` 保持一致，
-        否则单股和预测会出现实际窗口分叉。
+        当前状态只能由以最新交易日为终点的连续区间决定；回看范围内
+        已经结束的历史高点不能继续作为当前异动。单股、预测和模拟共用此口径。
         """
         if not stock or not index:
             return None, None
@@ -1285,11 +1281,10 @@ class MarketService:
         if upper < 1:
             return None, None
         results = []
-        for end in range(len(dates)):
-            for window in range(1, min(upper, end + 1) + 1):
-                interval = dates[end - window + 1 : end + 1]
-                value = cls._compound(stock_map[day] for day in interval) - cls._compound(index_map[day] for day in interval)
-                results.append((value, window))
+        for window in range(1, min(upper, len(dates)) + 1):
+            interval = dates[-window:]
+            value = cls._compound(stock_map[day] for day in interval) - cls._compound(index_map[day] for day in interval)
+            results.append((value, window))
         positive = [item for item in results if item[0] > 0]
         if positive:
             return max(positive, key=lambda item: (item[0], -item[1]))
@@ -1302,14 +1297,13 @@ class MarketService:
         index_map = {item.get("date"): float(item.get("return")) for item in index if item.get("date")}
         dates = sorted(set(stock_map) & set(index_map))[-max_window:]
         values = []
-        for end in range(len(dates)):
-            for start in range(end + 1):
-                interval = dates[start:end + 1]
-                values.append((
-                    cls._compound(stock_map[day] for day in interval)
-                    - cls._compound(index_map[day] for day in interval),
-                    len(interval),
-                ))
+        for window in range(1, len(dates) + 1):
+            interval = dates[-window:]
+            values.append((
+                cls._compound(stock_map[day] for day in interval)
+                - cls._compound(index_map[day] for day in interval),
+                window,
+            ))
         return values
 
     @classmethod

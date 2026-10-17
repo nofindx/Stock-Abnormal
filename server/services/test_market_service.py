@@ -779,14 +779,39 @@ class MarketVectorTests(unittest.TestCase):
         self.assertEqual(window, 1)
         self.assertAlmostEqual(value, 10.0)
 
-    def test_ten_day_window_can_end_before_latest_common_day(self):
-        # 最大区间可结束在回看范围内的较早交易日，不要求包含最新日。
-        values = [0.0, 0.0, 10.0, 10.0, 0.0, -5.0, 0.0, 0.0, 0.0, 0.0]
+    def test_window_must_end_at_latest_common_day(self):
+        # 早期峰值已结束，不能继续作为当前偏离；只比较以最新日为终点的区间。
+        values = [0.0, 0.0, 10.0, 10.0, 1.0, 1.0, 1.0, 1.0, -5.0, -50.0]
         stock = [{"date": f"2026-10-{index:02d}", "return": value} for index, value in enumerate(values, 1)]
         index = [{"date": item["date"], "return": 0.0} for item in stock]
         value, window = MarketService._best_vector_deviation(stock, index, 10)
         self.assertEqual(window, 2)
-        self.assertAlmostEqual(value, 21.0)
+        self.assertAlmostEqual(value, -52.5)
+
+    def test_best_trailing_window_matches_nearshore_october_16_reference(self):
+        # 10/16 正式股票/指数向量的最佳、且以当日为终点的 30 日窗口为 23 日 +142.33%。
+        stock_values = [-11.288566243194207, -6.205673758865249, 5.40933546604625, 0.3172851427783119, -12.307480748074806,
+            -2.540379488787836, -0.933226065969428, 15.332142277082994, 0.9012815096465232,
+            -2.763433356594558, -8.138366585330846, 19.999999999999996, 0.390625,
+            8.949416342412464, 18.75, -0.7218045112781901, 20.00403918004645,
+            4.76270615954224, -1.3333333333333308, 1.9619016606968296, 2.259481037924171,
+            10.360712054965626, 13.47010965688007, -6.47795997256686, 7.453333333333334,
+            -8.81623030152625, -6.674831598285369, 4.403616214639827, 5.572625698324041,
+            -7.785421352030697]
+        index_values = [-1.8500547629862083, 1.3379062879610215, -2.1878816113135025, -1.8171511875105129, -0.3975960138890122,
+            -2.098146111894672, 2.419858845212697, -1.5187023705216407, -0.6874061358065564,
+            -0.6860883911408822, -1.0084129791510188, -1.6176127885134115, 1.5502535847651044,
+            4.138481573697117, -0.6124729734010681, 2.8851695173508496, 0.29368927485928786,
+            0.4559439043958502, -0.2515011935436129, -2.347117525427578, -4.062688054297759,
+            0.8584941044244676, -2.5063236839167446, -4.815785980405163, 0.06472461242996719,
+            -2.096040772226626, 0.03195437708378712, -3.287593869718375, -1.5023498872710483,
+            -0.06399317406142746]
+        dates = [f"2026-10-{index:02d}" for index in range(1, 31)]
+        stock = [{"date": day, "return": value} for day, value in zip(dates, stock_values)]
+        index = [{"date": day, "return": value} for day, value in zip(dates, index_values)]
+        value, window = MarketService._best_vector_deviation(stock, index, 30)
+        self.assertEqual(window, 23)
+        self.assertAlmostEqual(value, 142.3258, places=3)
 
     def test_severe_card_is_hidden_when_same_rule_is_in_monitor(self):
         service = self.service

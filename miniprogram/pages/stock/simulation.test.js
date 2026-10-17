@@ -3,9 +3,9 @@ const assert = require('assert')
 global.Page = () => {}
 const { bestDeviation, calculateSimulationRows, createInputRows, presentWarnings } = require('./index')
 
-const maxEarlierInterval = bestDeviation([0, 10, 10, 0, -5, 0, 0, 0, 0, 0], Array(10).fill(0), 10)
-assert.strictEqual(maxEarlierInterval.window, 2)
-assert(Math.abs(maxEarlierInterval.value - 21) < 1e-9)
+const maxTrailingInterval = bestDeviation([10, 10, 0, 0, 0, 0, 0, 0, -50, 10], Array(10).fill(0), 10)
+assert.strictEqual(maxTrailingInterval.window, 1)
+assert(Math.abs(maxTrailingInterval.value - 10) < 1e-9)
 
 const detail = {
   simulationBase: {

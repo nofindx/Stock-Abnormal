@@ -88,14 +88,11 @@ function bestDeviation(stockValues, indexValues, maxWindow) {
   const lower = 1
   if (upper < lower) return { value: null, window: null }
   const results = []
-  for (let end = 0; end < count; end += 1) {
-    for (let window = lower; window <= Math.min(upper, end + 1); window += 1) {
-      const start = end - window + 1
-      results.push({
-        value: cumulativeReturn(stocks.slice(start, end + 1)) - cumulativeReturn(indexes.slice(start, end + 1)),
-        window
-      })
-    }
+  for (let window = lower; window <= upper; window += 1) {
+    results.push({
+      value: cumulativeReturn(stocks.slice(-window)) - cumulativeReturn(indexes.slice(-window)),
+      window
+    })
   }
   const positive = results.filter(item => item.value > 0)
   const candidates = positive.length ? positive : results

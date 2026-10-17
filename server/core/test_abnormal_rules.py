@@ -62,14 +62,12 @@ class AbnormalRulesTest(unittest.TestCase):
         self.assertEqual(records[-1].window_days, 3)
         self.assertGreaterEqual(records[-1].deviation, 20.0)
 
-    def test_main_board_10_day_uses_best_interval_inside_lookback(self):
-        """回看范围内较早触发的最大区间仍参与判断，不强制包含最新收盘日。"""
+    def test_main_board_10_day_uses_only_intervals_ending_at_latest_close(self):
+        """历史中途峰值已结束，不得继续作为当前严重异常结果。"""
 
-        stock, index = make_bars([100, 100, 205] + [205] * 8, [100] * 11)
+        stock, index = make_bars([100, 100, 205] + [205] * 10, [100] * 13)
         result = detect_severe_abnormal(stock, index, Board.MAIN)
-        self.assertIsNotNone(result.severe_10d)
-        self.assertAlmostEqual(result.severe_10d.deviation, 105.0)
-        self.assertEqual(result.severe_10d.window_days, 1)
+        self.assertIsNone(result.severe_10d)
 
     def test_ten_day_rule_can_use_ten_daily_returns(self):
         """10 个交易日包括 10 个涨跌收益区间，起点是此前收盘价。"""

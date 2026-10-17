@@ -381,12 +381,7 @@ def _best_effective_deviation(
     max_window: int,
     direction: Direction = Direction.UP,
 ) -> Optional[DeviationResult]:
-    """在规则回看上限内选指定方向的极值，不要求区间结束于最新交易日。
-
-    10/30 日规则最多使用最近 N 个共同交易日收益区间；
-    3 日规则最多使用 3 个收益区间。对回看范围内所有连续子区间计算偏离，
-    选择最大正向值并返回真实起止日期和窗口长度。
-    """
+    """在规则回看范围内，选择以最新共同交易日为终点的方向极值。"""
 
     _validate_bars(stock_bars, index_bars)
     # All rule windows count daily return intervals. N returns need N+1 close
@@ -399,10 +394,10 @@ def _best_effective_deviation(
     lower = 1
     if upper < lower:
         return None
-    results = []
-    for end in range(1, len(stock_bars)):
-        for window in range(lower, min(upper, end) + 1):
-            results.append(calculate_deviation(stock_bars[: end + 1], index_bars[: end + 1], window))
+    results = [
+        calculate_deviation(stock_bars, index_bars, window)
+        for window in range(lower, upper + 1)
+    ]
     candidates = [item for item in results if item.direction is direction]
     if not candidates:
         return None
