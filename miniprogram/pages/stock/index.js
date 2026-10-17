@@ -79,17 +79,23 @@ function cumulativeReturn(values) {
 }
 
 function bestDeviation(stockValues, indexValues, maxWindow) {
-  // 与后端 _best_vector_deviation 保持一致：枚举规则窗口内当前端点的有效收益区间，取最大上涨偏离。
+  // 与后端 _best_vector_deviation 保持一致：枚举回看窗口内所有连续收益区间。
   const upperLimit = maxWindow === 10 || maxWindow === 30 ? maxWindow - 1 : maxWindow
-  const upper = Math.min(upperLimit, stockValues.length, indexValues.length)
+  const count = Math.min(maxWindow, stockValues.length, indexValues.length)
+  const stocks = stockValues.slice(-count)
+  const indexes = indexValues.slice(-count)
+  const upper = Math.min(upperLimit, stocks.length, indexes.length)
   const lower = 1
   if (upper < lower) return { value: null, window: null }
   const results = []
-  for (let window = lower; window <= upper; window += 1) {
-    results.push({
-      value: cumulativeReturn(stockValues.slice(-window)) - cumulativeReturn(indexValues.slice(-window)),
-      window
-    })
+  for (let end = 0; end < count; end += 1) {
+    for (let window = lower; window <= Math.min(upper, end + 1); window += 1) {
+      const start = end - window + 1
+      results.push({
+        value: cumulativeReturn(stocks.slice(start, end + 1)) - cumulativeReturn(indexes.slice(start, end + 1)),
+        window
+      })
+    }
   }
   const positive = results.filter(item => item.value > 0)
   const candidates = positive.length ? positive : results

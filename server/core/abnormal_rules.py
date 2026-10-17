@@ -372,25 +372,27 @@ def _best_effective_deviation(
     index_bars: Sequence[PriceBar],
     max_window: int,
 ) -> Optional[DeviationResult]:
-    """在规则回看上限内选择当前端点的最大上涨偏离。
+    """在规则回看上限内选择最大上涨偏离，不要求区间结束于最新交易日。
 
-    10/30 日规则枚举最近 N 个共同交易日内以当前端点结束的 1..N-1 个
-    连续有效收益率区间；3 日规则枚举 1..3 个区间。三项均返回最大正向
-    偏离及其实际窗口（历史不足时使用全部可用交易日）。
+    10/30 日规则最多使用最近 N 个共同交易日、即 N-1 个有效收益区间；
+    3 日规则最多使用 3 个收益区间。对回看范围内所有连续子区间计算偏离，
+    选择最大正向值并返回真实起止日期和窗口长度。
     """
 
     _validate_bars(stock_bars, index_bars)
     # 10/30 日规则由 N 个价格点构成，收益率区间最多为 N-1 个；3 日
-    # 规则最多取 3 个收益率区间，三项统一选择当前端点的最大上涨区间。
+    # 规则最多取 3 个收益率区间。
     upper_limit = max_window - 1 if max_window in (10, 30) else max_window
+    stock_bars = stock_bars[-max_window:]
+    index_bars = index_bars[-max_window:]
     upper = min(upper_limit, len(stock_bars) - 1)
     lower = 1
     if upper < lower:
         return None
-    results = [
-        calculate_deviation(stock_bars, index_bars, window)
-        for window in range(lower, upper + 1)
-    ]
+    results = []
+    for end in range(1, len(stock_bars)):
+        for window in range(lower, min(upper, end) + 1):
+            results.append(calculate_deviation(stock_bars[: end + 1], index_bars[: end + 1], window))
     positive = [item for item in results if item.deviation > 0]
     if positive:
         return max(positive, key=lambda item: (item.deviation, -item.window_days))

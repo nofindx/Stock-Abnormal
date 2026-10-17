@@ -720,6 +720,15 @@ class MarketVectorTests(unittest.TestCase):
         self.assertEqual(window, 1)
         self.assertAlmostEqual(value, 10.0)
 
+    def test_ten_day_window_can_end_before_latest_common_day(self):
+        # 最大区间可结束在回看范围内的较早交易日，不要求包含最新日。
+        values = [0.0, 0.0, 10.0, 10.0, 0.0, -5.0, 0.0, 0.0, 0.0, 0.0]
+        stock = [{"date": f"2026-10-{index:02d}", "return": value} for index, value in enumerate(values, 1)]
+        index = [{"date": item["date"], "return": 0.0} for item in stock]
+        value, window = MarketService._best_vector_deviation(stock, index, 10)
+        self.assertEqual(window, 2)
+        self.assertAlmostEqual(value, 21.0)
+
     def test_severe_card_is_hidden_when_same_rule_is_in_monitor(self):
         service = self.service
         service.set_monitor_provider(lambda: {"items": [{"symbol": "301190", "riskTone": "severe-10d"}]})

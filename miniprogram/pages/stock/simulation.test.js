@@ -1,7 +1,11 @@
 const assert = require('assert')
 
 global.Page = () => {}
-const { calculateSimulationRows, createInputRows } = require('./index')
+const { bestDeviation, calculateSimulationRows, createInputRows } = require('./index')
+
+const maxEarlierInterval = bestDeviation([0, 10, 10, 0, -5, 0, 0, 0, 0, 0], Array(10).fill(0), 10)
+assert.strictEqual(maxEarlierInterval.window, 2)
+assert(Math.abs(maxEarlierInterval.value - 21) < 1e-9)
 
 const detail = {
   simulationBase: {

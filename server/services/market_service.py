@@ -29,7 +29,7 @@ BOARD_BY_MARKET = {"主板": Board.MAIN, "创业板": Board.CHINEXT, "科创板"
 SHANGHAI_TZ = ZoneInfo("Asia/Shanghai") if ZoneInfo else timezone(timedelta(hours=8))
 # 停牌/复牌重置、上涨同向计数和预测阶段切换属于同一套规则口径。
 # 版本变化会触发服务启动时从已确认收盘行情重建计算基础数据与预测集。
-PREDICTION_RULE_VERSION = "2026-10-unified-max-window-simulation-v37-candidate-baseline-completeness"
+PREDICTION_RULE_VERSION = "2026-10-unified-max-contiguous-window-v38"
 
 
 class CalculationDataUnavailable(RuntimeError):
@@ -1257,11 +1257,11 @@ class MarketService:
 
     @classmethod
     def _best_vector_deviation(cls, stock: List[Dict[str, Any]], index: List[Dict[str, Any]], max_window: int) -> tuple[Optional[float], Optional[int]]:
-        """计算最近有效窗口内的最大上涨偏离及实际窗口。
+        """计算规则回看范围内所有连续区间的最大上涨偏离及实际窗口。
 
-        10/30 日规则的“连续 N 个交易日内”是价格日回看上限：在最近 N 个共同
-        交易日内枚举以当前端点结束的 1..N-1 个连续有效收益率区间；3 日规则
-        枚举 1..3 个区间。三项都只取最大上涨偏离并返回实际窗口。
+        10/30 日规则的“连续 N 个交易日内”是价格日回看上限：最近 N 个共同
+        交易日形成至多 N-1 个收益率区间。区间可以在回看范围内任意位置结束，
+        不要求最新交易日必须落在区间内。3 日规则最多检查 3 个收益区间。
         这必须与
         ``server.core.abnormal_rules._best_effective_deviation`` 保持一致，
         否则单股和预测会出现实际窗口分叉。
@@ -1276,16 +1276,16 @@ class MarketService:
         # 10/30 日规则由价格日上限对应 N-1 个收益区间；3 日普通规则也
         # 统一采用同一套“当前端点向前取最大上涨区间”算法，最多取 3 个区间。
         upper_limit = max_window - 1 if max_window in (10, 30) else max_window
+        dates = dates[-max_window:]
         upper = min(upper_limit, len(dates))
         if upper < 1:
             return None, None
-        lower = 1
-        windows = list(range(lower, upper + 1)) if upper >= lower else [upper]
         results = []
-        for window in windows:
-            trailing_dates = dates[-window:]
-            value = cls._compound(stock_map[day] for day in trailing_dates) - cls._compound(index_map[day] for day in trailing_dates)
-            results.append((value, window))
+        for end in range(len(dates)):
+            for window in range(1, min(upper, end + 1) + 1):
+                interval = dates[end - window + 1 : end + 1]
+                value = cls._compound(stock_map[day] for day in interval) - cls._compound(index_map[day] for day in interval)
+                results.append((value, window))
         positive = [item for item in results if item[0] > 0]
         if positive:
             return max(positive, key=lambda item: (item[0], -item[1]))
@@ -1299,26 +1299,35 @@ class MarketService:
         actual_window: int,
         target_deviation: float,
         forecast_scope: str = "next_day",
+        rule_window: Optional[int] = None,
     ) -> Optional[float]:
         """反推目标交易日股票需要达到的理论日涨幅。
 
         ``today`` 卡是在当前交易日收盘前反推：最新股票日收益是待求的
-        未知量，所以只使用窗口内前 ``N-1`` 个股票收益；指数的最新日收益
-        已知，仍纳入基准。``next_day`` 卡则使用完整当前窗口，再反推下一
-        交易日的股票收益。两条路径共用同一复合收益公式，但未知日不同，
-        不能把当日卡也按“追加下一日”计算。
+        未知量，所以对每个可能起点都只使用目标日前的股票收益，指数最新日
+        收益仍纳入基准。``next_day`` 卡则使用完整当前区间，再反推下一交易日
+        的股票收益。两条路径共用同一复合收益公式，但未知日不同，不能把当日
+        卡也按“追加下一日”计算。触发条件取最新端点可延伸区间所需涨幅的最小值。
         """
         stock_map = {item.get("date"): float(item.get("return")) for item in stock if item.get("date")}
         index_map = {item.get("date"): float(item.get("return")) for item in index if item.get("date")}
-        dates = sorted(set(stock_map) & set(index_map))[-actual_window:]
-        if len(dates) < actual_window:
+        dates = sorted(set(stock_map) & set(index_map))
+        if not dates:
             return None
-        stock_dates = dates[:-1] if forecast_scope == "today" else dates
-        if not stock_dates and forecast_scope == "today":
-            return None
-        stock_total = cls._compound(stock_map[day] for day in stock_dates)
-        index_total = cls._compound(index_map[day] for day in dates)
-        return max(0.0, ((1.0 + (index_total + target_deviation) / 100.0) / (1.0 + stock_total / 100.0) - 1.0) * 100.0)
+        horizon = int(rule_window or actual_window)
+        max_prior_returns = horizon - 1 if horizon in (10, 30) else horizon
+        max_prior_returns = min(max_prior_returns, len(dates))
+        distances = []
+        # 触发距离是从最新有效日向目标日延伸的区间，不能拿一个早于最新日
+        # 结束的最大历史区间反推目标日涨幅；分别尝试各个可用起点并取最小值。
+        for window in range(1, max_prior_returns + 1):
+            interval_dates = dates[-window:]
+            stock_dates = interval_dates[:-1] if forecast_scope == "today" else interval_dates
+            stock_total = cls._compound(stock_map[day] for day in stock_dates)
+            index_total = cls._compound(index_map[day] for day in interval_dates)
+            distance = ((1.0 + (index_total + target_deviation) / 100.0) / (1.0 + stock_total / 100.0) - 1.0) * 100.0
+            distances.append(max(0.0, distance))
+        return min(distances) if distances else None
 
     @classmethod
     def _vector_metrics(cls, stock: List[Dict[str, Any]], index: List[Dict[str, Any]], rule: Any) -> Dict[str, Any]:
@@ -2282,6 +2291,7 @@ class MarketService:
                     actual_window,
                     target,
                     forecast_scope=scope,
+                    rule_window=rule_window,
                 )
                 if distance is None:
                     stats["excludedByDataQuality"] += 1
@@ -2380,6 +2390,7 @@ class MarketService:
                             actual_window or item["_window"],
                             threshold,
                             forecast_scope=scope,
+                            rule_window=rule_window,
                         )
                         display_distance = threshold if item["triggered"] else max(0.0, float(distance or 0.0))
                         item["triggerValue"] = f"+{display_distance:.2f}%"
