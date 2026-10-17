@@ -29,7 +29,7 @@ BOARD_BY_MARKET = {"主板": Board.MAIN, "创业板": Board.CHINEXT, "科创板"
 SHANGHAI_TZ = ZoneInfo("Asia/Shanghai") if ZoneInfo else timezone(timedelta(hours=8))
 # 停牌/复牌重置、上涨同向计数和预测阶段切换属于同一套规则口径。
 # 版本变化会触发服务启动时从已确认收盘行情重建计算基础数据与预测集。
-PREDICTION_RULE_VERSION = "2026-10-unified-max-window-simulation-v33-formal-rebuild"
+PREDICTION_RULE_VERSION = "2026-10-unified-max-window-simulation-v35-preserve-target-day-forecast"
 
 
 class CalculationDataUnavailable(RuntimeError):
@@ -1147,13 +1147,16 @@ class MarketService:
     def _monitor_rule_reset_date(monitoring: Optional[Dict[str, Any]]) -> str:
         """返回严重异动公告后的规则累计起点。
 
-        监管交易日序列的第一个日期是公告后首个交易日，下一交易日才是
-        新一轮偏离累计的首个有效收益日，因此取 ``monitorDates[1]``。
-        风险提示不改变行情规则累计起点。
+        正文明确异常区间截至日时使用经确认的显式起点；否则监管交易日
+        序列的第二个有效交易日作为新一轮偏离的首个收益日。普通风险提示
+        不改变行情规则累计起点。
         """
 
         if not monitoring or str(monitoring.get("riskTone") or "") not in {"severe-10d", "severe-30d"}:
             return ""
+        explicit = str(monitoring.get("ruleResetDate") or "").replace("-", "")[:8]
+        if monitoring.get("ruleResetConfirmed") and explicit:
+            return explicit
         dates = [str(value).replace("-", "")[:8] for value in (monitoring.get("monitorDates") or []) if value]
         return dates[1] if len(dates) >= 2 else ""
 
@@ -1170,9 +1173,10 @@ class MarketService:
                 item_symbol = str(item.get("symbol") or item.get("ts_code") or "").split(".")[0]
                 if item_symbol != symbol or str(item.get("riskTone") or "") not in {"severe-10d", "severe-30d"}:
                     continue
-                # 18.cn 的风险提示是监管事实，不等同于交易所正文中的
-                # “严重异常波动公告”；只有正文公告事实才会重置行情累计。
-                if str(item.get("sourceType") or item.get("sourceRole") or "") != "issuer-disclosure":
+                # 来源标签可能因同日去重落在 broker 主记录上；只有公告正文
+                # 单独确认的重置事实可以跨过来源标签，普通券商提示不能重置。
+                issuer_confirmed = str(item.get("sourceType") or item.get("sourceRole") or "") == "issuer-disclosure"
+                if not issuer_confirmed and not item.get("ruleResetConfirmed"):
                     continue
                 matches.append(item)
             if not matches:
@@ -1185,6 +1189,8 @@ class MarketService:
                 "riskTone": item.get("riskTone") or "",
                 "monitorDates": [str(value)[:10] for value in (item.get("monitorDates") or [])],
                 "sourceType": item.get("sourceType") or "",
+                "ruleResetDate": item.get("ruleResetDate") or "",
+                "ruleResetConfirmed": bool(item.get("ruleResetConfirmed")),
             }
         except Exception:
             return None
@@ -1957,7 +1963,7 @@ class MarketService:
             return {"updated": True, "tradeDate": today, "dataStage": "initial", "calculationCount": len(calculations)}
 
     def _generate_prediction_datasets(self, data_stage: str) -> None:
-        """基础数据阶段完成后，按目标交易日归档 today/next_day 两个结果集。"""
+        """按目标交易日归档预测集；today 必须沿用前一交易日生成的候选集。"""
         base_trade_date = self._latest_data_stage_date()[0] or self._confirmed_market_trade_date()
         if not base_trade_date:
             return
@@ -1974,6 +1980,48 @@ class MarketService:
         for scope in ("today", "next_day"):
             target_trade_date = base_trade_date if scope == "today" else next_trade_date
             try:
+                if scope == "today":
+                    # 今日预测是在前一交易日收盘后以 next_day 生成的。盘后
+                    # 当前基线已包含今日正式行情，不能再用它反算并覆盖今日预测。
+                    source = self._prediction_record("next_day", target_trade_date)
+                    source_target = str((source or {}).get("target_trade_date") or "")
+                    source_base = str((source or {}).get("base_trade_date") or "")
+                    if (
+                        not source
+                        or source_target != target_trade_date
+                        or not source_base
+                        or source_base >= target_trade_date
+                        or source.get("status") != "ready"
+                        or not source.get("dataset_quote_complete", False)
+                    ):
+                        raise RuntimeError(f"缺少 {target_trade_date} 前一交易日生成的完整次日候选集，拒绝用同日收盘数据重算当日预测")
+                    items = [dict(item) for item in source.get("items") or []]
+                    for item in items:
+                        item["targetTradeDate"] = target_trade_date
+                        item["scope"] = "当日"
+                        item["predictionKey"] = f"{item.get('ts_code', '')}-{item.get('ruleKey', '')}-{target_trade_date}"
+                    updated_at = self._now()
+                    self._prediction_cache[scope] = (updated_at, items)
+                    self._prediction_trade_date[scope] = target_trade_date
+                    if self._calc_repository.available:
+                        self._calc_repository.save_prediction(
+                            scope,
+                            target_trade_date,
+                            items,
+                            updated_at,
+                            data_stage=str(source.get("data_stage") or "formal"),
+                            data_quality=str(source.get("data_quality") or "confirmed"),
+                            rule_version=PREDICTION_RULE_VERSION,
+                            target_trade_date=target_trade_date,
+                            base_trade_date=str(source.get("base_trade_date") or ""),
+                            dataset_quote_updated_at=str(source.get("dataset_quote_updated_at") or ""),
+                            dataset_quote_as_of=str(source.get("dataset_quote_as_of") or ""),
+                            dataset_quote_source=str(source.get("dataset_quote_source") or ""),
+                            dataset_quote_complete=bool(source.get("dataset_quote_complete")),
+                            exclusion_stats=source.get("exclusion_stats") or {},
+                            status="ready",
+                        )
+                    continue
                 items = self._compute_prediction_from_repository(scope, use_realtime=False, target_trade_date=target_trade_date) or []
                 for item in items:
                     item["targetTradeDate"] = target_trade_date
@@ -2032,6 +2080,21 @@ class MarketService:
             except Exception as exc:  # noqa: BLE001 - 保留上一份成功数据并记录任务失败
                 self._prediction_last_error[scope] = str(exc)
                 if self._calc_repository.available:
+                    if scope == "today":
+                        # 旧版本可能已把同日收盘重算的错误数据写入 today。
+                        # 明确落为 incomplete，避免失败状态仍携带错误卡片。
+                        self._calc_repository.save_prediction(
+                            scope, target_trade_date, [], self._now(),
+                            data_stage=data_stage,
+                            data_quality="provisional" if data_stage == "initial" else "confirmed",
+                            rule_version=PREDICTION_RULE_VERSION,
+                            target_trade_date=target_trade_date,
+                            base_trade_date=base_trade_date,
+                            dataset_quote_as_of=base_trade_date,
+                            dataset_quote_complete=False,
+                            exclusion_stats=self._prediction_generation_stats.get(scope, {}),
+                            status="incomplete",
+                        )
                     self._calc_repository.fail_prediction(scope, str(exc))
 
     def detail(self, ts_code: str) -> Dict[str, Any]:

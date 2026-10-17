@@ -26,7 +26,96 @@ class AnnouncementService:
     source_policy = {
         "broker-risk-alert": {"priority": 1, "label": "18.cn 主源"},
         "issuer-disclosure": {"priority": 2, "label": "巨潮资讯备源"},
+        "zts-risk-alert": {"priority": 1, "label": "中泰证券公告"},
     }
+
+    zts_base = "https://www.zts.com.cn"
+    zts_api = zts_base + "/clientApi"
+    zts_column_id = 3465  # 新闻中心 > 业务公告 > 重要通知
+
+    @staticmethod
+    def _zts_headers() -> Dict[str, str]:
+        """生成中泰官网前端同口径的轻量鉴权头。"""
+        try:
+            import time
+            from Crypto.Cipher import DES
+            key = b"947dcfd3-1163-4ad7-b0f9-b68a78434406"
+            value = "enRzLW5ldC1jbGllbnQ=&" + str(int(time.time() * 1000))
+            padding = 8 - len(value.encode("utf-8")) % 8
+            encrypted = DES.new(key[:8], DES.MODE_ECB).encrypt(
+                value.encode("utf-8") + bytes([padding]) * padding
+            ).hex()
+            return {
+                "Authorization": encrypted,
+                "X-App-Key": "50afb4aceb38497d9e95ee6c9d3a38df",
+                "User-Agent": "Stock-Abnormal/1.0",
+                "Referer": "https://www.zts.com.cn/news/business/announce",
+            }
+        except Exception as exc:  # pragma: no cover - dependency failure is source degradation
+            raise RuntimeError(f"中泰源鉴权不可用: {exc}") from exc
+
+    def _zts_request(self, path: str, params: Dict[str, Any]) -> Dict[str, Any]:
+        request = Request(
+            self.zts_api + path + "?" + urlencode(params),
+            headers=self._zts_headers(),
+        )
+        return json.loads(urlopen(request, timeout=15).read().decode("utf-8"))
+
+    @staticmethod
+    def _html_text(value: str) -> str:
+        from html import unescape
+        return re.sub(r"\s+", " ", unescape(re.sub(r"<[^>]+>", " ", value or ""))).strip()
+
+    def query_zts_risk_alerts(self, start_date: str, end_date: str) -> Dict[str, Any]:
+        """读取中泰业务公告中的交易风险提示和退市整理风险警示。"""
+        try:
+            rows: List[Dict[str, Any]] = []
+            page = 1
+            while page <= 5:
+                response = self._zts_request("/article/getArticleList", {
+                    "columnId": self.zts_column_id, "title": "", "pageSize": 100,
+                    "pageNum": page, "PublishTo": "portal",
+                })
+                page_rows = response.get("rows") or []
+                rows.extend(page_rows)
+                if len(rows) >= int(response.get("total") or 0) or len(page_rows) < 100:
+                    break
+                page += 1
+            candidates = [row for row in rows if start_date <= str(row.get("publishTime", ""))[:10] <= end_date and (
+                "交易风险提示" in str(row.get("title") or "")
+                or "退市整理" in str(row.get("title") or "")
+                or "退市风险警示" in str(row.get("title") or "")
+            )]
+            items: List[Dict[str, Any]] = []
+            failures: List[str] = []
+            for row in candidates:
+                try:
+                    detail = self._zts_request("/article/getArticleDetail", {"id": row.get("id")})
+                    article = detail.get("data") or row
+                    title = str(article.get("title") or row.get("title") or "").strip()
+                    body = self._html_text(str(article.get("content") or ""))
+                    code_match = re.search(r"[（(](\d{6})[）)]", title)
+                    if not code_match:
+                        continue
+                    code = code_match.group(1)
+                    name_match = re.search(r"[“\"]([^“”\"]+?)[”\"][（(]" + code, title)
+                    name = name_match.group(1).strip() if name_match else title.split(code)[0].strip(" 关于")
+                    is_delisting = "退市整理" in title or "退市风险警示" in title
+                    items.append({
+                        "title": title, "body": body, "date": str(article.get("publishTime") or row.get("publishTime"))[:10],
+                        "stockCode": code, "stockName": name,
+                        "url": f"{self.zts_base}/news/business/announce?articleId={article.get('id') or row.get('id')}",
+                        "source": "中泰证券", "sourceType": "zts-risk-alert", "sourceRole": "zts_primary",
+                        "sourcePriority": self.source_policy["zts-risk-alert"]["priority"],
+                        "sourceLabel": self.source_policy["zts-risk-alert"]["label"],
+                        "riskToneHint": "delisting-warning" if is_delisting else "ordinary",
+                    })
+                except Exception as exc:  # noqa: BLE001 - one detail must not discard the source
+                    failures.append(str(row.get("id") or exc))
+            return {"items": items, "available": True, "partial": bool(failures), "error": "; ".join(failures[:3]),
+                    "source": "中泰证券", "sourceUrl": self.zts_base + "/news/business/announce"}
+        except Exception as exc:  # noqa: BLE001 - optional source
+            return {"items": [], "available": False, "partial": True, "error": str(exc), "source": "中泰证券"}
 
     def _request(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         request = Request(self.endpoint, data=urlencode(payload).encode("utf-8"), headers={

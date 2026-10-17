@@ -34,12 +34,13 @@ MONITOR_PERIOD_TRADING_DAYS = {
     "ordinary": 10,       # 18.cn 交易所风险提示的默认监控窗口（起点计第 1 日）
     "severe-10d": 10,     # 10 日严重异动：触发后 10 个交易日
     "severe-30d": 10,     # 30 日偏离达到阈值后，仍按触发后 10 个交易日监管
+    "delisting-warning": 10, # 退市整理风险警示按风险提示同口径计 10 个交易日
 }
 # 兼容外部测试/旧调用方；业务代码统一使用 MONITOR_PERIOD_TRADING_DAYS。
 MONITOR_WINDOW_TRADING_DAYS = MONITOR_PERIOD_TRADING_DAYS
 # 公告分类口径变化时，启动任务主动重采一次当前快照；避免必须等到次日
 # 00:00 才让修复后的北交所严重异动进入重点监控。
-MONITOR_RULE_VERSION = "2026-10-monitor-source-and-noise-v6-upward-only"
+MONITOR_RULE_VERSION = "2026-10-monitor-zts-strict-risk-v8-official-reset-facts"
 
 
 class MonitorRepository:
@@ -64,7 +65,8 @@ class MonitorRepository:
                     source_id TEXT PRIMARY KEY, stock_code TEXT NOT NULL, stock_name TEXT NOT NULL,
                     announcement_date TEXT NOT NULL, title TEXT NOT NULL, source TEXT NOT NULL,
                     source_url TEXT NOT NULL, content_hash TEXT NOT NULL, confirmation_status TEXT NOT NULL,
-                    fetched_at TEXT NOT NULL
+                    fetched_at TEXT NOT NULL, monitor_type TEXT NOT NULL DEFAULT '',
+                    risk_tone TEXT NOT NULL DEFAULT '', source_type TEXT NOT NULL DEFAULT ''
                 );
                 CREATE TABLE IF NOT EXISTS monitor_snapshot (
                     snapshot_id TEXT PRIMARY KEY, snapshot_date TEXT NOT NULL, updated_at TEXT NOT NULL,
@@ -79,6 +81,14 @@ class MonitorRepository:
                     status TEXT NOT NULL, item_count INTEGER NOT NULL, error_message TEXT NOT NULL
                 );
             """)
+            columns = {row[1] for row in db.execute("PRAGMA table_info(announcement_raw)").fetchall()}
+            for name, definition in (
+                ("monitor_type", "TEXT NOT NULL DEFAULT ''"),
+                ("risk_tone", "TEXT NOT NULL DEFAULT ''"),
+                ("source_type", "TEXT NOT NULL DEFAULT ''"),
+            ):
+                if name not in columns:
+                    db.execute(f"ALTER TABLE announcement_raw ADD COLUMN {name} {definition}")
 
     def active_snapshot(self) -> Optional[Dict[str, Any]]:
         with self._connect() as db:
@@ -107,12 +117,13 @@ class MonitorRepository:
                 db.execute("""
                     INSERT OR REPLACE INTO announcement_raw
                     (source_id, stock_code, stock_name, announcement_date, title, source, source_url,
-                     content_hash, confirmation_status, fetched_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     content_hash, confirmation_status, fetched_at, monitor_type, risk_tone, source_type)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     item["sourceId"], item["symbol"], item["name"], item["announcementDate"],
                     item["title"], item["source"], item["sourceUrl"], item["contentHash"],
                     item["confirmationStatus"], snapshot["updatedAt"],
+                    item.get("monitorType", ""), item.get("riskTone", ""), item.get("sourceType", ""),
                 ))
             db.execute("""
                 INSERT INTO monitor_snapshot
@@ -197,7 +208,8 @@ class OfficialMonitorService:
         today = datetime.now(SHANGHAI_TZ).strftime("%Y-%m-%d")
         active_items = [
             item for item in (snapshot or {}).get("items", [])
-            if not self._is_noise_stock(item.get("symbol", ""), item.get("name", ""))
+            if item.get("riskTone") == "delisting-warning"
+            or not self._is_noise_stock(item.get("symbol", ""), item.get("name", ""))
             if not self._is_expired(str(item.get("monitorEndDate") or ""), today)
         ]
         return {
@@ -275,9 +287,7 @@ class OfficialMonitorService:
         values_10 = deviation_values("10")
         has_30_threshold = any(value >= 200 for value in values_30)
         has_10_threshold = any(value >= 100 for value in values_10)
-        has_risk_wording = (
-            "交易所将对以上证券的异常交易行为进行从严认定" in text
-        )
+        has_risk_wording = OfficialMonitorService._has_exchange_strict_monitoring_wording(text)
         if has_30_window and has_30_threshold:
             return "30日严重异动", "severe-30d"
         if has_10_window and has_10_threshold:
@@ -302,6 +312,16 @@ class OfficialMonitorService:
         return "", ""
 
     @staticmethod
+    def _has_exchange_strict_monitoring_wording(text: str) -> bool:
+        normalized = re.sub(r"\s+", "", text or "")
+        exchange = r"(?:交易所|上交所|深交所|北交所)"
+        subject = r"(?:以上证券|上述证券(?:上)?|该证券|该股票)"
+        return bool(re.search(
+            exchange + r"将对" + subject + r"的?异常交易行为进行(?:进一步)?从严认定",
+            normalized,
+        ))
+
+    @staticmethod
     def _monitor_type(title: str, body: str) -> tuple[str, str]:
         return OfficialMonitorService._classify_monitor_text(title, body)
 
@@ -309,25 +329,27 @@ class OfficialMonitorService:
     def _issuer_monitor_type(title: str, body: str) -> tuple[str, str]:
         """分类发行人/交易所正文中的监管事实。
 
-        发行人公告有时只写“股票交易风险提示暨复牌”，不重复“异常波动”
-        字样，但正文明确说明停牌核查、复牌和交易风险。这类公告进入监管事实，
-        不满足严重异动阈值时只归为风险提示，不触发行情累计重置。
+        发行人公告只有在正文明确出现交易所“进一步从严认定”语义时，
+        才能成为普通风险提示。标题中的“风险提示”“复牌”“停牌核查”
+        或正文中的一般交易风险表述都不能单独入选。
         """
 
         monitor_type, risk_tone = OfficialMonitorService._classify_monitor_text(title, body)
         if risk_tone:
             return monitor_type, risk_tone
-        text = re.sub(r"\s+", "", body or "")
-        title_text = str(title or "")
-        issuer_risk = (
-            "风险提示" in title_text
-            and ("停牌核查" in title_text or "交易风险" in text or "复牌" in title_text)
-        )
-        return ("风险提示", "ordinary") if issuer_risk else ("", "")
+        return ("风险提示", "ordinary") if OfficialMonitorService._has_exchange_strict_monitoring_wording(body) else ("", "")
 
     @staticmethod
     def _broker_monitor_type(title: str, body: str) -> tuple[str, str]:
         return OfficialMonitorService._classify_monitor_text(title, body)
+
+    @staticmethod
+    def _zts_monitor_type(title: str, body: str, hint: str = "") -> tuple[str, str]:
+        if hint == "delisting-warning" or "退市整理" in str(title or "") or "退市风险警示" in str(title or ""):
+            return "退市整理风险警示", "delisting-warning"
+        if "交易风险提示" in str(title or "") and OfficialMonitorService._has_exchange_strict_monitoring_wording(body):
+            return "风险提示", "ordinary"
+        return ("风险提示", "ordinary") if OfficialMonitorService._has_exchange_strict_monitoring_wording(body) else ("", "")
 
     @staticmethod
     def _is_accepted_broker_alert(title: str, body: str) -> bool:
@@ -383,7 +405,7 @@ class OfficialMonitorService:
         is_bse = bool(re.match(r"^(?:4|8|9)\d{5}", str(symbol or "")))
         # 公告正文明确异动事实最后交易日时，监管从其后的首个交易日开始。
         # 这能处理公告发布日期晚于异动结束日的情况，例如近岸蛋白。
-        starts_next_trade_day = source_type == "broker-risk-alert" or bool(event_end_date) or (is_bse and risk_tone in ("severe-10d", "severe-30d"))
+        starts_next_trade_day = source_type in ("broker-risk-alert", "zts-risk-alert") or bool(event_end_date) or (is_bse and risk_tone in ("severe-10d", "severe-30d"))
         comparator = (lambda value: value > source_date) if starts_next_trade_day else (lambda value: value >= source_date)
         start_index = next((index for index, value in enumerate(dates) if comparator(value)), 0)
         end_index = min(start_index + window - 1, len(dates) - 1)
@@ -391,7 +413,7 @@ class OfficialMonitorService:
 
     @staticmethod
     def _risk_rank(item: Dict[str, Any]) -> int:
-        return {"severe-30d": 3, "severe-10d": 2, "ordinary": 1}.get(str(item.get("riskTone")), 0)
+        return {"severe-30d": 4, "severe-10d": 3, "delisting-warning": 2, "ordinary": 1}.get(str(item.get("riskTone")), 0)
 
     @staticmethod
     def _is_noise_stock(symbol: Any, name: Any) -> bool:
@@ -547,6 +569,9 @@ class OfficialMonitorService:
                         urls.add(item["sourceUrl"])
                     same_date["sourceUrls"] = sorted(urls)
                     same_date["sourceCount"] = len(urls)
+                    if item.get("ruleResetConfirmed"):
+                        same_date["ruleResetConfirmed"] = True
+                        same_date["ruleResetDate"] = item.get("ruleResetDate") or same_date.get("ruleResetDate", "")
                     same_date["monitorKey"] = hashlib.sha256("\n".join(sorted(
                         [same_date["sourceId"], item["sourceId"]]
                     )).encode("utf-8")).hexdigest()[:24]
@@ -569,8 +594,8 @@ class OfficialMonitorService:
                     "monitorPeriod": f"起始日起共 {MONITOR_PERIOD_TRADING_DAYS.get(item.get('riskTone'), 10)} 个交易日（起点计第1日）",
                 })
         for item in selected_items:
-            if item.get("riskTone") == "ordinary":
-                # 风险提示只显示分类，不向小程序提供公告入口。
+            if item.get("riskTone") in ("ordinary", "delisting-warning"):
+                # 风险提示和退市整理风险警示只显示分类，不向小程序提供 PDF 入口。
                 item["sourceUrl"] = ""
                 item["sourceUrls"] = []
                 item["sourceCount"] = 0
@@ -594,15 +619,22 @@ class OfficialMonitorService:
             broker_result = self.announcements.query_broker_risk_alerts(start_date, now.strftime("%Y-%m-%d"))
             broker_available = bool(broker_result.get("available"))
             broker_partial = bool(broker_result.get("partial"))
+            zts_query = getattr(self.announcements, "query_zts_risk_alerts", None)
+            zts_result = zts_query(start_date, now.strftime("%Y-%m-%d")) if callable(zts_query) else {"items": [], "available": False, "partial": False, "error": "未配置中泰公告源"}
+            if not isinstance(zts_result, dict):
+                zts_result = {"items": [], "available": False, "partial": False, "error": "中泰公告源返回格式错误"}
+            zts_available = bool(zts_result.get("available"))
+            zts_partial = bool(zts_result.get("partial"))
             # 两种来源都尝试：18.cn 成功时作为主源，18.cn 失败而巨潮成功时由巨潮接替主源。
             try:
                 result = self.announcements.query_market(start_date, now.strftime("%Y-%m-%d"))
             except Exception as exc:  # noqa: BLE001 - 备源错误进入四态决策
                 result = {"items": [], "available": False, "partial": True, "error": str(exc)}
             issuer_available = bool(result.get("available")) and not bool(result.get("partial"))
-            if not broker_available and not issuer_available:
-                raise RuntimeError("18.cn 主源与巨潮资讯备源均不可用")
+            if not broker_available and not issuer_available and not zts_available:
+                raise RuntimeError("18.cn、巨潮资讯与中泰证券公告源均不可用")
             parsed_events: List[Dict[str, Any]] = []
+            raw_announcements: List[Dict[str, Any]] = []
             for announcement in result.get("items", []) if issuer_available else []:
                 title = announcement["title"]
                 if self._is_noise_stock(announcement.get("stockCode", ""), announcement.get("stockName", "")):
@@ -632,6 +664,8 @@ class OfficialMonitorService:
                     "monitorEnd": monitor_end[5:] if monitor_end else "待核实",
                     "monitorEndDate": monitor_end, "days": None, "daysTotal": MONITOR_PERIOD_TRADING_DAYS.get(risk_tone, 10),
                     "monitorDates": monitor_dates,
+                    "ruleResetDate": monitor_dates[0].replace("-", "") if event_end_date and monitor_dates else "",
+                    "ruleResetConfirmed": bool(risk_tone.startswith("severe-")),
                     "monitorType": monitor_type, "riskTone": risk_tone,
                     "isST": "ST" in announcement["stockName"].upper(),
                     "source": announcement["source"], "sourceUrl": announcement["url"] if risk_tone != "ordinary" else "",
@@ -674,6 +708,45 @@ class OfficialMonitorService:
                     "contentHash": hashlib.sha256(alert["body"].encode("utf-8")).hexdigest(),
                     "monitorPeriod": f"起始日起共 {MONITOR_PERIOD_TRADING_DAYS.get(risk_tone, 10)} 个交易日（起点计第1日）",
                 })
+            for alert in zts_result.get("items", []) if zts_available else []:
+                monitor_type, risk_tone = self._zts_monitor_type(
+                    alert["title"], alert.get("body", ""), alert.get("riskToneHint", "")
+                )
+                if not risk_tone or not alert.get("date"):
+                    continue
+                source_id = hashlib.sha256(alert["url"].encode("utf-8")).hexdigest()[:24]
+                raw_announcements.append({
+                    "sourceId": source_id, "symbol": alert["stockCode"], "name": alert["stockName"],
+                    "announcementDate": alert["date"], "title": alert["title"], "source": alert["source"],
+                    "sourceUrl": alert["url"],
+                    "contentHash": hashlib.sha256(f"{alert['title']}\n{alert.get('body', '')}".encode("utf-8")).hexdigest(),
+                    "confirmationStatus": "broker-disclosure-confirmed",
+                    "monitorType": monitor_type, "riskTone": risk_tone, "sourceType": "zts-risk-alert",
+                })
+                if risk_tone != "delisting-warning" and self._is_noise_stock(alert.get("stockCode", ""), alert.get("stockName", "")):
+                    continue
+                monitor_dates = self._monitor_period_dates(
+                    alert["date"], "zts-risk-alert", risk_tone, alert.get("stockCode", "")
+                )
+                if not monitor_dates:
+                    continue
+                monitor_start, monitor_end = monitor_dates[0], monitor_dates[-1]
+                parsed_events.append({
+                    "sourceId": source_id, "monitorKey": source_id,
+                    "symbol": alert["stockCode"], "name": alert["stockName"],
+                    "title": alert["title"], "announcementDate": alert["date"],
+                    "monitorStart": monitor_start[5:], "monitorStartDate": monitor_start,
+                    "monitorEnd": monitor_end[5:], "monitorEndDate": monitor_end,
+                    "days": None, "daysTotal": MONITOR_PERIOD_TRADING_DAYS.get(risk_tone, 10),
+                    "monitorDates": monitor_dates, "monitorType": monitor_type, "riskTone": risk_tone,
+                    "isST": "ST" in alert.get("stockName", "").upper(),
+                    "source": alert["source"], "sourceUrl": alert["url"],
+                    "sourceType": "zts-risk-alert", "sourceRole": "zts_primary",
+                    "sourcePriority": alert["sourcePriority"], "sourceLabel": alert["sourceLabel"],
+                    "confirmationStatus": "broker-disclosure-confirmed",
+                    "contentHash": hashlib.sha256(f"{alert['title']}\n{alert.get('body', '')}".encode("utf-8")).hexdigest(),
+                    "monitorPeriod": f"起始日起共 {MONITOR_PERIOD_TRADING_DAYS.get(risk_tone, 10)} 个交易日（起点计第1日）",
+                })
             # 18.cn 页面只展示滚动的最近条目；仅在 18.cn 成功时保留旧窗口，避免主源滚动造成记录消失。
             previous_snapshot = self.repository.active_snapshot() or {}
             previous_items = [
@@ -687,8 +760,8 @@ class OfficialMonitorService:
             parsed = self._collapse_by_stock(merge_items, now.strftime("%Y-%m-%d"))
             self._cache_active_pdfs(parsed, now.strftime("%Y-%m-%d"))
             updated_at = datetime.now(SHANGHAI_TZ).strftime("%Y-%m-%d %H:%M")
-            active_source = "broker_primary" if broker_available else "issuer_disclosure_backup"
-            source_label = "18.cn 主源（部分详情失败）" if broker_available and broker_partial else ("18.cn 主源" if broker_available else "巨潮资讯备源（主源降级接替）")
+            active_source = "broker_primary" if broker_available else ("zts_primary" if zts_available else "issuer_disclosure_backup")
+            source_label = "18.cn 主源（部分详情失败）" if broker_available and broker_partial else ("18.cn 主源" if broker_available else ("中泰证券公告" if zts_available else "巨潮资讯备源（主源降级接替）"))
             snapshot = {
                 "snapshotId": run_id, "snapshotDate": now.strftime("%Y-%m-%d"),
                 "asOfTradeDate": "",
@@ -697,24 +770,29 @@ class OfficialMonitorService:
                 "dataQuality": {
                     "source": source_label,
                     "announcementStatus": "source-specific",
-                    "verifiedSources": ["东方财富证券 18.cn", "巨潮资讯"],
+                    "verifiedSources": ["东方财富证券 18.cn", "巨潮资讯", "中泰证券"],
                     "sourcePolicy": [
                         {"role": "broker_primary", "label": "18.cn 主源", "priority": 1, "status": "degraded" if broker_partial or not broker_available else "available"},
                         {"role": "issuer_disclosure_backup", "label": "巨潮资讯备源", "priority": 2, "status": "available" if issuer_available else "degraded"},
+                        {"role": "zts_primary", "label": "中泰证券公告", "priority": 1, "status": "degraded" if zts_partial or not zts_available else "available"},
                     ],
                     "sourceHealth": {
                         "brokerPrimary": "degraded" if broker_partial or not broker_available else "available",
                         "issuerBackup": "available" if issuer_available else "degraded",
                         "brokerError": str(broker_result.get("error") or "") if broker_partial else ("" if broker_available else "18.cn 未完整返回"),
                         "issuerError": "" if issuer_available else str(result.get("error") or "巨潮资讯未完整返回"),
+                        "ztsSource": "degraded" if zts_partial or not zts_available else "available",
+                        "zts": "degraded" if zts_partial or not zts_available else "available",
+                        "ztsError": str(zts_result.get("error") or "") if zts_partial or not zts_available else "",
                     },
                     "activeSource": active_source,
                     "isOfficialMonitorPeriod": False,
                     "periodCalculation": "监管期按交易日计算并将起点计为第1日；3日普通异动不进入重点监控，10日和30日严重异动触发后均监管10个交易日；30日仅是判定回看窗口",
-                    "coverage": "18.cn 正常时为主源；18.cn 不可用时由巨潮资讯接替；同源记录按股票和风险类型取最新",
+                    "coverage": "18.cn 与中泰公告独立采集，巨潮资讯为发行人备源；同源记录按股票和风险类型取最新；退市整理风险警示独立保留",
                 },
             }
-            self.repository.publish(snapshot, parsed_events, run_id)
+            raw_announcements.extend(parsed_events)
+            self.repository.publish(snapshot, raw_announcements, run_id)
             self.repository.set_state("monitor_rule_version", MONITOR_RULE_VERSION)
             self.last_error = ""
             return {"started": True, "refreshing": False, "count": len(parsed)}
@@ -741,12 +819,14 @@ class OfficialMonitorService:
         today = datetime.now(SHANGHAI_TZ).strftime("%Y-%m-%d")
         items = []
         for item in snapshot.get("items", []):
-            if self._is_noise_stock(item.get("symbol", ""), item.get("name", "")):
+            if item.get("riskTone") != "delisting-warning" and self._is_noise_stock(item.get("symbol", ""), item.get("name", "")):
                 continue
             end_date = str(item.get("monitorEndDate") or "")
             if self._is_expired(end_date, today):
                 continue
             if monitor_type == "risk" and item.get("riskTone") != "ordinary":
+                continue
+            if monitor_type == "delisting" and item.get("riskTone") != "delisting-warning":
                 continue
             if monitor_type == "severe" and item.get("riskTone") not in ("severe-10d", "severe-30d"):
                 continue

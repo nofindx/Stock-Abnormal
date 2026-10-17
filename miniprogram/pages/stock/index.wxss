@@ -1,9 +1,9 @@
 .stock-page { padding-top: 24rpx; padding-bottom: 220rpx; }
-.search-wrap { position: relative; z-index: 2; display: flex; height: 128rpx; flex-direction: column; align-items: center; justify-content: center; margin-top: 12rpx; }
+.search-wrap { position: relative; z-index: 2; display: flex; height: 140rpx; flex-direction: column; align-items: center; justify-content: flex-start; margin-top: 12rpx; padding-top: 10rpx; }
 .search-box {
   display: flex;
   width: 100%;
-  height: 76rpx;
+  height: 108rpx;
   align-items: center;
   padding: 0 16rpx;
   border: 1rpx solid #E5E5EA;
@@ -13,10 +13,10 @@
 .search-box.focused { border-color: #007AFF; box-shadow: 0 0 0 4rpx rgba(0, 122, 255, .12); }
 .search-icon {
   position: relative;
-  width: 23rpx;
-  height: 23rpx;
-  flex: 0 0 23rpx;
-  margin-right: 12rpx;
+  width: 27rpx;
+  height: 27rpx;
+  flex: 0 0 27rpx;
+  margin-right: 14rpx;
   border: 2rpx solid #8E8E93;
   border-radius: 50%;
 }
@@ -31,12 +31,12 @@
   content: '';
   transform: rotate(45deg);
 }
-.search-input { min-width: 0; height: 74rpx; flex: 1; color: #1C1C1E; font-size: 23rpx; }
-.clear-icon { padding: 8rpx 2rpx 8rpx 14rpx; color: #8E8E93; font-size: 30rpx; }
+.search-input { min-width: 0; height: 106rpx; flex: 1; color: #1C1C1E; font-size: 25rpx; }
+.clear-icon { padding: 8rpx 2rpx 8rpx 14rpx; color: #8E8E93; font-size: 32rpx; }
 .suggestions {
   position: absolute;
   z-index: 10;
-  top: 86rpx;
+  top: 120rpx;
   right: 0;
   left: 0;
   overflow: hidden;
@@ -124,10 +124,9 @@
 .status-price { color: #1C1C1E; font-size: 28rpx; font-weight: 600; font-variant-numeric: tabular-nums; }
 .quote-line .change { color: #D93025; font-size: 32rpx; font-weight: 700; }
 
-.metric-grid { display: grid; grid-template-columns: 1fr 1fr; align-items: stretch; gap: 12rpx; margin-top: 12rpx; }
-.metric-card { display: flex; height: 192rpx; min-height: 192rpx; box-sizing: border-box; align-items: center; justify-content: space-between; gap: 8rpx; padding: 20rpx; border-radius: 18rpx; text-align: left; }
+.metric-grid { display: grid; width: 100%; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: stretch; gap: 12rpx; margin-top: 12rpx; }
+.metric-card { display: flex; width: 100%; min-width: 0; height: 192rpx; min-height: 192rpx; box-sizing: border-box; align-items: center; justify-content: space-between; gap: 8rpx; padding: 20rpx; border-radius: 18rpx; text-align: left; }
 .metric-copy { display: flex; min-width: 0; flex: 1; align-self: stretch; flex-direction: column; justify-content: space-between; padding-left: 6rpx; }
-.metric-card-2 .metric-copy { padding-top: 8rpx; padding-left: 16rpx; }
 .metric-title { display: block; color: #1A1A1A; font-size: 22rpx; font-weight: 600; line-height: 30rpx; white-space: nowrap; }
 .metric-ring { display: flex; width: 124rpx; height: 124rpx; flex: 0 0 124rpx; align-items: center; justify-content: center; margin-right: 4rpx; border-radius: 50%; }
 .metric-ring-inner { display: flex; width: 92rpx; height: 92rpx; flex-direction: column; align-items: center; justify-content: center; border-radius: 50%; background: #FFFFFF; }
@@ -246,7 +245,6 @@
   .quote-line .change { font-size: 30rpx; }
   .metric-card { height: 176rpx; min-height: 176rpx; padding: 14rpx; }
   .metric-copy { padding-left: 2rpx; }
-  .metric-card-2 .metric-copy { padding-top: 6rpx; padding-left: 8rpx; }
   .metric-ring { width: 108rpx; height: 108rpx; flex-basis: 108rpx; }
   .metric-ring-inner { width: 82rpx; height: 82rpx; }
   .metric-ring-value { font-size: 16rpx; }

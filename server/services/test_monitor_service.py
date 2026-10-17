@@ -141,6 +141,23 @@ class MonitorWindowTests(unittest.TestCase):
         self.assertEqual(risk["monitorEndDate"], "2026-10-31")
         self.assertEqual(severe_result["monitorEndDate"], "2026-10-14")
 
+    def test_same_day_broker_primary_keeps_official_body_reset_confirmation(self):
+        broker = self.event("2026-10-08", "2026-10-22", "severe-10d")
+        broker.update({"sourceType": "broker-risk-alert", "sourcePriority": 1})
+        issuer = self.event("2026-10-08", "2026-10-22", "severe-10d")
+        issuer.update({
+            "sourceType": "issuer-disclosure", "sourcePriority": 2,
+            "ruleResetConfirmed": True, "ruleResetDate": "20261009",
+            "monitorDates": ["2026-10-09", "2026-10-12"],
+        })
+
+        result = self.service._collapse_by_stock([broker, issuer], "2026-10-17")
+
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]["sourceType"], "broker-risk-alert")
+        self.assertTrue(result[0]["ruleResetConfirmed"])
+        self.assertEqual(result[0]["ruleResetDate"], "20261009")
+
     def test_reference_stocks_have_the_attachment_periods(self):
         dates = [
             (date(2026, 9, 1) + timedelta(days=index)).strftime("%Y-%m-%d")
@@ -178,10 +195,66 @@ class MonitorWindowTests(unittest.TestCase):
         self.assertEqual(OfficialMonitorService._monitor_type("股票交易严重异常波动公告", "连续10个交易日涨幅偏离值累计达到100%"), ("10日严重异动", "severe-10d"))
         self.assertEqual(OfficialMonitorService._monitor_type("股票交易异常波动公告", "连续30个交易日涨幅偏离值累计达到200%"), ("30日严重异动", "severe-30d"))
 
-    def test_issuer_repurchase_risk_prompt_is_monitor_fact_without_severe_reset(self):
+    def test_issuer_repurchase_risk_prompt_without_exchange_wording_is_ignored(self):
         title = "关于股票交易停牌核查结果、股票交易风险提示暨复牌的公告"
         body = "公司股票将于2026年10月16日开市起复牌，敬请投资者关注交易风险。"
-        self.assertEqual(OfficialMonitorService._issuer_monitor_type(title, body), ("风险提示", "ordinary"))
+        self.assertEqual(OfficialMonitorService._issuer_monitor_type(title, body), ("", ""))
+
+    def test_issuer_risk_prompt_requires_exchange_strict_wording(self):
+        self.assertEqual(
+            OfficialMonitorService._issuer_monitor_type(
+                "关于股票交易风险提示的公告",
+                "交易所将对以上证券的异常交易行为进行进一步从严认定。",
+            ),
+            ("风险提示", "ordinary"),
+        )
+        self.assertEqual(
+            OfficialMonitorService._zts_monitor_type(
+                "关于新华传媒（600825）的交易风险提示",
+                "上交所将对上述证券上的异常交易行为进行进一步从严认定。",
+                "ordinary",
+            ),
+            ("风险提示", "ordinary"),
+        )
+        self.assertEqual(
+            OfficialMonitorService._zts_monitor_type("关于天普股份（605255）的交易风险提示", "请注意二级市场交易风险。", "ordinary"),
+            ("", ""),
+        )
+
+    def test_zts_risk_labels_are_separate(self):
+        self.assertEqual(
+            OfficialMonitorService._zts_monitor_type(
+                "关于某股票(600000)交易风险提示",
+                "交易所将对以上证券的异常交易行为进行进一步从严认定。",
+            ),
+            ("风险提示", "ordinary"),
+        )
+        self.assertEqual(
+            OfficialMonitorService._zts_monitor_type("关于“某股票”(600000)进入退市整理期的风险警示", "", "delisting-warning"),
+            ("退市整理风险警示", "delisting-warning"),
+        )
+
+    def test_zts_source_fetches_transaction_and_delisting_alerts(self):
+        service = AnnouncementService()
+        responses = {
+            "/article/getArticleList": {
+                "rows": [
+                    {"id": 1, "title": "关于“新华传媒”（600825）的交易风险提示", "publishTime": "2026-10-16 09:00:00"},
+                    {"id": 2, "title": "关于“*ST萃华”(002731)进入退市整理期的风险警示", "publishTime": "2026-10-16 10:00:00"},
+                ]
+            },
+            "/article/getArticleDetail": {
+                "data": {"id": 1, "title": "关于“新华传媒”（600825）的交易风险提示", "publishTime": "2026-10-16 09:00:00", "content": "交易风险"}
+            },
+        }
+        def request(path, params):
+            if params.get("id") == 2:
+                return {"data": {"id": 2, "title": "关于“*ST萃华”(002731)进入退市整理期的风险警示", "publishTime": "2026-10-16 10:00:00", "content": "退市整理"}}
+            return responses[path]
+        service._zts_request = request
+        result = service.query_zts_risk_alerts("2026-10-16", "2026-10-17")
+        self.assertTrue(result["available"])
+        self.assertEqual([item["riskToneHint"] for item in result["items"]], ["ordinary", "delisting-warning"])
 
     def test_monitor_read_adds_standard_ts_code_for_stock_detail_navigation(self):
         snapshot = {"snapshotId": "x", "snapshotDate": "2026-10-17", "updatedAt": "2026-10-17 00:00", "items": [{
@@ -191,6 +264,22 @@ class MonitorWindowTests(unittest.TestCase):
         self.service.repository.active_snapshot = lambda: snapshot
         result = self.service.read("current", "all")
         self.assertEqual(result["items"][0]["ts_code"], "600825.SH")
+
+    def test_delisting_filter_bypasses_all_noise_rules_but_risk_and_severe_do_not(self):
+        snapshot = {"snapshotId": "x", "snapshotDate": "2026-10-17", "updatedAt": "2026-10-17 00:00", "dataQuality": {}, "items": [
+            {"monitorKey": "risk", "symbol": "002731", "name": "*ST萃华", "monitorEndDate": "2099-01-01", "riskTone": "ordinary", "monitorType": "风险提示"},
+            {"monitorKey": "severe", "symbol": "002731", "name": "*ST萃华", "monitorEndDate": "2099-01-01", "riskTone": "severe-10d", "monitorType": "10日严重异动"},
+            {"monitorKey": "delisting", "symbol": "002731", "name": "*ST萃华", "monitorEndDate": "2099-01-01", "riskTone": "delisting-warning", "monitorType": "退市整理风险警示"},
+        ]}
+        self.service.repository.active_snapshot = lambda: snapshot
+        all_items = self.service.read("current", "all")["items"]
+        delisting_items = self.service.read("current", "delisting")["items"]
+        risk_items = self.service.read("current", "risk")["items"]
+        severe_items = self.service.read("current", "severe")["items"]
+        self.assertEqual([item["monitorKey"] for item in all_items], ["delisting"])
+        self.assertEqual([item["monitorKey"] for item in delisting_items], ["delisting"])
+        self.assertEqual(risk_items, [])
+        self.assertEqual(severe_items, [])
 
     def test_bse_negative_severe_deviation_is_not_monitor_record(self):
         body = "股票连续4个交易日内日收盘价跌幅偏离值累计达到-61.39%，属于股票交易严重异常波动情形。"
@@ -214,7 +303,13 @@ class MonitorWindowTests(unittest.TestCase):
         )
 
     def test_monitor_rule_version_requires_refresh_after_direction_change(self):
-        self.assertIn("upward-only", MONITOR_RULE_VERSION)
+        self.assertIn("zts-strict-risk", MONITOR_RULE_VERSION)
+
+    def test_zts_announcement_is_not_rule_reset_source(self):
+        self.assertEqual(
+            self.service._monitor_period_dates("2026-10-16", "zts-risk-alert", "ordinary"),
+            self.service._monitor_period_dates("2026-10-17", "issuer-disclosure", "ordinary"),
+        )
 
     def test_broker_alert_requires_security_monitoring_wording(self):
         self.assertFalse(OfficialMonitorService._is_accepted_broker_alert("关于股票交易风险提示的公告", "将视情况从重采取被列为重点监控账户措施"))

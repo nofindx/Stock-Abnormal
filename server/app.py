@@ -293,8 +293,8 @@ class ApiHandler(BaseHTTPRequestHandler):
                     self._respond({"code": 40401, "data": None, "message": "接口不存在"}, status=404)
                     return
                 monitor_type = query.get("type", ["all"])[0]
-                if monitor_type not in ("all", "risk", "severe"):
-                    raise ApiError(40001, "type 必须是 all、risk 或 severe", 400)
+                if monitor_type not in ("all", "risk", "severe", "delisting"):
+                    raise ApiError(40001, "type 必须是 all、risk、severe 或 delisting", 400)
                 data = OFFICIAL_MONITOR.read(status, monitor_type)
                 # 小程序生产环境通过 callContainer 访问，统一返回可直接打开的公网代理地址。
                 public_base = os.getenv("MONITOR_PUBLIC_BASE_URL", "https://flask-9a5y-319926-10-1496305218.sh.run.tcloudbase.com").rstrip("/")

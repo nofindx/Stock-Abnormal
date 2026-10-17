@@ -37,6 +37,57 @@ class MarketVectorTests(unittest.TestCase):
         with self.assertRaisesRegex(CalculationDataUnavailable, "缺少该股票的历史收益向量"):
             service.detail("000001.SZ")
 
+    def test_today_dataset_archives_prior_day_next_day_without_recomputing_from_same_day_close(self):
+        service = self.service
+        archived_forecast = {
+            "scope": "next_day", "target_trade_date": "20261016", "base_trade_date": "20261015",
+            "items": [{"ts_code": "002242.SZ", "ruleKey": "severe_10d", "deviationLabel": "9日 +94.43%"}],
+            "status": "ready", "data_stage": "formal", "data_quality": "confirmed",
+            "dataset_quote_complete": True, "dataset_quote_as_of": "20261015",
+            "dataset_quote_source": "tushare", "dataset_quote_updated_at": "2026-10-15 15:00:00",
+            "exclusion_stats": {},
+        }
+        service._calc_repository = SimpleNamespace(available=False)
+        service._latest_data_stage_date = lambda: ("20261016", "formal")
+        service.client.trade_cal = lambda *_args: SimpleNamespace(to_dict=lambda *_args, **_kwargs: [
+            {"cal_date": "20261016", "is_open": 1}, {"cal_date": "20261019", "is_open": 1},
+        ])
+        service._prediction_record = lambda scope, target_trade_date="": (
+            archived_forecast if scope == "next_day" and target_trade_date == "20261016" else None
+        )
+        computed_scopes = []
+
+        def compute(scope, **_kwargs):
+            computed_scopes.append(scope)
+            return []
+
+        service._compute_prediction_from_repository = compute
+        service._generate_prediction_datasets("formal")
+
+        today_items = service._prediction_cache["today"][1]
+        self.assertEqual(computed_scopes, ["next_day"])
+        self.assertEqual(today_items[0]["deviationLabel"], "9日 +94.43%")
+        self.assertEqual(today_items[0]["targetTradeDate"], "20261016")
+        self.assertEqual(today_items[0]["scope"], "当日")
+        self.assertEqual(service._prediction_trade_date["today"], "20261016")
+
+    def test_today_dataset_refuses_same_day_baseline_when_prior_forecast_missing(self):
+        service = self.service
+        service._calc_repository = SimpleNamespace(available=False)
+        service._latest_data_stage_date = lambda: ("20261016", "formal")
+        service.client.trade_cal = lambda *_args: SimpleNamespace(to_dict=lambda *_args, **_kwargs: [
+            {"cal_date": "20261016", "is_open": 1}, {"cal_date": "20261019", "is_open": 1},
+        ])
+        service._prediction_record = lambda *_args, **_kwargs: None
+        computed_scopes = []
+        service._compute_prediction_from_repository = lambda scope, **_kwargs: computed_scopes.append(scope) or []
+
+        service._generate_prediction_datasets("formal")
+
+        self.assertEqual(computed_scopes, ["next_day"])
+        self.assertNotIn("today", service._prediction_cache)
+        self.assertIn("缺少 20261016 前一交易日生成的完整次日候选集", service._prediction_last_error["today"])
+
     def test_single_stock_detail_accepts_partial_common_history(self):
         service = self.service
         service._calc_repository = SimpleNamespace(get_index=lambda _code: {
@@ -686,6 +737,30 @@ class MarketVectorTests(unittest.TestCase):
         metrics = service._vector_metrics(trimmed_stock, trimmed_index, BOARD_RULES[Board.CHINEXT])
         self.assertEqual(metrics["window_lengths"][30], 1)
         self.assertAlmostEqual(metrics["deviations"][30], 20.0)
+
+    def test_official_severe_notice_reset_date_survives_broker_primary_label(self):
+        """10/08 官方公告确认触发周期结束后，从 10/09 的收益区间重新累计。"""
+        service = self.service
+        service._clock = lambda: datetime(2026, 10, 16)
+        service.set_monitor_provider(lambda: {"items": [{
+            "symbol": "301190", "riskTone": "severe-10d",
+            "sourceType": "broker-risk-alert", "sourceRole": "broker_primary",
+            "ruleResetConfirmed": True, "ruleResetDate": "20261009",
+            "monitorDates": ["2026-10-09", "2026-10-12", "2026-10-13"],
+            "monitorEndDate": "2026-10-22",
+        }]})
+        stock = {"ts_code": "301190.SZ", "symbol": "301190"}
+        dates = ["2026-10-08", "2026-10-09", "2026-10-12", "2026-10-13"]
+        stock_vector = [{"date": day, "return": 50.0 if day == dates[0] else 2.0} for day in dates]
+        index_vector = [{"date": day, "return": 0.0} for day in dates]
+
+        trimmed_stock, trimmed_index, meta, _ = service._rule_vectors_for_stock(stock, stock_vector, index_vector)
+
+        self.assertEqual(meta["ruleResetDate"], "20261009")
+        self.assertEqual([item["date"] for item in trimmed_stock], dates[1:])
+        self.assertEqual([item["date"] for item in trimmed_index], dates[1:])
+        metrics = service._vector_metrics(trimmed_stock, trimmed_index, BOARD_RULES[Board.CHINEXT])
+        self.assertAlmostEqual(metrics["deviations"][3], 6.1208, places=3)
 
     def test_xinhua_resume_counts_one_valid_return_after_three_day_suspension(self):
         """新华传媒 10/13-10/15 停牌、10/16 复牌，不能把停牌日算成四个行情日。"""

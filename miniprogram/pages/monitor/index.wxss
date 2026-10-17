@@ -18,7 +18,7 @@
   text-align: center;
   white-space: nowrap;
 }
-.filter-segment-risk, .filter-segment-severe {
+.filter-segment-risk, .filter-segment-severe, .filter-segment-delisting {
   flex-basis: auto;
   width: auto;
   min-width: 112rpx;
@@ -27,7 +27,8 @@
 .filter-segment-all { font-size: 20rpx; }
 .filter-segment.active,
 .filter-segment-risk.active,
-.filter-segment-severe.active { border-color: #E49A8E; background: #FDEBE8; color: #C0271E; box-shadow: none; }
+.filter-segment-severe.active,
+.filter-segment-delisting.active { border-color: #E49A8E; background: #FDEBE8; color: #C0271E; box-shadow: none; }
 .snapshot-row { position: relative; display: flex; height: 48rpx; min-height: 48rpx; align-items: center; margin-top: 12rpx; box-sizing: border-box; }
 .snapshot-summary { display: flex; min-width: 0; max-width: 100%; align-items: baseline; gap: 10rpx; color: #6B7280; font-size: 22rpx; line-height: 30rpx; white-space: nowrap; overflow: hidden; }
 .snapshot-count { color: #1A1A1A; font-size: 28rpx; font-weight: 700; font-variant-numeric: tabular-nums; }
@@ -55,6 +56,7 @@
 .monitor-page .badge-ordinary { background: #FFFCF8; color: #8A6D0B; }
 .monitor-page .badge-severe-10d { background: #FFF7F2; color: #E0501F; }
 .monitor-page .badge-severe-30d { background: #FDF3F2; color: #C0271E; }
+.monitor-page .badge-delisting-warning { background: #FFF7F2; color: #C0271E; }
 .row-grid { display: none; }
 .grid-label { display: block; color: #8E8E93; font-size: 19rpx; line-height: 26rpx; }
 .grid-value { display: block; margin-top: 4rpx; color: #1C1C1E; font-size: 22rpx; font-weight: 500; line-height: 30rpx; font-variant-numeric: tabular-nums; }
@@ -96,6 +98,7 @@
 .monitor-page .badge-ordinary,
 .monitor-page .badge-severe-10d,
 .monitor-page .badge-severe-30d { background: #F2F3F5 !important; }
+.monitor-page .badge-delisting-warning { background: #F2F3F5 !important; }
 .monitor-page .error-state { border-color: #D1D5DB !important; background: #F2F3F5 !important; color: #4B5563 !important; }
 
 .monitor-page .snapshot-summary { width: 100%; }
@@ -105,6 +108,7 @@
 .monitor-page .badge-ordinary,
 .monitor-page .badge-severe-10d,
 .monitor-page .badge-severe-30d { padding: 2rpx 10rpx !important; border: 2rpx solid #D93025 !important; border-radius: 8rpx; background: #FFF5F5 !important; color: #D93025 !important; line-height: 30rpx; }
+.monitor-page .badge-delisting-warning { padding: 2rpx 10rpx !important; border: 2rpx solid #D93025 !important; border-radius: 8rpx; background: #FFF5F5 !important; color: #D93025 !important; line-height: 30rpx; }
 .monitor-page .days-number { color: #D93025 !important; }
 
 /* Refresh control contract shared with the prediction page. */
