@@ -91,7 +91,7 @@ Page({
     }, 1200)
   },
   applyFilters(items) {
-    let filtered = items.map(item => ({
+    let filtered = items.filter(isVisibleMonitorItem).map(item => ({
       ...item,
       // 剩余自然日由后端计算，前端只负责格式化展示。
       days: formatRemainingDays(item.days),
@@ -127,3 +127,14 @@ function formatRemainingDays(value) {
   if (!Number.isFinite(number)) return String(value)
   return String(Math.max(0, Math.trunc(number))).padStart(2, '0')
 }
+
+function isVisibleMonitorItem(item) {
+  // 退市整理单独保留；风险提示与严重异动按产品去杂规则只影响页面展示。
+  if (item.riskTone === 'delisting-warning') return true
+  if (!['ordinary', 'severe-10d', 'severe-30d'].includes(item.riskTone)) return true
+  const code = String(item.symbol || item.ts_code || '').match(/\d{6}/)
+  const name = String(item.name || '').replace(/\s+/g, '').toUpperCase()
+  return !(code && /^[15]/.test(code[0])) && !/^\*?ST/.test(name) && !name.includes('退')
+}
+
+if (typeof module !== 'undefined') module.exports = { isVisibleMonitorItem }

@@ -52,7 +52,7 @@ class SevereThreshold:
     down: float  # 下跌方向阈值，例如 -50 表示 -50%。
 
     def triggered(self, deviation: float) -> bool:
-        """判断上涨偏离值是否达到监管线；下跌方向不触发。"""
+        """判断上涨偏离值是否达到上涨监管线；下跌线由调用方单独比较。"""
 
         return deviation >= self.up
 
@@ -147,6 +147,8 @@ class SevereAbnormalResult:
     same_direction: Direction  # 统计得到的主要方向。
     up_count: int = 0  # 最近 10 个交易日内上涨方向普通异动次数。
     down_count: int = 0  # 最近 10 个交易日内下跌方向普通异动次数。
+    severe_10d_down: Optional[DeviationResult] = None
+    severe_30d_down: Optional[DeviationResult] = None
 
     @property
     def triggered(self) -> bool:
@@ -155,6 +157,8 @@ class SevereAbnormalResult:
         return bool(
             self.severe_10d
             or self.severe_30d
+            or self.severe_10d_down
+            or self.severe_30d_down
             or self.same_direction_count >= self.same_direction_threshold
         )
 
@@ -282,7 +286,7 @@ def detect_ordinary_abnormal(
         window_stock = stock_bars[end - rule.ordinary_days : end + 1]
         window_index = index_bars[end - rule.ordinary_days : end + 1]
         result = calculate_deviation(window_stock, window_index, rule.ordinary_days)
-        if result.deviation >= rule.ordinary_deviation:
+        if abs(result.deviation) >= rule.ordinary_deviation:
             records.append(
                 OrdinaryAbnormal(
                     start_date=result.start_date,
@@ -342,7 +346,7 @@ def _turnover_abnormal(
 
 
 def _count_same_direction(records: Iterable[OrdinaryAbnormal]) -> Tuple[int, Direction, int, int]:
-    """统计窗口内上涨方向普通异动段，重叠窗口只计一次。
+    """分别统计窗口内上涨/下跌普通异动段，同方向重叠窗口只计一次。
 
     交易所的 3 日异动是滚动窗口。连续上涨会让相邻窗口重复覆盖同一段
     行情；只有新的窗口不再与上一段重叠时，才算新的同向异动次数。
@@ -352,39 +356,45 @@ def _count_same_direction(records: Iterable[OrdinaryAbnormal]) -> Tuple[int, Dir
         (item for item in records if item.counts_for_same_direction and item.direction is not Direction.NONE),
         key=lambda item: (item.end_date, item.start_date),
     )
-    up_count = 0
-    previous = None
-    for item in directional_records:
-        # 最新业务规则只认上涨异动；下跌记录即使来自兼容数据，也不得进入计数。
-        if item.direction is not Direction.UP:
-            continue
-        if previous is not None and item.start_date <= previous.end_date:
-            continue
-        up_count += 1
-        previous = item
-    if up_count == 0:
-        return 0, Direction.NONE, 0, 0
-    return up_count, Direction.UP, up_count, 0
+    def count(direction: Direction) -> int:
+        direction_records = [item for item in directional_records if item.direction is direction]
+        found = 0
+        previous = None
+        for item in direction_records:
+            # Adjacent events may share only the boundary close; that does not
+            # mean they share a daily return interval.
+            if previous is not None and item.start_date < previous.end_date:
+                continue
+            found += 1
+            previous = item
+        return found
+
+    up_count = count(Direction.UP)
+    down_count = count(Direction.DOWN)
+    major_direction = Direction.UP if up_count > down_count else Direction.DOWN if down_count > up_count else Direction.NONE
+    return max(up_count, down_count), major_direction, up_count, down_count
 
 
 def _best_effective_deviation(
     stock_bars: Sequence[PriceBar],
     index_bars: Sequence[PriceBar],
     max_window: int,
+    direction: Direction = Direction.UP,
 ) -> Optional[DeviationResult]:
-    """在规则回看上限内选择最大上涨偏离，不要求区间结束于最新交易日。
+    """在规则回看上限内选指定方向的极值，不要求区间结束于最新交易日。
 
-    10/30 日规则最多使用最近 N 个共同交易日、即 N-1 个有效收益区间；
+    10/30 日规则最多使用最近 N 个共同交易日收益区间；
     3 日规则最多使用 3 个收益区间。对回看范围内所有连续子区间计算偏离，
     选择最大正向值并返回真实起止日期和窗口长度。
     """
 
     _validate_bars(stock_bars, index_bars)
-    # 10/30 日规则由 N 个价格点构成，收益率区间最多为 N-1 个；3 日
-    # 规则最多取 3 个收益率区间。
-    upper_limit = max_window - 1 if max_window in (10, 30) else max_window
-    stock_bars = stock_bars[-max_window:]
-    index_bars = index_bars[-max_window:]
+    # All rule windows count daily return intervals. N returns need N+1 close
+    # points, including the pre-period baseline close.
+    upper_limit = max_window
+    price_points = max_window + 1
+    stock_bars = stock_bars[-price_points:]
+    index_bars = index_bars[-price_points:]
     upper = min(upper_limit, len(stock_bars) - 1)
     lower = 1
     if upper < lower:
@@ -393,10 +403,12 @@ def _best_effective_deviation(
     for end in range(1, len(stock_bars)):
         for window in range(lower, min(upper, end) + 1):
             results.append(calculate_deviation(stock_bars[: end + 1], index_bars[: end + 1], window))
-    positive = [item for item in results if item.deviation > 0]
-    if positive:
-        return max(positive, key=lambda item: (item.deviation, -item.window_days))
-    return min(results, key=lambda item: (item.deviation, item.window_days))
+    candidates = [item for item in results if item.direction is direction]
+    if not candidates:
+        return None
+    if direction is Direction.UP:
+        return max(candidates, key=lambda item: (item.deviation, -item.window_days))
+    return min(candidates, key=lambda item: (item.deviation, item.window_days))
 
 
 def detect_severe_abnormal(
@@ -410,12 +422,20 @@ def detect_severe_abnormal(
     rule = BOARD_RULES[board]
     severe_10d = None
     severe_30d = None
-    result_10d = _best_effective_deviation(stock_bars, index_bars, 10)
+    severe_10d_down = None
+    severe_30d_down = None
+    result_10d = _best_effective_deviation(stock_bars, index_bars, 10, Direction.UP)
     if result_10d is not None and rule.severe_10d_threshold.triggered(result_10d.deviation):
         severe_10d = result_10d
-    result_30d = _best_effective_deviation(stock_bars, index_bars, 30)
+    result_10d_down = _best_effective_deviation(stock_bars, index_bars, 10, Direction.DOWN)
+    if result_10d_down is not None and result_10d_down.deviation <= rule.severe_10d_threshold.down:
+        severe_10d_down = result_10d_down
+    result_30d = _best_effective_deviation(stock_bars, index_bars, 30, Direction.UP)
     if result_30d is not None and rule.severe_30d_threshold.triggered(result_30d.deviation):
         severe_30d = result_30d
+    result_30d_down = _best_effective_deviation(stock_bars, index_bars, 30, Direction.DOWN)
+    if result_30d_down is not None and result_30d_down.deviation <= rule.severe_30d_threshold.down:
+        severe_30d_down = result_30d_down
     ordinary_records = detect_ordinary_abnormal(stock_bars, index_bars, board)
     # 按最近 10 个交易日的日期窗口统计，不能按记录条数截断；同一窗口可能同时
     # 触发偏离值和换手率两条普通异常记录。
@@ -430,6 +450,8 @@ def detect_severe_abnormal(
     return SevereAbnormalResult(
         severe_10d=severe_10d,
         severe_30d=severe_30d,
+        severe_10d_down=severe_10d_down,
+        severe_30d_down=severe_30d_down,
         same_direction_count=same_count,
         same_direction_threshold=rule.severe_same_direction_count,
         same_direction=same_direction,

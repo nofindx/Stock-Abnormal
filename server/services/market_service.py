@@ -29,7 +29,7 @@ BOARD_BY_MARKET = {"主板": Board.MAIN, "创业板": Board.CHINEXT, "科创板"
 SHANGHAI_TZ = ZoneInfo("Asia/Shanghai") if ZoneInfo else timezone(timedelta(hours=8))
 # 停牌/复牌重置、上涨同向计数和预测阶段切换属于同一套规则口径。
 # 版本变化会触发服务启动时从已确认收盘行情重建计算基础数据与预测集。
-PREDICTION_RULE_VERSION = "2026-10-unified-max-contiguous-window-v40"
+PREDICTION_RULE_VERSION = "2026-10-unified-max-contiguous-window-v43"
 
 
 class CalculationDataUnavailable(RuntimeError):
@@ -1074,30 +1074,34 @@ class MarketService:
         deviations: Dict[int, Optional[float]],
         same_up: int,
         rule: Any,
+        down_deviations: Optional[Dict[int, Optional[float]]] = None,
+        same_down: int = 0,
     ) -> tuple[str, str]:
-        """统一股票状态：正常（绿）/ 警示（黄）/ 触及（红）。"""
+        """单股状态覆盖交易所上涨、下跌两方向的偏离阈值和同向次数。"""
 
-        if deviations.get(30) is not None and rule.severe_30d_threshold.triggered(deviations[30]):
+        down_deviations = down_deviations or {}
+        if (deviations.get(30) is not None and rule.severe_30d_threshold.triggered(deviations[30])) or (down_deviations.get(30) is not None and down_deviations[30] <= rule.severe_30d_threshold.down):
             return "触及", "severe"
-        if deviations.get(10) is not None and rule.severe_10d_threshold.triggered(deviations[10]):
+        if (deviations.get(10) is not None and rule.severe_10d_threshold.triggered(deviations[10])) or (down_deviations.get(10) is not None and down_deviations[10] <= rule.severe_10d_threshold.down):
             return "触及", "severe"
         # 3 日普通异动是警示；10 日同向达到次数阈值属于 10 日严重异常。
-        if same_up >= rule.severe_same_direction_count:
+        if max(same_up, same_down) >= rule.severe_same_direction_count:
             return "触及", "severe"
-        if deviations.get(3) is not None and deviations[3] >= rule.ordinary_deviation:
+        if (deviations.get(3) is not None and deviations[3] >= rule.ordinary_deviation) or (down_deviations.get(3) is not None and down_deviations[3] <= -rule.ordinary_deviation):
             return "警示", "risk"
         return "正常", "safe"
 
     @staticmethod
-    def _status_reason_for_metrics(deviations: Dict[int, Optional[float]], same_up: int, rule: Any) -> str:
+    def _status_reason_for_metrics(deviations: Dict[int, Optional[float]], same_up: int, rule: Any, down_deviations: Optional[Dict[int, Optional[float]]] = None, same_down: int = 0) -> str:
+        down_deviations = down_deviations or {}
         reasons = []
-        if deviations.get(30) is not None and rule.severe_30d_threshold.triggered(deviations[30]):
+        if (deviations.get(30) is not None and rule.severe_30d_threshold.triggered(deviations[30])) or (down_deviations.get(30) is not None and down_deviations[30] <= rule.severe_30d_threshold.down):
             reasons.append("30 日严重异动")
-        if deviations.get(10) is not None and rule.severe_10d_threshold.triggered(deviations[10]):
+        if (deviations.get(10) is not None and rule.severe_10d_threshold.triggered(deviations[10])) or (down_deviations.get(10) is not None and down_deviations[10] <= rule.severe_10d_threshold.down):
             reasons.append("10 日严重异动")
-        if same_up >= rule.severe_same_direction_count:
+        if max(same_up, same_down) >= rule.severe_same_direction_count:
             reasons.append("10 日同向次数")
-        if deviations.get(3) is not None and deviations[3] >= rule.ordinary_deviation:
+        if (deviations.get(3) is not None and deviations[3] >= rule.ordinary_deviation) or (down_deviations.get(3) is not None and down_deviations[3] <= -rule.ordinary_deviation):
             reasons.append("3 日普通异动")
         return "、".join(f"{reason}已触发" for reason in reasons)
 
@@ -1259,8 +1263,8 @@ class MarketService:
     def _best_vector_deviation(cls, stock: List[Dict[str, Any]], index: List[Dict[str, Any]], max_window: int) -> tuple[Optional[float], Optional[int]]:
         """计算规则回看范围内所有连续区间的最大上涨偏离及实际窗口。
 
-        10/30 日规则的“连续 N 个交易日内”是价格日回看上限：最近 N 个共同
-        交易日形成至多 N-1 个收益率区间。区间可以在回看范围内任意位置结束，
+        10/30 日规则的“连续 N 个交易日内”最多使用 N 个共同日收益区间。
+        区间可以在回看范围内任意位置结束，
         不要求最新交易日必须落在区间内。3 日规则最多检查 3 个收益区间。
         这必须与
         ``server.core.abnormal_rules._best_effective_deviation`` 保持一致，
@@ -1273,9 +1277,9 @@ class MarketService:
         dates = sorted(set(stock_map) & set(index_map))
         if len(dates) < 1:
             return None, None
-        # 10/30 日规则由价格日上限对应 N-1 个收益区间；3 日普通规则也
-        # 统一采用同一套“当前端点向前取最大上涨区间”算法，最多取 3 个区间。
-        upper_limit = max_window - 1 if max_window in (10, 30) else max_window
+        # Window sizes count daily return intervals. A 10-day rule can use up
+        # to 10 dated returns; its price baseline is the close before them.
+        upper_limit = max_window
         dates = dates[-max_window:]
         upper = min(upper_limit, len(dates))
         if upper < 1:
@@ -1290,6 +1294,23 @@ class MarketService:
         if positive:
             return max(positive, key=lambda item: (item[0], -item[1]))
         return min(results, key=lambda item: (item[0], item[1]))
+
+    @classmethod
+    def _vector_deviation_values(cls, stock: List[Dict[str, Any]], index: List[Dict[str, Any]], max_window: int) -> List[tuple[float, int]]:
+        """Return every valid subwindow deviation so the single-stock view can expose both tails."""
+        stock_map = {item.get("date"): float(item.get("return")) for item in stock if item.get("date")}
+        index_map = {item.get("date"): float(item.get("return")) for item in index if item.get("date")}
+        dates = sorted(set(stock_map) & set(index_map))[-max_window:]
+        values = []
+        for end in range(len(dates)):
+            for start in range(end + 1):
+                interval = dates[start:end + 1]
+                values.append((
+                    cls._compound(stock_map[day] for day in interval)
+                    - cls._compound(index_map[day] for day in interval),
+                    len(interval),
+                ))
+        return values
 
     @classmethod
     def _required_up_percent(
@@ -1353,34 +1374,48 @@ class MarketService:
         """
 
         deviations = {}
+        up_deviations = {}
+        down_deviations = {}
         window_lengths = {}
+        up_window_lengths = {}
+        down_window_lengths = {}
         for window in (3, 10, 30):
             deviations[window], window_lengths[window] = cls._best_vector_deviation(stock, index, window)
+            pairs = cls._vector_deviation_values(stock, index, window)
+            up_pair = max((item for item in pairs if item[0] > 0), default=(None, None), key=lambda item: item[0])
+            down_pair = min((item for item in pairs if item[0] < 0), default=(None, None), key=lambda item: item[0])
+            up_deviations[window], up_window_lengths[window] = up_pair
+            down_deviations[window], down_window_lengths[window] = down_pair
         stock_map = {item["date"]: item["return"] for item in stock if item.get("date")}
         index_map = {item["date"]: item["return"] for item in index if item.get("date")}
         common_dates = sorted(set(stock_map) & set(index_map))[-10:]
-        if not common_dates:
-            common_dates = list(range(min(len(stock), len(index))))[-10:]
-            stock_values = cls._vector_numbers(stock[-len(common_dates):])
-            index_values = cls._vector_numbers(index[-len(common_dates):])
-        else:
-            stock_values = [stock_map[item] for item in common_dates]
-            index_values = [index_map[item] for item in common_dates]
-        up_count = 0
-        end = 2
-        while end < len(stock_values):
-            deviation = cls._compound(stock_values[end - 2 : end + 1]) - cls._compound(index_values[end - 2 : end + 1])
-            if deviation >= rule.ordinary_deviation:
-                up_count += 1
-            # 命中的 3 日区间被消费；下一个事件必须从未消费的交易日开始，
-            # 避免相邻滚动窗口把同一段连续行情重复计数。
-            end += 3 if deviation >= rule.ordinary_deviation else 1
+        # Never pair stock and index returns by array position: missing or
+        # mismatched dates are unavailable data, not evidence of no risk.
+        stock_values = [stock_map[item] for item in common_dates]
+        index_values = [index_map[item] for item in common_dates]
+        def count_direction(sign: int) -> int:
+            count = 0
+            end = 2
+            while end < len(stock_values):
+                deviation = cls._compound(stock_values[end - 2 : end + 1]) - cls._compound(index_values[end - 2 : end + 1])
+                triggered = deviation >= rule.ordinary_deviation if sign > 0 else deviation <= -rule.ordinary_deviation
+                if triggered:
+                    count += 1
+                # Each direction consumes only its own overlapping windows.
+                end += 3 if triggered else 1
+            return count
+
+        up_count = count_direction(1)
+        down_count = count_direction(-1)
         return {
             "deviations": deviations,
+            "up_deviations": up_deviations,
+            "down_deviations": down_deviations,
             "window_lengths": window_lengths,
+            "up_window_lengths": up_window_lengths,
+            "down_window_lengths": down_window_lengths,
             "up": up_count,
-            # 保留字段以兼容旧页面/日志，但下跌不再是业务统计结果。
-            "down": 0,
+            "down": down_count,
             "same": up_count,
         }
 
@@ -1517,8 +1552,8 @@ class MarketService:
             index_vector = self._apply_quote_to_vector(index_vector, index.get("latest_close"), index_quote)
         metrics = self._vector_metrics(stock_vector, index_vector, rule)
         deviations = metrics["deviations"]
-        # 展示和状态只使用上涨同向次数；下跌次数仅作为诊断数据保留。
-        same_count = metrics["up"]
+        down_deviations = metrics["down_deviations"]
+        same_count = max(metrics["up"], metrics["down"])
         severe = SimpleNamespace(
             same_direction_count=same_count,
             same_direction_threshold=rule.severe_same_direction_count,
@@ -1528,10 +1563,14 @@ class MarketService:
                 deviations.get(10) is not None and rule.severe_10d_threshold.triggered(deviations[10])
             ) or (
                 deviations.get(30) is not None and rule.severe_30d_threshold.triggered(deviations[30])
+            ) or (
+                down_deviations.get(10) is not None and down_deviations[10] <= rule.severe_10d_threshold.down
+            ) or (
+                down_deviations.get(30) is not None and down_deviations[30] <= rule.severe_30d_threshold.down
             ) or same_count >= rule.severe_same_direction_count,
         )
-        status, status_class = self._status_for_metrics(deviations, metrics["up"], rule)
-        status_reason = self._status_reason_for_metrics(deviations, metrics["up"], rule)
+        status, status_class = self._status_for_metrics(deviations, metrics["up"], rule, down_deviations, metrics["down"])
+        status_reason = self._status_reason_for_metrics(deviations, metrics["up"], rule, down_deviations, metrics["down"])
         display_status = "监管中" if monitoring else ("状态安全" if status == "正常" else "状态异常")
         display_status_class = "monitoring" if monitoring else status_class
         market_status_display = f"已触发 · {status_reason}" if status_reason else "当前行情规则未触发"
@@ -1549,10 +1588,10 @@ class MarketService:
             future_dates = []
         common_days = len(set(item.get("date") for item in stock_vector if item.get("date")) & set(item.get("date") for item in index_vector if item.get("date")))
         warnings = [
-            {"title": "3 日偏离", "value": _pct(deviations[3]), "actualWindow": metrics["window_lengths"][3], "target": f"阈值 +{rule.ordinary_deviation:.0f}%" if deviations[3] is not None else "数据不足（无有效共同收益区间）", "className": "risk" if deviations[3] is not None and deviations[3] >= rule.ordinary_deviation else "safe" if deviations[3] is not None else "neutral"},
-            {"title": "10 日偏离", "value": _pct(deviations[10]), "actualWindow": metrics["window_lengths"][10], "target": f"阈值 +{rule.severe_10d_threshold.up:.0f}%" if deviations[10] is not None else "数据不足（无有效共同收益区间）", "className": "risk" if deviations[10] is not None and rule.severe_10d_threshold.triggered(deviations[10]) else "safe" if deviations[10] is not None else "neutral"},
-            {"title": "30 日偏离", "value": _pct(deviations[30]), "actualWindow": metrics["window_lengths"][30], "target": f"阈值 +{rule.severe_30d_threshold.up:.0f}%" if deviations[30] is not None else "数据不足（无有效共同收益区间）", "className": "risk" if deviations[30] is not None and rule.severe_30d_threshold.triggered(deviations[30]) else "safe" if deviations[30] is not None else "neutral"},
-            {"title": "10 日同向", "value": "", "up": str(metrics["up"]), "down": str(metrics["down"]), "target": f"阈值 {rule.severe_same_direction_count} 次", "className": "risk" if same_count >= rule.severe_same_direction_count else "safe"},
+            self._single_warning(3, metrics["up_deviations"][3], down_deviations[3], metrics["up_window_lengths"][3], metrics["down_window_lengths"][3], rule.ordinary_deviation, -rule.ordinary_deviation),
+            self._single_warning(10, metrics["up_deviations"][10], down_deviations[10], metrics["up_window_lengths"][10], metrics["down_window_lengths"][10], rule.severe_10d_threshold.up, rule.severe_10d_threshold.down),
+            self._single_warning(30, metrics["up_deviations"][30], down_deviations[30], metrics["up_window_lengths"][30], metrics["down_window_lengths"][30], rule.severe_30d_threshold.up, rule.severe_30d_threshold.down),
+            {"title": "10 日同向", "value": "", "up": str(metrics["up"]), "down": str(metrics["down"]), "target": f"阈值 {rule.severe_same_direction_count} 次", "className": "risk" if max(metrics["up"], metrics["down"]) >= rule.severe_same_direction_count else "safe"},
         ]
         return {
             **stock,
@@ -1576,7 +1615,7 @@ class MarketService:
             "simulationBase": {"stock": self._vector_numbers(stock_vector), "index": self._vector_numbers(index_vector)},
             "calculationInput": {"stock": stock_vector, "index": index_vector, "ordinaryDeviation": rule.ordinary_deviation, "severe10": {"up": rule.severe_10d_threshold.up, "down": rule.severe_10d_threshold.down}, "severe30": {"up": rule.severe_30d_threshold.up, "down": rule.severe_30d_threshold.down}, "sameDirectionThreshold": rule.severe_same_direction_count, "ruleVersion": PREDICTION_RULE_VERSION},
             "simulationThresholds": {
-                "3": {"up": rule.ordinary_deviation},
+                "3": {"up": rule.ordinary_deviation, "down": -rule.ordinary_deviation},
                 "10": {"up": rule.severe_10d_threshold.up, "down": rule.severe_10d_threshold.down},
                 "30": {"up": rule.severe_30d_threshold.up, "down": rule.severe_30d_threshold.down},
             },
@@ -1600,6 +1639,24 @@ class MarketService:
                     if common_days < 30 else ""
                 ) + (("；" if common_days < 30 else "") + "实时行情暂不可用" if not realtime else ""),
             },
+        }
+
+    @staticmethod
+    def _single_warning(days: int, up_value: Optional[float], down_value: Optional[float], up_window: Optional[int], down_window: Optional[int], up_threshold: float, down_threshold: float) -> Dict[str, Any]:
+        up_triggered = up_value is not None and up_value >= up_threshold
+        down_triggered = down_value is not None and down_value <= down_threshold
+        return {
+            "title": f"{days} 日偏离",
+            "value": _pct(up_value if up_value is not None and up_value > 0 else None),
+            "upValue": _pct(up_value if up_value is not None and up_value > 0 else None),
+            "downValue": _pct(down_value),
+            "actualWindow": up_window,
+            "upWindow": up_window,
+            "downWindow": down_window,
+            "target": f"阈值 +{up_threshold:.0f}% / {down_threshold:.0f}%",
+            "upTriggered": up_triggered,
+            "downTriggered": down_triggered,
+            "className": "risk" if up_triggered or down_triggered else "safe",
         }
 
     def _market_scheduler_loop(self) -> None:

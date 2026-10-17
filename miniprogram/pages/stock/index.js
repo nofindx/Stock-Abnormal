@@ -80,7 +80,7 @@ function cumulativeReturn(values) {
 
 function bestDeviation(stockValues, indexValues, maxWindow) {
   // 与后端 _best_vector_deviation 保持一致：枚举回看窗口内所有连续收益区间。
-  const upperLimit = maxWindow === 10 || maxWindow === 30 ? maxWindow - 1 : maxWindow
+  const upperLimit = maxWindow
   const count = Math.min(maxWindow, stockValues.length, indexValues.length)
   const stocks = stockValues.slice(-count)
   const indexes = indexValues.slice(-count)
@@ -102,7 +102,7 @@ function bestDeviation(stockValues, indexValues, maxWindow) {
   candidates.sort((left, right) => positive.length
     ? right.value - left.value || left.window - right.window
     : left.value - right.value || left.window - right.window)
-  return candidates[0]
+  return { ...candidates[0], downValue: Math.min(...results.map(item => item.value)) }
 }
 
 function calculateSimulationRows(rows, detail) {
@@ -131,15 +131,18 @@ function calculateSimulationRows(rows, detail) {
       ? Number(detail.simulationThresholds['3'].up)
       : detail && detail.calculationInput ? Number(detail.calculationInput.ordinaryDeviation) : NaN
     const safetyMetrics = [
-      { deviation: deviation3, threshold: ordinaryThreshold },
-      { deviation: deviation10, threshold: thresholds['10'] && Number(thresholds['10'].up) },
-      { deviation: deviation30, threshold: thresholds['30'] && Number(thresholds['30'].up) }
-    ].filter(item => item.deviation != null && Number.isFinite(item.threshold))
+      { deviation: deviation3, downValue: metric3.downValue, up: ordinaryThreshold, down: thresholds['3'] && Number(thresholds['3'].down) },
+      { deviation: deviation10, downValue: metric10.downValue, up: thresholds['10'] && Number(thresholds['10'].up), down: thresholds['10'] && Number(thresholds['10'].down) },
+      { deviation: deviation30, downValue: metric30.downValue, up: thresholds['30'] && Number(thresholds['30'].up), down: thresholds['30'] && Number(thresholds['30'].down) }
+    ].filter(item => (item.deviation != null || item.downValue != null) && (Number.isFinite(item.up) || Number.isFinite(item.down)))
     const safety = safetyMetrics.length === 0
       ? '--'
-      : safetyMetrics.some(item => item.deviation >= item.threshold)
+      : safetyMetrics.some(item => (Number.isFinite(item.up) && item.deviation != null && item.deviation >= item.up) || (Number.isFinite(item.down) && item.downValue != null && item.downValue <= item.down))
         ? '已触发'
-        : `${Math.min(...safetyMetrics.map(item => Math.max(0, item.threshold - item.deviation))).toFixed(2)}%`
+        : `${Math.min(...safetyMetrics.flatMap(item => [
+          Number.isFinite(item.up) && item.deviation != null ? Math.max(0, item.up - item.deviation) : Infinity,
+          Number.isFinite(item.down) && item.downValue != null ? Math.max(0, item.downValue - item.down) : Infinity
+        ])).toFixed(2)}%`
     const currentDeviation = deviation10 == null ? (deviation3 == null ? 0 : deviation3) : deviation10
     const deviationClass = value => value == null ? '' : value > 0 ? 'risk' : value < 0 ? 'safe' : ''
     return {
@@ -178,26 +181,35 @@ function presentWarnings(warnings = []) {
       const up = Number(item.up || 0)
       const match = String(item.target || '').match(/(\d+(?:\.\d+)?)\s*次/)
       const limit = match ? Number(match[1]) : 0
-      const count = up
+      const down = Number(item.down || 0)
+      const count = Math.max(up, down)
       const progress = limit > 0 ? Math.min(100, count / limit * 100) : 0
       const tone = limit <= 0 ? 'unknown' : progress >= 100 ? 'triggered' : progress >= 66.6667 ? 'warning' : 'safe'
-      return { ...item, currentText: `上涨 ${up} 次`, remainingText: tone === 'triggered' ? '已触及' : `还差 ${Math.max(0, limit - count)} 次`, ringText: tone === 'triggered' ? '已触及' : tone === 'unknown' ? '--' : `${Math.max(0, limit - count)}次`, progress: Number(progress.toFixed(2)), tone, toneColor: colors[tone] }
+      return { ...item, currentText: `涨 ${up} / 跌 ${down} 次`, remainingText: tone === 'triggered' ? '已触及' : `还差 ${Math.max(0, limit - count)} 次`, ringText: tone === 'triggered' ? '已触及' : tone === 'unknown' ? '--' : `${Math.max(0, limit - count)}次`, progress: Number(progress.toFixed(2)), tone, toneColor: colors[tone] }
     }
     const rawValue = String(item.value || '').replace('%', '')
     const value = Number.parseFloat(rawValue)
-    if (!Number.isFinite(value)) return { ...item, currentText: '数据不足', remainingText: '暂不可判定', ringText: '--', progress: 0, tone: 'unknown', toneColor: colors.unknown, valueClass: '' }
+    const downValue = Number.parseFloat(String(item.downValue || '').replace('%', ''))
+    if (!Number.isFinite(value) && !Number.isFinite(downValue)) return { ...item, currentText: '数据不足', remainingText: '暂不可判定', ringText: '--', progress: 0, tone: 'unknown', toneColor: colors.unknown, valueClass: '' }
     const thresholds = String(item.target || '').match(/[+-]?\d+(?:\.\d+)?/g) || []
     const up = Math.abs(Number(thresholds[0] || 0))
-    // 负向偏离仅作为原始值展示，不参与上涨规则的进度、触发或剩余距离。
-    const progress = up > 0 ? Math.min(100, Math.max(0, value) / up * 100) : 0
+    const downThreshold = Math.abs(Number(thresholds[1] || 0))
+    const upProgress = up > 0 && Number.isFinite(value) ? Math.max(0, value) / up * 100 : 0
+    const downProgress = downThreshold > 0 && Number.isFinite(downValue) ? Math.max(0, Math.abs(Math.min(0, downValue))) / downThreshold * 100 : 0
+    const progress = Math.min(100, Math.max(upProgress, downProgress))
     // 黄色仅用于 3 日偏离；10/30 日偏离只有达到严重线才变红，避免把严重指标的接近值误报成警戒。
+    const triggered = Boolean(item.upTriggered || item.downTriggered)
     const tone = item.title === '3 日偏离'
-      ? (progress >= 100 ? 'triggered' : progress >= 66.6667 ? 'warning' : 'safe')
-      : (progress >= 100 ? 'triggered' : 'safe')
-    const remaining = Math.max(0, up - Math.max(0, value))
-    const actualWindow = Number(item.actualWindow)
-    const windowText = Number.isFinite(actualWindow) && actualWindow > 0 ? `${actualWindow} 日 ` : ''
-    return { ...item, currentText: `${windowText}${value >= 0 ? '+' : ''}${value.toFixed(2)}%`, remainingText: tone === 'triggered' ? '已触及' : `还差 ${remaining.toFixed(2)}%`, ringText: tone === 'triggered' ? '已触及' : `${remaining.toFixed(2)}%`, progress: Number(progress.toFixed(2)), tone, toneColor: colors[tone], valueClass: Math.abs(value) >= 100 ? 'metric-current-compact' : '' }
+      ? (triggered ? 'triggered' : progress >= 66.6667 ? 'warning' : 'safe')
+      : (triggered ? 'triggered' : 'safe')
+    const remaining = Math.max(0, Math.min(up - Math.max(0, Number.isFinite(value) ? value : 0), downThreshold - Math.max(0, Number.isFinite(downValue) ? -downValue : 0)))
+    const upWindow = Number(item.upWindow || item.actualWindow)
+    const downWindow = Number(item.downWindow)
+    const upWindowText = Number.isFinite(upWindow) && upWindow > 0 ? `${upWindow}日 ` : ''
+    const downWindowText = Number.isFinite(downWindow) && downWindow > 0 ? `${downWindow}日 ` : ''
+    const upText = Number.isFinite(value) ? `${value >= 0 ? '+' : ''}${value.toFixed(2)}%` : '--'
+    const downText = Number.isFinite(downValue) ? `${downValue.toFixed(2)}%` : '--'
+    return { ...item, currentText: `涨 ${upWindowText}${upText} / 跌 ${downWindowText}${downText}`, remainingText: tone === 'triggered' ? '已触及' : `还差 ${remaining.toFixed(2)}%`, ringText: tone === 'triggered' ? '已触及' : `${remaining.toFixed(2)}%`, progress: Number(progress.toFixed(2)), tone, toneColor: colors[tone], valueClass: Math.max(Number.isFinite(value) ? Math.abs(value) : 0, Number.isFinite(downValue) ? Math.abs(downValue) : 0) >= 100 ? 'metric-current-compact' : '' }
   })
 }
 
@@ -319,4 +331,4 @@ Page({
 })
 
 // 纯计算函数导出给前端回归测试；小程序运行时不影响 Page 注册。
-if (typeof module !== 'undefined') module.exports = { bestDeviation, calculateSimulationRows, createInputRows }
+if (typeof module !== 'undefined') module.exports = { bestDeviation, calculateSimulationRows, createInputRows, presentWarnings }

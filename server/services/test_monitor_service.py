@@ -295,7 +295,7 @@ class MonitorWindowTests(unittest.TestCase):
         result = self.service.read("current", "all")
         self.assertEqual(result["items"][0]["ts_code"], "600825.SH")
 
-    def test_delisting_filter_bypasses_all_noise_rules_but_risk_and_severe_do_not(self):
+    def test_api_keeps_all_current_facts_and_leaves_noise_filtering_to_client(self):
         snapshot = {"snapshotId": "x", "snapshotDate": "2026-10-17", "updatedAt": "2026-10-17 00:00", "dataQuality": {}, "items": [
             {"monitorKey": "risk", "symbol": "002731", "name": "*ST萃华", "monitorEndDate": "2099-01-01", "riskTone": "ordinary", "monitorType": "风险提示"},
             {"monitorKey": "severe", "symbol": "002731", "name": "*ST萃华", "monitorEndDate": "2099-01-01", "riskTone": "severe-10d", "monitorType": "10日严重异动"},
@@ -306,23 +306,30 @@ class MonitorWindowTests(unittest.TestCase):
         delisting_items = self.service.read("current", "delisting")["items"]
         risk_items = self.service.read("current", "risk")["items"]
         severe_items = self.service.read("current", "severe")["items"]
-        self.assertEqual([item["monitorKey"] for item in all_items], ["delisting"])
+        self.assertEqual([item["monitorKey"] for item in all_items], ["risk", "severe", "delisting"])
         self.assertEqual([item["monitorKey"] for item in delisting_items], ["delisting"])
-        self.assertEqual(risk_items, [])
-        self.assertEqual(severe_items, [])
+        self.assertEqual([item["monitorKey"] for item in risk_items], ["risk"])
+        self.assertEqual([item["monitorKey"] for item in severe_items], ["severe"])
 
-    def test_bse_negative_severe_deviation_is_not_monitor_record(self):
+    def test_ingest_does_not_exclude_noise_stocks_from_regulatory_facts(self):
+        self.assertTrue(self.service._is_noise_stock("002731", "*ST萃华"))
+        # The predicate is only a UI display rule; these securities remain valid facts.
+        event = self.event("2026-10-16", "2026-10-30", "ordinary")
+        event.update({"symbol": "002731", "name": "*ST萃华"})
+        self.assertEqual(self.service._collapse_by_stock([event], "2026-10-17")[0]["symbol"], "002731")
+
+    def test_bse_negative_severe_deviation_is_monitor_record(self):
         body = "股票连续4个交易日内日收盘价跌幅偏离值累计达到-61.39%，属于股票交易严重异常波动情形。"
         self.assertEqual(
-            OfficialMonitorService._monitor_type("股票交易严重异常波动公告", body),
-            ("", ""),
+            OfficialMonitorService._classify_monitor_text("股票交易严重异常波动公告", body, "920229"),
+            ("10日严重异动", "severe-10d"),
         )
         self.assertEqual(
-            OfficialMonitorService._monitor_type(
+            OfficialMonitorService._classify_monitor_text(
                 "郑州新世纪数码科技股份有限公司股票交易严重异常波动公告",
-                "连续4个交易日内日收盘价跌幅偏离值累计达到-61.39%，属于股票交易严重异常波动情形。",
+                "连续4个交易日内日收盘价跌幅偏离值累计达到-61.39%，属于股票交易严重异常波动情形。", "920229"
             ),
-            ("", ""),
+            ("10日严重异动", "severe-10d"),
         )
 
     def test_bse_positive_severe_deviation_with_actual_short_window_is_monitor_record(self):
@@ -349,6 +356,22 @@ class MonitorWindowTests(unittest.TestCase):
     def test_semantic_threshold_variants_are_supported(self):
         self.assertEqual(OfficialMonitorService._monitor_type("风险提示", "10 个交易日内涨幅偏离值累计超过100％以上"), ("10日严重异动", "severe-10d"))
         self.assertEqual(OfficialMonitorService._monitor_type("风险提示", "30个交易日内日收盘价格涨幅偏离值累计达到200.15%"), ("30日严重异动", "severe-30d"))
+
+    def test_bse_announcement_classification_uses_bse_thresholds(self):
+        cases = [
+            ("连续10个交易日涨幅偏离值累计达到100%", ("", "")),
+            ("连续10个交易日涨幅偏离值累计达到150%", ("10日严重异动", "severe-10d")),
+            ("连续30个交易日涨幅偏离值累计达到200%", ("", "")),
+            ("连续30个交易日涨幅偏离值累计达到300%", ("30日严重异动", "severe-30d")),
+        ]
+        for body, expected in cases:
+            with self.subTest(body=body):
+                self.assertEqual(
+                    OfficialMonitorService._classify_monitor_text(
+                        "股票交易严重异常波动公告", body, "920229.BJ"
+                    ),
+                    expected,
+                )
 
     def test_actual_short_severe_windows_are_supported_for_shanghai_and_shenzhen(self):
         self.assertEqual(

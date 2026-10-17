@@ -40,7 +40,7 @@ MONITOR_PERIOD_TRADING_DAYS = {
 MONITOR_WINDOW_TRADING_DAYS = MONITOR_PERIOD_TRADING_DAYS
 # 公告分类口径变化时，启动任务主动重采一次当前快照；避免必须等到次日
 # 00:00 才让修复后的北交所严重异动进入重点监控。
-MONITOR_RULE_VERSION = "2026-10-monitor-zts-strict-risk-delisting-countdown-v10"
+MONITOR_RULE_VERSION = "2026-10-monitor-zts-strict-risk-delisting-countdown-v12"
 
 
 class MonitorRepository:
@@ -208,8 +208,6 @@ class OfficialMonitorService:
         today = datetime.now(SHANGHAI_TZ).strftime("%Y-%m-%d")
         active_items = [
             item for item in (snapshot or {}).get("items", [])
-            if item.get("riskTone") == "delisting-warning"
-            or not self._is_noise_stock(item.get("symbol", ""), item.get("name", ""))
             if not self._is_expired(str(item.get("monitorEndDate") or ""), today)
         ]
         return {
@@ -258,7 +256,7 @@ class OfficialMonitorService:
             self._scheduler_stop.wait(60)
 
     @staticmethod
-    def _classify_monitor_text(title: str, body: str) -> tuple[str, str]:
+    def _classify_monitor_text(title: str, body: str, symbol: str = "") -> tuple[str, str]:
         """按公告正文语义分类：30 日、10 日、风险提示；无法确认则丢弃。
 
         交易所公告经常把严重异动窗口写成“连续 6/8 个交易日”，而不是
@@ -273,39 +271,39 @@ class OfficialMonitorService:
         has_10_window = "10个交易日" in text
         def deviation_values(window: str) -> List[float]:
             values: List[float] = []
-            # 只接受上涨/正值。负号不能被当作“可选分隔符”，否则
-            # “跌幅偏离值累计达到-61.39%”会被误判成严重异动。
-            pattern = rf"{window}个交易日.{{0,220}}?(?:涨幅|偏离值).{{0,60}}?(?:达到|超过|为)\+?(\d+(?:\.\d+)?)%"
+            pattern = rf"(?:{window}个交易日.{{0,220}}?|连续\d+个交易日.{{0,220}}?)(?:涨幅|跌幅|偏离值).{{0,60}}?(?:达到|超过|为)([+-]?\d+(?:\.\d+)?)%"
             for match in re.finditer(pattern, text):
                 try:
-                    values.append(float(match.group(1)))
+                    value = float(match.group(1))
+                    fragment = text[max(0, match.start() - 24):match.end()]
+                    if "跌幅" in fragment and value > 0:
+                        value = -value
+                    values.append(value)
                 except ValueError:
                     continue
             return values
 
         values_30 = deviation_values("30")
         values_10 = deviation_values("10")
-        has_30_threshold = any(value >= 200 for value in values_30)
-        has_10_threshold = any(value >= 100 for value in values_10)
+        code_match = re.search(r"\d{6}", str(symbol or ""))
+        is_bse = bool(code_match and code_match.group(0).startswith(("4", "8", "9")))
+        threshold_10 = 150 if is_bse else 100
+        threshold_30 = 300 if is_bse else 200
+        down_10 = -60 if is_bse else -50
+        down_30 = -75 if is_bse else -70
+        has_30_threshold = any(value >= threshold_30 or value <= down_30 for value in values_30)
+        has_10_threshold = any(value >= threshold_10 or value <= down_10 for value in values_10)
         has_risk_wording = OfficialMonitorService._has_exchange_strict_monitoring_wording(text)
         if has_30_window and has_30_threshold:
             return "30日严重异动", "severe-30d"
         if has_10_window and has_10_threshold:
             return "10日严重异动", "severe-10d"
-        # 沪深交易所也会按实际连续交易日数披露严重异动（例如连续 6/8
-        # 个交易日上涨超过 100%）。这是公告事实分类，不改变行情规则的
-        # 固定 10 日判定窗口；负向偏离不在本产品规则范围内。
+        # 公告可能按实际连续交易日数披露本轮 10 日严重异动事实；方向阈值
+        # 仍按该证券板块的 10 日规则核验。
         has_severe_title = "严重异常波动" in str(title or "") or "严重异常波动" in text
-        has_positive_deviation = bool(re.search(
-            r"(?:涨幅|偏离值累计).{0,30}(?:达到|超过|为)\+?(?:1\d{2}|[2-9]\d{2})(?:\.\d+)?%",
-            text,
-        ))
+        has_threshold_deviation = any(value >= threshold_10 or value <= down_10 for value in deviation_values(""))
         has_actual_window = bool(re.search(r"连续\d+个交易日", text))
-        has_explicit_deviation = bool(re.search(
-            r"涨幅.*?偏离值累计(?:达到|超过|为)\+?\d+(?:\.\d+)?%",
-            text,
-        ))
-        if has_severe_title and has_actual_window and (has_positive_deviation or has_explicit_deviation):
+        if has_severe_title and has_actual_window and not has_30_window and has_threshold_deviation:
             return "10日严重异动", "severe-10d"
         if has_risk_wording:
             return "风险提示", "ordinary"
@@ -326,7 +324,7 @@ class OfficialMonitorService:
         return OfficialMonitorService._classify_monitor_text(title, body)
 
     @staticmethod
-    def _issuer_monitor_type(title: str, body: str) -> tuple[str, str]:
+    def _issuer_monitor_type(title: str, body: str, symbol: str = "") -> tuple[str, str]:
         """分类发行人/交易所正文中的监管事实。
 
         发行人公告只有在正文明确出现交易所“进一步从严认定”语义时，
@@ -334,14 +332,14 @@ class OfficialMonitorService:
         或正文中的一般交易风险表述都不能单独入选。
         """
 
-        monitor_type, risk_tone = OfficialMonitorService._classify_monitor_text(title, body)
+        monitor_type, risk_tone = OfficialMonitorService._classify_monitor_text(title, body, symbol)
         if risk_tone:
             return monitor_type, risk_tone
         return ("风险提示", "ordinary") if OfficialMonitorService._has_exchange_strict_monitoring_wording(body) else ("", "")
 
     @staticmethod
-    def _broker_monitor_type(title: str, body: str) -> tuple[str, str]:
-        return OfficialMonitorService._classify_monitor_text(title, body)
+    def _broker_monitor_type(title: str, body: str, symbol: str = "") -> tuple[str, str]:
+        return OfficialMonitorService._classify_monitor_text(title, body, symbol)
 
     @staticmethod
     def _zts_monitor_type(title: str, body: str, hint: str = "") -> tuple[str, str]:
@@ -386,10 +384,10 @@ class OfficialMonitorService:
         return dates, start_date, end_date
 
     @staticmethod
-    def _is_accepted_broker_alert(title: str, body: str) -> bool:
+    def _is_accepted_broker_alert(title: str, body: str, symbol: str = "") -> bool:
         """18.cn 只接受正文能归类为风险提示或严重异动的记录。"""
 
-        return bool(OfficialMonitorService._classify_monitor_text(title, body)[1])
+        return bool(OfficialMonitorService._classify_monitor_text(title, body, symbol)[1])
 
     def _trade_dates(self, source_date: str, days: int) -> List[str]:
         """读取交易日历；数据源暂时不可用时退化为工作日，绝不把自然日冒充交易日。"""
@@ -675,10 +673,8 @@ class OfficialMonitorService:
             raw_announcements: List[Dict[str, Any]] = []
             for announcement in result.get("items", []) if issuer_available else []:
                 title = announcement["title"]
-                if self._is_noise_stock(announcement.get("stockCode", ""), announcement.get("stockName", "")):
-                    continue
                 body = self.announcements.extract_pdf_text(announcement["url"])
-                monitor_type, risk_tone = self._issuer_monitor_type(title, body)
+                monitor_type, risk_tone = self._issuer_monitor_type(title, body, announcement.get("stockCode", ""))
                 # 巨潮资讯是备源：必须按同一正文语义规则确认风险类型，普通公司风险公告丢弃。
                 if not risk_tone:
                     continue
@@ -715,11 +711,9 @@ class OfficialMonitorService:
                 })
             for alert in broker_result.get("items", []) if broker_available else []:
                 # 18.cn 是主源；只有正文满足风险提示或 10/30 日阈值语义才进入重点监控。
-                if not self._is_accepted_broker_alert(alert["title"], alert.get("body", "")):
+                if not self._is_accepted_broker_alert(alert["title"], alert.get("body", ""), alert.get("stockCode", "")):
                     continue
-                if self._is_noise_stock(alert.get("stockCode", ""), alert.get("stockName", "")):
-                    continue
-                monitor_type, risk_tone = self._broker_monitor_type(alert["title"], alert.get("body", ""))
+                monitor_type, risk_tone = self._broker_monitor_type(alert["title"], alert.get("body", ""), alert.get("stockCode", ""))
                 event_end_date = self._event_end_date(alert["date"], alert.get("body", "")) if risk_tone.startswith("severe-") else ""
                 monitor_dates = self._monitor_period_dates(
                     event_end_date or alert["date"], alert["sourceType"], risk_tone, alert.get("stockCode", ""),
@@ -761,8 +755,6 @@ class OfficialMonitorService:
                     "confirmationStatus": "broker-disclosure-confirmed",
                     "monitorType": monitor_type, "riskTone": risk_tone, "sourceType": "zts-risk-alert",
                 })
-                if risk_tone != "delisting-warning" and self._is_noise_stock(alert.get("stockCode", ""), alert.get("stockName", "")):
-                    continue
                 if risk_tone == "delisting-warning":
                     monitor_dates, monitor_start, monitor_end = self._delisting_period_dates(
                         alert.get("body", ""), alert["date"], alert.get("stockCode", "")
@@ -867,8 +859,6 @@ class OfficialMonitorService:
         today = datetime.now(SHANGHAI_TZ).strftime("%Y-%m-%d")
         items = []
         for item in snapshot.get("items", []):
-            if item.get("riskTone") != "delisting-warning" and self._is_noise_stock(item.get("symbol", ""), item.get("name", "")):
-                continue
             end_date = str(item.get("monitorEndDate") or "")
             if self._is_expired(end_date, today):
                 continue

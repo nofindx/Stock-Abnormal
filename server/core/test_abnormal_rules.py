@@ -53,6 +53,15 @@ class AbnormalRulesTest(unittest.TestCase):
         self.assertIsNotNone(result.severe_10d)
         self.assertAlmostEqual(result.severe_10d.deviation, 100.0)
 
+    def test_main_board_three_day_window_uses_three_returns(self):
+        """3 日普通异动必须覆盖 3 个收益区间，而不是只看最后 2 段。"""
+
+        stock, index = make_bars([100.0, 107.0, 114.49, 122.5], [100.0] * 4)
+        records = detect_ordinary_abnormal(stock, index, Board.MAIN)
+        self.assertTrue(records)
+        self.assertEqual(records[-1].window_days, 3)
+        self.assertGreaterEqual(records[-1].deviation, 20.0)
+
     def test_main_board_10_day_uses_best_interval_inside_lookback(self):
         """回看范围内较早触发的最大区间仍参与判断，不强制包含最新收盘日。"""
 
@@ -62,36 +71,53 @@ class AbnormalRulesTest(unittest.TestCase):
         self.assertAlmostEqual(result.severe_10d.deviation, 105.0)
         self.assertEqual(result.severe_10d.window_days, 1)
 
-    def test_main_board_10_day_down_does_not_trigger(self):
-        """下跌方向只保留为原始偏离，不触发严重异常。"""
+    def test_ten_day_rule_can_use_ten_daily_returns(self):
+        """10 个交易日包括 10 个涨跌收益区间，起点是此前收盘价。"""
+
+        closes = [100.0 * (1.08 ** day) for day in range(11)]
+        stock, index = make_bars(closes, [100.0] * len(closes))
+        result = detect_severe_abnormal(stock, index, Board.MAIN)
+        self.assertIsNotNone(result.severe_10d)
+        self.assertEqual(result.severe_10d.window_days, 10)
+
+    def test_main_board_10_day_down_triggers_downside_severe_threshold(self):
+        """单股规则按主板 10 日下跌阈值识别严重异常。"""
 
         stock, index = make_bars([100] + [50] * 9, [100] * 10)
         result = detect_severe_abnormal(stock, index, Board.MAIN)
-        self.assertIsNone(result.severe_10d)
-        self.assertFalse(result.triggered)
+        self.assertIsNotNone(result.severe_10d_down)
+        self.assertTrue(result.triggered)
 
-    def test_main_board_10_day_down_is_not_counted(self):
-        """下跌未达到上涨阈值，也不应进入同向次数。"""
+    def test_main_board_downside_ordinary_events_count_separately(self):
+        """下跌普通异动与上涨异动分开计数。"""
 
         stock, index = make_bars([100] + [50.01] * 9, [100] * 10)
         result = detect_severe_abnormal(stock, index, Board.MAIN)
         self.assertIsNone(result.severe_10d)
-        self.assertEqual(result.same_direction_count, 0)
+        self.assertEqual(result.down_count, 1)
 
-    def test_negative_ordinary_deviation_is_not_an_abnormal_record(self):
-        """普通异动只接受上涨偏离，负向偏离不能生成记录。"""
+    def test_adjacent_three_day_events_sharing_only_boundary_close_count_twice(self):
+        """相邻且只共用边界收盘价的 3 日区间是两次独立异动。"""
 
-        stock, index = make_bars([100, 80, 80, 80], [100, 100, 100, 100])
+        stock, index = make_bars([100.0 * (1.1 ** day) for day in range(7)], [100.0] * 7)
+        result = detect_severe_abnormal(stock, index, Board.MAIN)
+        self.assertEqual(result.same_direction_count, 2)
+
+    def test_negative_ordinary_deviation_is_a_downside_abnormal_record(self):
+        """单股完整规则保留达到普通阈值的下跌异动记录。"""
+
+        stock, index = make_bars([100, 75, 75, 75], [100, 100, 100, 100])
         records = detect_ordinary_abnormal(stock, index, Board.MAIN)
-        self.assertEqual(records, [])
+        self.assertEqual(len(records), 1)
+        self.assertIs(records[0].direction, Direction.DOWN)
 
-    def test_main_board_30_day_down_does_not_trigger(self):
-        """下跌方向不触发 30 日严重异常。"""
+    def test_main_board_30_day_down_triggers_downside_severe_threshold(self):
+        """单股规则按主板 30 日下跌阈值识别严重异常。"""
 
         stock, index = make_bars([100] + [30] * 29, [100] * 30)
         result = detect_severe_abnormal(stock, index, Board.MAIN)
-        self.assertIsNone(result.severe_30d)
-        self.assertFalse(result.triggered)
+        self.assertIsNotNone(result.severe_30d_down)
+        self.assertTrue(result.triggered)
 
     def test_main_board_30_day_up_threshold_is_plus_200_percent(self):
         """上涨达到 +200% 时触发 30 日严重异常。"""

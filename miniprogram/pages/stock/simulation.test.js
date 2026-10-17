@@ -1,7 +1,7 @@
 const assert = require('assert')
 
 global.Page = () => {}
-const { bestDeviation, calculateSimulationRows, createInputRows } = require('./index')
+const { bestDeviation, calculateSimulationRows, createInputRows, presentWarnings } = require('./index')
 
 const maxEarlierInterval = bestDeviation([0, 10, 10, 0, -5, 0, 0, 0, 0, 0], Array(10).fill(0), 10)
 assert.strictEqual(maxEarlierInterval.window, 2)
@@ -20,16 +20,23 @@ rows[0].stock = '16'
 rows[0].index = '0'
 const result = calculateSimulationRows(rows, detail)
 assert.strictEqual(result[0].deviation3, '+32.60%')
-assert.strictEqual(result[0].deviation10, '+49.55%')
+assert.strictEqual(result[0].deviation10, '+56.19%')
 assert.strictEqual(result[0].deviation30, '+200.68%')
 assert.strictEqual(result[0].space, '已触发')
-assert.strictEqual(result[0].deviation10Window, 9)
+assert.strictEqual(result[0].deviation10Window, 10)
 assert.strictEqual(result[0].deviation30Window, 23)
 assert.notStrictEqual(result[1].deviation10, '--')
 assert.strictEqual(result[1].stock, '0')
 assert.strictEqual(result[1].index, '0')
 
 console.log('stock simulation tests passed')
+
+const downsideWarning = presentWarnings([{
+  title: '10 日偏离', value: '--', downValue: '-55.00%',
+  target: '阈值 +100% / -50%', downTriggered: true, downWindow: 10
+}])[0]
+assert(downsideWarning.currentText.includes('跌 10日 -55.00%'))
+assert.strictEqual(downsideWarning.tone, 'triggered')
 
 const ordinaryOnlyDetail = {
   simulationBase: { stock: Array(29).fill(0), index: Array(29).fill(0) },

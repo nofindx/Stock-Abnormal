@@ -571,6 +571,43 @@ class MarketVectorTests(unittest.TestCase):
         self.assertEqual(metrics["up"], 1)
         self.assertEqual(metrics["down"], 0)
 
+    def test_same_direction_counts_adjacent_non_overlapping_three_day_events(self):
+        """向量口径与日线口径一致：相邻事件共享收盘点但不共享收益区间。"""
+        dates = [f"2026-08-{index:02d}" for index in range(1, 8)]
+        stock = [{"date": day, "return": 10.0} for day in dates]
+        index = [{"date": day, "return": 0.0} for day in dates]
+        metrics = MarketService._vector_metrics(stock, index, BOARD_RULES[Board.MAIN])
+        self.assertEqual(metrics["up"], 2)
+
+    def test_single_stock_metrics_keep_downside_extremes_and_same_direction_count(self):
+        dates = [f"2026-08-{index:02d}" for index in range(1, 11)]
+        stock = [{"date": day, "return": -10.0} for day in dates]
+        index = [{"date": day, "return": 0.0} for day in dates]
+        metrics = MarketService._vector_metrics(stock, index, BOARD_RULES[Board.MAIN])
+        self.assertLessEqual(metrics["down_deviations"][10], -50.0)
+        self.assertEqual(metrics["down"], 3)
+        status, _ = MarketService._status_for_metrics(
+            metrics["deviations"], metrics["up"], BOARD_RULES[Board.MAIN],
+            metrics["down_deviations"], metrics["down"],
+        )
+        self.assertEqual(status, "触及")
+
+    def test_same_direction_does_not_pair_returns_without_common_dates(self):
+        """无共同日期时不能按数组位置错配股票和指数收益。"""
+        stock = [{"date": f"2026-08-{index:02d}", "return": 10.0} for index in range(1, 5)]
+        index = [{"date": f"2026-09-{index:02d}", "return": 0.0} for index in range(1, 5)]
+        metrics = MarketService._vector_metrics(stock, index, BOARD_RULES[Board.MAIN])
+        self.assertEqual(metrics["up"], 0)
+        self.assertIsNone(metrics["deviations"][3])
+
+    def test_ten_day_vector_window_can_use_ten_daily_returns(self):
+        dates = [f"2026-08-{index:02d}" for index in range(1, 12)]
+        stock = [{"date": day, "return": 8.0} for day in dates]
+        index = [{"date": day, "return": 0.0} for day in dates]
+        metrics = MarketService._vector_metrics(stock, index, BOARD_RULES[Board.MAIN])
+        self.assertGreaterEqual(metrics["deviations"][10], 100.0)
+        self.assertEqual(metrics["window_lengths"][10], 10)
+
     def test_stock_name_initials_are_recomputed_from_name(self):
         row = MarketService._normalise_stock_row({
             "ts_code": "002975.SZ", "symbol": "002975", "name": "博杰股份",
@@ -596,7 +633,7 @@ class MarketVectorTests(unittest.TestCase):
         """次日预测不能只检查 30 日线，10 日接近 +100% 也必须入选。"""
         service = self.service
         dates = [f"2026-08-{index:02d}" for index in range(1, 31)]
-        stock_vector = [{"date": day, "return": 8.0 if index >= 20 else 0.0} for index, day in enumerate(dates)]
+        stock_vector = [{"date": day, "return": 7.0 if index >= 20 else 0.0} for index, day in enumerate(dates)]
         index_vector = [{"date": day, "return": 0.0} for day in dates]
         service._calc_repository = SimpleNamespace(
             available=True,
@@ -616,7 +653,7 @@ class MarketVectorTests(unittest.TestCase):
         service._realtime = SimpleNamespace(fetch_many=lambda _codes: {})
         items = service._compute_prediction_from_repository("next_day")
         self.assertEqual({item["ruleKey"] for item in items}, {"severe_10d"})
-        self.assertTrue(any(item["deviation"].startswith("9日 ") for item in items))
+        self.assertTrue(any(item["deviation"].startswith("10日 ") for item in items))
 
     def test_prediction_emits_separate_cards_for_ten_and_thirty_day_lines(self):
         service = self.service
