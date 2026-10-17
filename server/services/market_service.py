@@ -2303,6 +2303,20 @@ class MarketService:
             raise CalculationDataUnavailable("数据库中的股票或指数基线缺失/日期不一致，单股计算已停止")
         return result
 
+    def latest_stock_return(self, ts_code: str) -> Optional[Dict[str, Any]]:
+        """读取重点监控展示所需的最新已落盘股票日涨跌，不请求实时行情。"""
+
+        if not self._calc_repository.available:
+            return None
+        calc = self._calc_repository.get_calc(str(ts_code or "").strip().upper())
+        if not calc:
+            return None
+        vector = self._vector_entries(calc.get("stock_return_vector"))
+        if not vector:
+            return None
+        latest = max(vector, key=lambda item: self._date_key(item.get("date")))
+        return {"value": float(latest["return"]), "tradeDate": self._date_key(latest.get("date"))}
+
     def _compute_prediction_from_repository(
         self,
         scope: str,

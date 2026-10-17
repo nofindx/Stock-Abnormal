@@ -10,5 +10,9 @@ assert.strictEqual(isVisibleMonitorItem({ riskTone: 'ordinary', symbol: '100001'
 assert.strictEqual(isVisibleMonitorItem({ riskTone: 'severe-30d', symbol: '920575', name: 'ST康乐' }), false)
 assert.strictEqual(isVisibleMonitorItem({ riskTone: 'severe-30d', symbol: '600000', name: '某某退' }), false)
 assert.strictEqual(isVisibleMonitorItem({ riskTone: 'delisting-warning', symbol: '301139', name: '*ST元道' }), true)
+assert.strictEqual(isVisibleMonitorItem({ riskTone: 'severe-10d', symbol: '920229', name: '世纪数码', marketChange: -5.48 }), false)
+assert.strictEqual(isVisibleMonitorItem({ riskTone: 'ordinary', symbol: '301234', name: '五洲医疗', marketChange: 1.25 }), true)
+assert.strictEqual(isVisibleMonitorItem({ riskTone: 'ordinary', symbol: '301234', name: '五洲医疗' }), true)
+assert.strictEqual(isVisibleMonitorItem({ riskTone: 'delisting-warning', symbol: '301139', name: '*ST元道', marketChange: -10 }), true)
 
 console.log('monitor display-filter tests passed')

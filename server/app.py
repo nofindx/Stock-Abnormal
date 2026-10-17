@@ -296,6 +296,16 @@ class ApiHandler(BaseHTTPRequestHandler):
                 if monitor_type not in ("all", "risk", "severe", "delisting"):
                     raise ApiError(40001, "type 必须是 all、risk、severe 或 delisting", 400)
                 data = OFFICIAL_MONITOR.read(status, monitor_type)
+                # 只附加本地正式收益向量的最新日涨跌；重点监控仍保留全部监管事实，
+                # 展示层据此隐藏下跌行情，不发起实时行情请求。
+                for item in data.get("items", []):
+                    try:
+                        change = SERVICE.latest_stock_return(str(item.get("ts_code") or ""))
+                    except Exception:  # noqa: BLE001 - 行情附加字段失败不应丢弃监管事实
+                        change = None
+                    if change:
+                        item["marketChange"] = change["value"]
+                        item["marketChangeDate"] = change["tradeDate"]
                 # 小程序生产环境通过 callContainer 访问，统一返回可直接打开的公网代理地址。
                 public_base = os.getenv("MONITOR_PUBLIC_BASE_URL", "https://flask-9a5y-319926-10-1496305218.sh.run.tcloudbase.com").rstrip("/")
                 for item in data.get("items", []):

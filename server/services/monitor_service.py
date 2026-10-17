@@ -40,7 +40,7 @@ MONITOR_PERIOD_TRADING_DAYS = {
 MONITOR_WINDOW_TRADING_DAYS = MONITOR_PERIOD_TRADING_DAYS
 # 公告分类口径变化时，启动任务主动重采一次当前快照；避免必须等到次日
 # 00:00 才让修复后的北交所严重异动进入重点监控。
-MONITOR_RULE_VERSION = "2026-10-monitor-zts-strict-risk-delisting-countdown-v12"
+MONITOR_RULE_VERSION = "2026-10-monitor-zts-strict-risk-monitoring-wording-downside-filter-v13"
 
 
 class MonitorRepository:
@@ -314,10 +314,15 @@ class OfficialMonitorService:
         normalized = re.sub(r"\s+", "", text or "")
         exchange = r"(?:交易所|上交所|深交所|北交所)"
         subject = r"(?:以上证券|上述证券(?:上)?|该证券|该股票)"
-        return bool(re.search(
+        direct_confirmation = re.search(
             exchange + r"将对" + subject + r"的?异常交易行为进行(?:进一步)?从严认定",
             normalized,
-        ))
+        )
+        listed_confirmation = re.search(
+            exchange + r"将.{0,40}?列为重点监控证券.{0,100}?异常交易行为进行(?:进一步)?从严认定",
+            normalized,
+        )
+        return bool(direct_confirmation or listed_confirmation)
 
     @staticmethod
     def _monitor_type(title: str, body: str) -> tuple[str, str]:

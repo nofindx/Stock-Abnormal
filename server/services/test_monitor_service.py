@@ -227,6 +227,17 @@ class MonitorWindowTests(unittest.TestCase):
             ),
             ("风险提示", "ordinary"),
         )
+        for title, body in (
+            (
+                "关于“五洲医疗”（301234）的交易风险提示",
+                "深交所将“五洲医疗”（301234）列为重点监控证券，对上述证券的异常交易行为进行从严认定。",
+            ),
+            (
+                "关于“善水科技”（301190）的交易风险提示",
+                "深交所将“善水科技”（301190）列为重点监控证券，对上述证券的异常交易行为进行从严认定。",
+            ),
+        ):
+            self.assertEqual(OfficialMonitorService._zts_monitor_type(title, body, "ordinary"), ("风险提示", "ordinary"))
         self.assertEqual(
             OfficialMonitorService._zts_monitor_type("关于天普股份（605255）的交易风险提示", "请注意二级市场交易风险。", "ordinary"),
             ("", ""),
