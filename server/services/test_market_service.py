@@ -111,6 +111,50 @@ class MarketVectorTests(unittest.TestCase):
         self.assertNotIn("today", service._prediction_cache)
         self.assertIn("1 张前序候选卡片未能按目标日重算", service._prediction_last_error["today"])
 
+    def test_today_dataset_ignores_unrelated_suspended_stock_missing_target_day_quote(self):
+        service = self.service
+        source = {
+            "scope": "next_day", "target_trade_date": "20261016", "base_trade_date": "20261015",
+            "items": [{"ts_code": "002242.SZ", "ruleKey": "severe_10d"}],
+            "status": "ready", "dataset_quote_complete": True, "exclusion_stats": {},
+        }
+        candidate_stock = {"ts_code": "002242.SZ", "symbol": "002242", "market": "SZSE", "board": "主板"}
+        suspended_stock = {"ts_code": "000016.SZ", "symbol": "000016", "market": "SZSE", "board": "主板"}
+        calculations = {
+            "002242.SZ": {"as_of_trade_date": "20261016", "quote_updated_at": "2026-10-16 15:00"},
+            "000016.SZ": {"as_of_trade_date": "20260903", "quote_updated_at": "2026-09-03 15:00"},
+        }
+        indexes = {"399107.SZ": {"as_of_trade_date": "20261016", "quote_updated_at": "2026-10-16 15:00"}}
+        saved = []
+        service._calc_repository = SimpleNamespace(
+            available=True,
+            all_calculations=lambda: calculations,
+            all_indexes=lambda: indexes,
+            save_prediction=lambda *args, **kwargs: saved.append((args, kwargs)),
+        )
+        service._latest_data_stage_date = lambda: ("20261016", "formal")
+        service.client.trade_cal = lambda *_args: SimpleNamespace(to_dict=lambda *_args, **_kwargs: [
+            {"cal_date": "20261016", "is_open": 1}, {"cal_date": "20261019", "is_open": 1},
+        ])
+        service._prediction_record = lambda scope, target_trade_date="": (
+            source if scope == "next_day" and target_trade_date == "20261016" else None
+        )
+        service._stock_rows = lambda: [candidate_stock, suspended_stock]
+
+        def compute(scope, **_kwargs):
+            if scope == "today":
+                return [{
+                    "ts_code": "002242.SZ", "ruleKey": "severe_10d", "tradeDate": "20261016",
+                    "quoteUpdatedAt": "2026-10-16 15:00",
+                }]
+            return []
+
+        service._compute_prediction_from_repository = compute
+        service._generate_prediction_datasets("formal")
+
+        self.assertEqual(service._prediction_cache["today"][1][0]["ts_code"], "002242.SZ")
+        self.assertTrue(saved)
+
     def test_today_dataset_refuses_same_day_baseline_when_prior_forecast_missing(self):
         service = self.service
         service._calc_repository = SimpleNamespace(available=False)

@@ -40,7 +40,7 @@ MONITOR_PERIOD_TRADING_DAYS = {
 MONITOR_WINDOW_TRADING_DAYS = MONITOR_PERIOD_TRADING_DAYS
 # 公告分类口径变化时，启动任务主动重采一次当前快照；避免必须等到次日
 # 00:00 才让修复后的北交所严重异动进入重点监控。
-MONITOR_RULE_VERSION = "2026-10-monitor-zts-strict-risk-delisting-countdown-v9"
+MONITOR_RULE_VERSION = "2026-10-monitor-zts-strict-risk-delisting-countdown-v10"
 
 
 class MonitorRepository:
@@ -625,7 +625,11 @@ class OfficialMonitorService:
                     "monitorKey": hashlib.sha256(str(item["sourceId"]).encode("utf-8")).hexdigest()[:24],
                     "sourceUrls": [item["sourceUrl"]] if item.get("sourceUrl") else [],
                     "sourceCount": 1 if item.get("sourceUrl") else 0,
-                    "monitorPeriod": f"起始日起共 {MONITOR_PERIOD_TRADING_DAYS.get(item.get('riskTone'), 10)} 个交易日（起点计第1日）",
+                    "monitorPeriod": (
+                        item.get("monitorPeriod")
+                        if item.get("riskTone") == "delisting-warning"
+                        else f"起始日起共 {MONITOR_PERIOD_TRADING_DAYS.get(item.get('riskTone'), 10)} 个交易日（起点计第1日）"
+                    ),
                 })
         for item in selected_items:
             if item.get("riskTone") in ("ordinary", "delisting-warning"):

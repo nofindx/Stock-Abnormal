@@ -141,6 +141,17 @@ class MonitorWindowTests(unittest.TestCase):
         self.assertEqual(risk["monitorEndDate"], "2026-10-31")
         self.assertEqual(severe_result["monitorEndDate"], "2026-10-14")
 
+    def test_delisting_period_description_survives_snapshot_collapse(self):
+        event = self.event("2026-09-23", "2026-10-27", "delisting-warning")
+        event.update({
+            "name": "*ST元道", "monitorStartDate": "2026-09-30", "monitorEndDate": "2026-10-27",
+            "daysTotal": 15, "monitorType": "退市倒计时", "monitorPeriod": "退市整理期至 2026-10-27",
+        })
+
+        result = self.service._collapse_by_stock([event], "2026-10-17")
+
+        self.assertEqual(result[0]["monitorPeriod"], "退市整理期至 2026-10-27")
+
     def test_same_day_broker_primary_keeps_official_body_reset_confirmation(self):
         broker = self.event("2026-10-08", "2026-10-22", "severe-10d")
         broker.update({"sourceType": "broker-risk-alert", "sourcePriority": 1})

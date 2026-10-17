@@ -29,7 +29,7 @@ BOARD_BY_MARKET = {"主板": Board.MAIN, "创业板": Board.CHINEXT, "科创板"
 SHANGHAI_TZ = ZoneInfo("Asia/Shanghai") if ZoneInfo else timezone(timedelta(hours=8))
 # 停牌/复牌重置、上涨同向计数和预测阶段切换属于同一套规则口径。
 # 版本变化会触发服务启动时从已确认收盘行情重建计算基础数据与预测集。
-PREDICTION_RULE_VERSION = "2026-10-unified-max-window-simulation-v36-rebase-today-market-fields"
+PREDICTION_RULE_VERSION = "2026-10-unified-max-window-simulation-v37-candidate-baseline-completeness"
 
 
 class CalculationDataUnavailable(RuntimeError):
@@ -2026,12 +2026,21 @@ class MarketService:
                         calculations = self._calc_repository.all_calculations() or {}
                         indexes = self._calc_repository.all_indexes() or {}
                         active_stocks = self._stock_rows()
+                        candidate_stock_codes = {code for code, _rule_key in candidate_keys}
+                        candidate_stocks = [
+                            stock for stock in active_stocks
+                            if str(stock.get("ts_code") or "") in candidate_stock_codes
+                        ]
+                        if len(candidate_stocks) != len(candidate_stock_codes):
+                            raise RuntimeError(
+                                f"{target_trade_date} 前序候选股票不在当前股票基础资料中，拒绝发布 today 数据集"
+                            )
                         missing_stock_bases = [
-                            stock.get("ts_code") for stock in active_stocks
+                            stock.get("ts_code") for stock in candidate_stocks
                             if self._date_key((calculations.get(stock.get("ts_code")) or {}).get("as_of_trade_date"))
                             != target_trade_date
                         ]
-                        required_index_codes = {_index_code_for_stock(stock) for stock in active_stocks}
+                        required_index_codes = {_index_code_for_stock(stock) for stock in candidate_stocks}
                         missing_index_bases = [
                             code for code in required_index_codes
                             if self._date_key((indexes.get(code) or {}).get("as_of_trade_date")) != target_trade_date
