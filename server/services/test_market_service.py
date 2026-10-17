@@ -316,6 +316,15 @@ class MarketVectorTests(unittest.TestCase):
             places=5,
         )
 
+    def test_today_threshold_uses_n_prior_stock_returns_and_target_day_index(self):
+        stock = [{"date": f"2026-10-{index:02d}", "return": 5.0} for index in range(1, 11)]
+        index = [{"date": item["date"], "return": 0.0} for item in stock]
+        index[-1]["return"] = 1.0
+        stock_total = MarketService._compound([5.0] * 9)
+        expected = ((1.0 + (1.0 + 100.0) / 100.0) / (1.0 + stock_total / 100.0) - 1.0) * 100.0
+        actual = MarketService._required_up_percent(stock, index, 8, 100.0, "today", 10)
+        self.assertAlmostEqual(actual, expected, places=5)
+
     def test_force_history_rebuild_is_explicitly_supported(self):
         service = self.service
         calls = []

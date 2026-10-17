@@ -29,7 +29,7 @@ BOARD_BY_MARKET = {"主板": Board.MAIN, "创业板": Board.CHINEXT, "科创板"
 SHANGHAI_TZ = ZoneInfo("Asia/Shanghai") if ZoneInfo else timezone(timedelta(hours=8))
 # 停牌/复牌重置、上涨同向计数和预测阶段切换属于同一套规则口径。
 # 版本变化会触发服务启动时从已确认收盘行情重建计算基础数据与预测集。
-PREDICTION_RULE_VERSION = "2026-10-unified-max-contiguous-window-v38"
+PREDICTION_RULE_VERSION = "2026-10-unified-max-contiguous-window-v39"
 
 
 class CalculationDataUnavailable(RuntimeError):
@@ -1316,13 +1316,20 @@ class MarketService:
             return None
         horizon = int(rule_window or actual_window)
         max_prior_returns = horizon - 1 if horizon in (10, 30) else horizon
-        max_prior_returns = min(max_prior_returns, len(dates))
+        today_scope = forecast_scope == "today"
+        max_prior_returns = min(max_prior_returns, len(dates) - 1 if today_scope else len(dates))
         distances = []
         # 触发距离是从最新有效日向目标日延伸的区间，不能拿一个早于最新日
         # 结束的最大历史区间反推目标日涨幅；分别尝试各个可用起点并取最小值。
+        # 当日区间还包含目标日指数收益，但目标日股票收益未知，因此指数侧比
+        # 股票已知收益多一个区间，不能对两边使用相同的切片长度。
         for window in range(1, max_prior_returns + 1):
-            interval_dates = dates[-window:]
-            stock_dates = interval_dates[:-1] if forecast_scope == "today" else interval_dates
+            if today_scope:
+                interval_dates = dates[-(window + 1):]
+                stock_dates = interval_dates[:-1]
+            else:
+                interval_dates = dates[-window:]
+                stock_dates = interval_dates
             stock_total = cls._compound(stock_map[day] for day in stock_dates)
             index_total = cls._compound(index_map[day] for day in interval_dates)
             distance = ((1.0 + (index_total + target_deviation) / 100.0) / (1.0 + stock_total / 100.0) - 1.0) * 100.0
