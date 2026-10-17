@@ -117,9 +117,20 @@ function calculateSimulationRows(rows, detail) {
     }
     const stockSeries = stockBase.concat(rows.slice(0, rowIndex + 1).map(item => parsePercent(item.stock)))
     const indexSeries = indexBase.concat(rows.slice(0, rowIndex + 1).map(item => parsePercent(item.index)))
-    const metric3 = bestDeviation(stockSeries, indexSeries, 3)
-    const metric10 = bestDeviation(stockSeries, indexSeries, 10)
-    const metric30 = bestDeviation(stockSeries, indexSeries, 30)
+    const metricForWindow = window => {
+      const stockWindowBase = base.stockByWindow && Array.isArray(base.stockByWindow[String(window)])
+        ? base.stockByWindow[String(window)] : stockBase
+      const indexWindowBase = base.indexByWindow && Array.isArray(base.indexByWindow[String(window)])
+        ? base.indexByWindow[String(window)] : indexBase
+      return bestDeviation(
+        stockWindowBase.concat(rows.slice(0, rowIndex + 1).map(item => parsePercent(item.stock))),
+        indexWindowBase.concat(rows.slice(0, rowIndex + 1).map(item => parsePercent(item.index))),
+        window
+      )
+    }
+    const metric3 = metricForWindow(3)
+    const metric10 = metricForWindow(10)
+    const metric30 = metricForWindow(30)
     const deviation3 = metric3.value
     const deviation10 = metric10.value
     const deviation30 = metric30.value

@@ -29,7 +29,7 @@ BOARD_BY_MARKET = {"主板": Board.MAIN, "创业板": Board.CHINEXT, "科创板"
 SHANGHAI_TZ = ZoneInfo("Asia/Shanghai") if ZoneInfo else timezone(timedelta(hours=8))
 # 停牌/复牌重置、上涨同向计数和预测阶段切换属于同一套规则口径。
 # 版本变化会触发服务启动时从已确认收盘行情重建计算基础数据与预测集。
-PREDICTION_RULE_VERSION = "2026-10-endpoint-anchored-max-window-v44"
+PREDICTION_RULE_VERSION = "2026-10-endpoint-window-scoped-reset-v45"
 
 
 class CalculationDataUnavailable(RuntimeError):
@@ -1226,9 +1226,8 @@ class MarketService:
         monitoring = self._active_monitor_for_stock(stock)
         reset_monitor = self._latest_rule_monitor_for_stock(stock) or monitoring
         reset_date = self._monitor_rule_reset_date(reset_monitor)
-        stock_vector, index_vector, rule_reset = self._trim_vectors_after_rule_reset(
-            stock_vector, index_vector, reset_date
-        )
+        reset_window = 30 if reset_monitor and reset_monitor.get("riskTone") == "severe-30d" else 10
+        rule_reset = {"ruleResetDate": reset_date, "ruleResetWindow": reset_window if reset_date else None}
         return stock_vector, index_vector, {**suspension, **rule_reset}, monitoring
 
     @staticmethod
@@ -1315,6 +1314,8 @@ class MarketService:
         target_deviation: float,
         forecast_scope: str = "next_day",
         rule_window: Optional[int] = None,
+        rule_reset_date: str = "",
+        reset_window: Optional[int] = None,
     ) -> Optional[float]:
         """反推目标交易日股票需要达到的理论日涨幅。
 
@@ -1330,6 +1331,14 @@ class MarketService:
         if not dates:
             return None
         horizon = int(rule_window or actual_window)
+        if rule_reset_date and (reset_window is None or horizon <= reset_window):
+            stock = [item for item in stock if cls._date_key(item.get("date")) >= rule_reset_date]
+            index = [item for item in index if cls._date_key(item.get("date")) >= rule_reset_date]
+            stock_map = {item.get("date"): float(item.get("return")) for item in stock if item.get("date")}
+            index_map = {item.get("date"): float(item.get("return")) for item in index if item.get("date")}
+            dates = sorted(set(stock_map) & set(index_map))
+            if not dates:
+                return None
         today_scope = forecast_scope == "today"
         # N-day rules have at most N-1 known stock returns before today's
         # unknown return. The next-day 3-day rule retains its full current
@@ -1359,7 +1368,14 @@ class MarketService:
         return min(distances) if distances else None
 
     @classmethod
-    def _vector_metrics(cls, stock: List[Dict[str, Any]], index: List[Dict[str, Any]], rule: Any) -> Dict[str, Any]:
+    def _vector_metrics(
+        cls,
+        stock: List[Dict[str, Any]],
+        index: List[Dict[str, Any]],
+        rule: Any,
+        rule_reset_date: str = "",
+        reset_30d: bool = False,
+    ) -> Dict[str, Any]:
         """从日期化收益率向量计算偏离和 10 日同向异动段次数。
 
         同一个连续的 3 日异常区间会产生多个重叠滚动窗口，但在规则口径中
@@ -1374,14 +1390,22 @@ class MarketService:
         up_window_lengths = {}
         down_window_lengths = {}
         for window in (3, 10, 30):
-            deviations[window], window_lengths[window] = cls._best_vector_deviation(stock, index, window)
-            pairs = cls._vector_deviation_values(stock, index, window)
+            reset_window = bool(rule_reset_date) and (window < 30 or reset_30d)
+            window_stock = stock
+            window_index = index
+            if reset_window:
+                window_stock = [item for item in stock if cls._date_key(item.get("date")) >= rule_reset_date]
+                window_index = [item for item in index if cls._date_key(item.get("date")) >= rule_reset_date]
+            deviations[window], window_lengths[window] = cls._best_vector_deviation(window_stock, window_index, window)
+            pairs = cls._vector_deviation_values(window_stock, window_index, window)
             up_pair = max((item for item in pairs if item[0] > 0), default=(None, None), key=lambda item: item[0])
             down_pair = min((item for item in pairs if item[0] < 0), default=(None, None), key=lambda item: item[0])
             up_deviations[window], up_window_lengths[window] = up_pair
             down_deviations[window], down_window_lengths[window] = down_pair
-        stock_map = {item["date"]: item["return"] for item in stock if item.get("date")}
-        index_map = {item["date"]: item["return"] for item in index if item.get("date")}
+        same_stock = [item for item in stock if not rule_reset_date or cls._date_key(item.get("date")) >= rule_reset_date]
+        same_index = [item for item in index if not rule_reset_date or cls._date_key(item.get("date")) >= rule_reset_date]
+        stock_map = {item["date"]: item["return"] for item in same_stock if item.get("date")}
+        index_map = {item["date"]: item["return"] for item in same_index if item.get("date")}
         common_dates = sorted(set(stock_map) & set(index_map))[-10:]
         # Never pair stock and index returns by array position: missing or
         # mismatched dates are unavailable data, not evidence of no risk.
@@ -1544,7 +1568,11 @@ class MarketService:
         if realtime:
             stock_vector = self._apply_quote_to_vector(stock_vector, calc.get("latest_close"), quote)
             index_vector = self._apply_quote_to_vector(index_vector, index.get("latest_close"), index_quote)
-        metrics = self._vector_metrics(stock_vector, index_vector, rule)
+        metrics = self._vector_metrics(
+            stock_vector, index_vector, rule,
+            suspension.get("ruleResetDate", ""),
+            suspension.get("ruleResetWindow") == 30,
+        )
         deviations = metrics["deviations"]
         down_deviations = metrics["down_deviations"]
         same_count = max(metrics["up"], metrics["down"])
@@ -1606,7 +1634,26 @@ class MarketService:
             "futureTradeDates": future_dates,
             "warnings": warnings,
             "alerts": self._build_alerts(deviations, severe, board),
-            "simulationBase": {"stock": self._vector_numbers(stock_vector), "index": self._vector_numbers(index_vector)},
+            "simulationBase": {
+                "stock": self._vector_numbers(stock_vector),
+                "index": self._vector_numbers(index_vector),
+                "stockByWindow": {
+                    str(window): self._vector_numbers([
+                        item for item in stock_vector
+                        if not suspension.get("ruleResetDate")
+                        or (window == 30 and suspension.get("ruleResetWindow") != 30)
+                        or self._date_key(item.get("date")) >= suspension["ruleResetDate"]
+                    ]) for window in (3, 10, 30)
+                },
+                "indexByWindow": {
+                    str(window): self._vector_numbers([
+                        item for item in index_vector
+                        if not suspension.get("ruleResetDate")
+                        or (window == 30 and suspension.get("ruleResetWindow") != 30)
+                        or self._date_key(item.get("date")) >= suspension["ruleResetDate"]
+                    ]) for window in (3, 10, 30)
+                },
+            },
             "calculationInput": {"stock": stock_vector, "index": index_vector, "ordinaryDeviation": rule.ordinary_deviation, "severe10": {"up": rule.severe_10d_threshold.up, "down": rule.severe_10d_threshold.down}, "severe30": {"up": rule.severe_30d_threshold.up, "down": rule.severe_30d_threshold.down}, "sameDirectionThreshold": rule.severe_same_direction_count, "ruleVersion": PREDICTION_RULE_VERSION},
             "simulationThresholds": {
                 "3": {"up": rule.ordinary_deviation, "down": -rule.ordinary_deviation},
@@ -1626,6 +1673,7 @@ class MarketService:
                 "requiredCommonDays": 30,
                 "suspensionResetDate": suspension.get("resetDate", ""),
                 "ruleResetDate": suspension.get("ruleResetDate", ""),
+                "ruleResetWindow": suspension.get("ruleResetWindow"),
                 "suspended": suspension.get("suspended", False),
                 "quoteUpdatedAt": display_quote.get("updatedAt", "") if display_quote else "",
                 "message": (
@@ -2309,7 +2357,11 @@ class MarketService:
             ):
                 stats["excludedByDataQuality"] += 1
                 continue
-            metrics = self._vector_metrics(stock_vector, index_vector, board_rule)
+            metrics = self._vector_metrics(
+                stock_vector, index_vector, board_rule,
+                suspension.get("ruleResetDate", ""),
+                suspension.get("ruleResetWindow") == 30,
+            )
             limit = float(board_rule.limit_price_ratio or 10.0)
             # 次日预测只面向“尚未进入当日严重异动”的股票。若任一严重规则
             # 已在当前快照触发，后续监管由重点监控承接，不再为同一股票生成
@@ -2357,6 +2409,8 @@ class MarketService:
                     target,
                     forecast_scope=scope,
                     rule_window=rule_window,
+                    rule_reset_date=suspension.get("ruleResetDate", ""),
+                    reset_window=suspension.get("ruleResetWindow"),
                 )
                 if distance is None:
                     stats["excludedByDataQuality"] += 1
@@ -2410,6 +2464,7 @@ class MarketService:
                     ),
                     "suspensionResetDate": suspension.get("resetDate", ""),
                     "ruleResetDate": suspension.get("ruleResetDate", ""),
+                    "ruleResetWindow": suspension.get("ruleResetWindow"),
                     "triggered": triggered,
                     "alertText": "已触发" if triggered else "",
                     "cardTone": "triggered" if triggered else "",
@@ -2441,7 +2496,14 @@ class MarketService:
                 if self._quotes_share_snapshot(quote, index_quote):
                     threshold = float(item["_threshold"])
                     rule_window = int(item.get("_rule_window", item["_window"]))
-                    deviation, actual_window = self._best_vector_deviation(stock_vector, index_vector, rule_window)
+                    reset_date = str(item.get("ruleResetDate") or "")
+                    reset_window = item.get("ruleResetWindow")
+                    metric = self._vector_metrics(
+                        stock_vector, index_vector, BOARD_RULES[BOARD_BY_MARKET.get(item.get("board"), Board.MAIN)],
+                        reset_date, reset_window == 30,
+                    )
+                    deviation = metric["deviations"].get(rule_window)
+                    actual_window = metric["window_lengths"].get(rule_window)
                     if deviation is not None:
                         item["_deviation"] = deviation
                         item["_window"] = actual_window or item["_window"]
@@ -2456,6 +2518,8 @@ class MarketService:
                             threshold,
                             forecast_scope=scope,
                             rule_window=rule_window,
+                            rule_reset_date=reset_date,
+                            reset_window=reset_window,
                         )
                         display_distance = threshold if item["triggered"] else max(0.0, float(distance or 0.0))
                         item["triggerValue"] = f"+{display_distance:.2f}%"
@@ -2965,7 +3029,11 @@ class MarketService:
                 if suspension.get("suspended"):
                     continue
                 rule = BOARD_RULES[BOARD_BY_MARKET.get(stock.get("board"), Board.MAIN)]
-                metrics = self._vector_metrics(stock_vector, index_vector, rule)
+                metrics = self._vector_metrics(
+                    stock_vector, index_vector, rule,
+                    suspension.get("ruleResetDate", ""),
+                    suspension.get("ruleResetWindow") == 30,
+                )
                 rule_key = str(item.get("ruleKey") or "")
                 rule_window = {"ordinary_3d": 3, "same_direction_10d": 3, "severe_10d": 10, "severe_30d": 30}.get(rule_key, int(item.get("predictionWindow") or 10))
                 deviation = metrics.get("deviations", {}).get(rule_window)
@@ -2980,6 +3048,9 @@ class MarketService:
                         actual_window,
                         threshold,
                         forecast_scope=forecast_scope,
+                        rule_window=rule_window,
+                        rule_reset_date=suspension.get("ruleResetDate", ""),
+                        reset_window=suspension.get("ruleResetWindow"),
                     )
                     item["deviation"] = f"{actual_window}日 {_pct(deviation)}"
                     item["deviationLabel"] = item["deviation"]

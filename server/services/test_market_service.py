@@ -909,9 +909,9 @@ class MarketVectorTests(unittest.TestCase):
             stock, stock_vector, index_vector
         )
         self.assertEqual(meta["ruleResetDate"], "20261010")
-        self.assertEqual([item["date"] for item in trimmed_stock], ["2026-10-10"])
+        self.assertEqual([item["date"] for item in trimmed_stock], ["2026-10-08", "2026-10-09", "2026-10-10"])
         self.assertEqual(monitoring["riskTone"], "severe-30d")
-        metrics = service._vector_metrics(trimmed_stock, trimmed_index, BOARD_RULES[Board.CHINEXT])
+        metrics = service._vector_metrics(trimmed_stock, trimmed_index, BOARD_RULES[Board.CHINEXT], meta["ruleResetDate"], True)
         self.assertEqual(metrics["window_lengths"][30], 1)
         self.assertAlmostEqual(metrics["deviations"][30], 20.0)
 
@@ -934,10 +934,22 @@ class MarketVectorTests(unittest.TestCase):
         trimmed_stock, trimmed_index, meta, _ = service._rule_vectors_for_stock(stock, stock_vector, index_vector)
 
         self.assertEqual(meta["ruleResetDate"], "20261009")
-        self.assertEqual([item["date"] for item in trimmed_stock], dates[1:])
-        self.assertEqual([item["date"] for item in trimmed_index], dates[1:])
-        metrics = service._vector_metrics(trimmed_stock, trimmed_index, BOARD_RULES[Board.CHINEXT])
+        self.assertEqual([item["date"] for item in trimmed_stock], dates)
+        self.assertEqual([item["date"] for item in trimmed_index], dates)
+        metrics = service._vector_metrics(trimmed_stock, trimmed_index, BOARD_RULES[Board.CHINEXT], meta["ruleResetDate"], False)
         self.assertAlmostEqual(metrics["deviations"][3], 6.1208, places=3)
+        self.assertEqual(metrics["window_lengths"][30], 4)
+
+    def test_ten_day_announcement_reset_does_not_cut_rolling_thirty_day_window(self):
+        daily_return = ((1 + 142.32581068 / 100) ** (1 / 23) - 1) * 100
+        stock = [{"date": f"2026-09-{day:02d}", "return": daily_return} for day in range(1, 24)]
+        index = [{"date": item["date"], "return": 0.0} for item in stock]
+        metrics = MarketService._vector_metrics(
+            stock, index, BOARD_RULES[Board.CHINEXT], "20260918", False
+        )
+        self.assertEqual(metrics["window_lengths"][30], 23)
+        self.assertAlmostEqual(metrics["deviations"][30], 142.32581068, places=6)
+        self.assertEqual(metrics["window_lengths"][10], 6)
 
     def test_xinhua_resume_counts_one_valid_return_after_three_day_suspension(self):
         """新华传媒 10/13-10/15 停牌、10/16 复牌，不能把停牌日算成四个行情日。"""
