@@ -37,7 +37,7 @@ class MarketVectorTests(unittest.TestCase):
         with self.assertRaisesRegex(CalculationDataUnavailable, "缺少该股票的历史收益向量"):
             service.detail("000001.SZ")
 
-    def test_today_dataset_archives_prior_day_next_day_without_recomputing_from_same_day_close(self):
+    def test_today_dataset_recomputes_candidate_fields_from_target_day_baseline(self):
         service = self.service
         archived_forecast = {
             "scope": "next_day", "target_trade_date": "20261016", "base_trade_date": "20261015",
@@ -59,17 +59,57 @@ class MarketVectorTests(unittest.TestCase):
 
         def compute(scope, **_kwargs):
             computed_scopes.append(scope)
+            if scope == "today":
+                self.assertEqual(_kwargs["candidate_keys"], {("002242.SZ", "severe_10d")})
+                return [{
+                    "ts_code": "002242.SZ", "ruleKey": "severe_10d",
+                    "deviationLabel": "8日 +96.04%", "deviation": "8日 +96.04%",
+                    "change": "+2.77%",
+                    "quoteUpdatedAt": "2026-10-16 15:00", "tradeDate": "20261016",
+                    "triggerValue": "+2.22%", "scope": "当日",
+                }]
             return []
 
         service._compute_prediction_from_repository = compute
         service._generate_prediction_datasets("formal")
 
         today_items = service._prediction_cache["today"][1]
-        self.assertEqual(computed_scopes, ["next_day"])
-        self.assertEqual(today_items[0]["deviationLabel"], "9日 +94.43%")
+        self.assertEqual(computed_scopes, ["today", "next_day"])
+        self.assertEqual(today_items[0]["deviationLabel"], "8日 +96.04%")
+        self.assertEqual(today_items[0]["change"], "+2.77%")
+        self.assertEqual(today_items[0]["quoteUpdatedAt"], "2026-10-16 15:00")
+        self.assertEqual(today_items[0]["triggerValue"], "+2.22%")
         self.assertEqual(today_items[0]["targetTradeDate"], "20261016")
         self.assertEqual(today_items[0]["scope"], "当日")
         self.assertEqual(service._prediction_trade_date["today"], "20261016")
+
+    def test_today_dataset_refuses_partial_candidate_recalculation(self):
+        service = self.service
+        archived_forecast = {
+            "scope": "next_day", "target_trade_date": "20261016", "base_trade_date": "20261015",
+            "items": [
+                {"ts_code": "002242.SZ", "ruleKey": "severe_10d"},
+                {"ts_code": "600825.SH", "ruleKey": "severe_10d"},
+            ],
+            "status": "ready", "dataset_quote_complete": True,
+        }
+        service._calc_repository = SimpleNamespace(available=False)
+        service._latest_data_stage_date = lambda: ("20261016", "formal")
+        service.client.trade_cal = lambda *_args: SimpleNamespace(to_dict=lambda *_args, **_kwargs: [
+            {"cal_date": "20261016", "is_open": 1}, {"cal_date": "20261019", "is_open": 1},
+        ])
+        service._prediction_record = lambda scope, target_trade_date="": (
+            archived_forecast if scope == "next_day" and target_trade_date == "20261016" else None
+        )
+        service._compute_prediction_from_repository = lambda scope, **_kwargs: (
+            [{"ts_code": "002242.SZ", "ruleKey": "severe_10d", "tradeDate": "20261016"}]
+            if scope == "today" else []
+        )
+
+        service._generate_prediction_datasets("formal")
+
+        self.assertNotIn("today", service._prediction_cache)
+        self.assertIn("1 张前序候选卡片未能按目标日重算", service._prediction_last_error["today"])
 
     def test_today_dataset_refuses_same_day_baseline_when_prior_forecast_missing(self):
         service = self.service

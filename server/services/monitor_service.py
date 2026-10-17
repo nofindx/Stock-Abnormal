@@ -27,20 +27,20 @@ except ImportError:
 
 
 SHANGHAI_TZ = ZoneInfo("Asia/Shanghai") if ZoneInfo else timezone(timedelta(hours=8))
-# 重点监控记录的实际监控期按触发类型计算，三类记录均为 10 个交易日。
+# 风险提示和严重异动默认按 10 个交易日；退市整理按公告正文日期计算。
 # 注意：30 日严重异动中的“30 个交易日”是规则判定的回看窗口，
 # 不是公告触发后的监管期长度。规则计算窗口由 server/core/abnormal_rules.py 负责。
 MONITOR_PERIOD_TRADING_DAYS = {
     "ordinary": 10,       # 18.cn 交易所风险提示的默认监控窗口（起点计第 1 日）
     "severe-10d": 10,     # 10 日严重异动：触发后 10 个交易日
     "severe-30d": 10,     # 30 日偏离达到阈值后，仍按触发后 10 个交易日监管
-    "delisting-warning": 10, # 退市整理风险警示按风险提示同口径计 10 个交易日
+    "delisting-warning": 10, # 正文缺少日期时的兼容周期
 }
 # 兼容外部测试/旧调用方；业务代码统一使用 MONITOR_PERIOD_TRADING_DAYS。
 MONITOR_WINDOW_TRADING_DAYS = MONITOR_PERIOD_TRADING_DAYS
 # 公告分类口径变化时，启动任务主动重采一次当前快照；避免必须等到次日
 # 00:00 才让修复后的北交所严重异动进入重点监控。
-MONITOR_RULE_VERSION = "2026-10-monitor-zts-strict-risk-v8-official-reset-facts"
+MONITOR_RULE_VERSION = "2026-10-monitor-zts-strict-risk-delisting-countdown-v9"
 
 
 class MonitorRepository:
@@ -346,10 +346,44 @@ class OfficialMonitorService:
     @staticmethod
     def _zts_monitor_type(title: str, body: str, hint: str = "") -> tuple[str, str]:
         if hint == "delisting-warning" or "退市整理" in str(title or "") or "退市风险警示" in str(title or ""):
-            return "退市整理风险警示", "delisting-warning"
+            return "退市倒计时", "delisting-warning"
         if "交易风险提示" in str(title or "") and OfficialMonitorService._has_exchange_strict_monitoring_wording(body):
             return "风险提示", "ordinary"
         return ("风险提示", "ordinary") if OfficialMonitorService._has_exchange_strict_monitoring_wording(body) else ("", "")
+
+    @staticmethod
+    def _delisting_dates_from_body(body: str) -> tuple[str, str]:
+        """Extract the announced start and last trading date of a delisting period."""
+
+        text = str(body or "")
+
+        def date_value(match: Any) -> str:
+            year, month, day = (int(value) for value in match.groups())
+            return f"{year:04d}-{month:02d}-{day:02d}"
+
+        start_match = re.search(
+            r"自\s*(\d{4})年\s*(\d{1,2})月\s*(\d{1,2})日\s*起.{0,30}?进入退市整理期",
+            text,
+        )
+        end_match = re.search(
+            r"(?:预计)?最后交易日期?(?:为|是|将为|：|:)\s*(\d{4})年\s*(\d{1,2})月\s*(\d{1,2})日",
+            text,
+        )
+        return (
+            date_value(start_match) if start_match else "",
+            date_value(end_match) if end_match else "",
+        )
+
+    def _delisting_period_dates(self, body: str, announcement_date: str, symbol: str) -> tuple[List[str], str, str]:
+        """Use the notice's effective entry and final-trading dates for countdowns."""
+
+        start_date, end_date = self._delisting_dates_from_body(body)
+        if not start_date or not end_date or start_date > end_date:
+            dates = self._monitor_period_dates(announcement_date, "zts-risk-alert", "delisting-warning", symbol)
+            return dates, dates[0] if dates else "", dates[-1] if dates else ""
+        calendar_days = (datetime.strptime(end_date, "%Y-%m-%d") - datetime.strptime(start_date, "%Y-%m-%d")).days + 1
+        dates = [value for value in self._trade_dates(start_date, calendar_days) if start_date <= value <= end_date]
+        return dates, start_date, end_date
 
     @staticmethod
     def _is_accepted_broker_alert(title: str, body: str) -> bool:
@@ -725,19 +759,25 @@ class OfficialMonitorService:
                 })
                 if risk_tone != "delisting-warning" and self._is_noise_stock(alert.get("stockCode", ""), alert.get("stockName", "")):
                     continue
-                monitor_dates = self._monitor_period_dates(
-                    alert["date"], "zts-risk-alert", risk_tone, alert.get("stockCode", "")
-                )
+                if risk_tone == "delisting-warning":
+                    monitor_dates, monitor_start, monitor_end = self._delisting_period_dates(
+                        alert.get("body", ""), alert["date"], alert.get("stockCode", "")
+                    )
+                else:
+                    monitor_dates = self._monitor_period_dates(
+                        alert["date"], "zts-risk-alert", risk_tone, alert.get("stockCode", "")
+                    )
+                    monitor_start = monitor_dates[0] if monitor_dates else ""
+                    monitor_end = monitor_dates[-1] if monitor_dates else ""
                 if not monitor_dates:
                     continue
-                monitor_start, monitor_end = monitor_dates[0], monitor_dates[-1]
                 parsed_events.append({
                     "sourceId": source_id, "monitorKey": source_id,
                     "symbol": alert["stockCode"], "name": alert["stockName"],
                     "title": alert["title"], "announcementDate": alert["date"],
                     "monitorStart": monitor_start[5:], "monitorStartDate": monitor_start,
                     "monitorEnd": monitor_end[5:], "monitorEndDate": monitor_end,
-                    "days": None, "daysTotal": MONITOR_PERIOD_TRADING_DAYS.get(risk_tone, 10),
+                    "days": None, "daysTotal": len(monitor_dates),
                     "monitorDates": monitor_dates, "monitorType": monitor_type, "riskTone": risk_tone,
                     "isST": "ST" in alert.get("stockName", "").upper(),
                     "source": alert["source"], "sourceUrl": alert["url"],
@@ -745,7 +785,11 @@ class OfficialMonitorService:
                     "sourcePriority": alert["sourcePriority"], "sourceLabel": alert["sourceLabel"],
                     "confirmationStatus": "broker-disclosure-confirmed",
                     "contentHash": hashlib.sha256(f"{alert['title']}\n{alert.get('body', '')}".encode("utf-8")).hexdigest(),
-                    "monitorPeriod": f"起始日起共 {MONITOR_PERIOD_TRADING_DAYS.get(risk_tone, 10)} 个交易日（起点计第1日）",
+                    "monitorPeriod": (
+                        f"退市整理期至 {monitor_end}"
+                        if risk_tone == "delisting-warning"
+                        else f"起始日起共 {MONITOR_PERIOD_TRADING_DAYS.get(risk_tone, 10)} 个交易日（起点计第1日）"
+                    ),
                 })
             # 18.cn 页面只展示滚动的最近条目；仅在 18.cn 成功时保留旧窗口，避免主源滚动造成记录消失。
             previous_snapshot = self.repository.active_snapshot() or {}

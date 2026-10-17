@@ -231,8 +231,27 @@ class MonitorWindowTests(unittest.TestCase):
         )
         self.assertEqual(
             OfficialMonitorService._zts_monitor_type("关于“某股票”(600000)进入退市整理期的风险警示", "", "delisting-warning"),
-            ("退市整理风险警示", "delisting-warning"),
+            ("退市倒计时", "delisting-warning"),
         )
+
+    def test_delisting_countdown_uses_entry_and_last_trading_dates_from_article(self):
+        body = (
+            "该股票将自2026年9月30日起进入退市整理期，退市整理期为15个交易日，"
+            "预计最后交易日期为2026年10月27日。"
+        )
+        self.assertEqual(
+            OfficialMonitorService._delisting_dates_from_body(body),
+            ("2026-09-30", "2026-10-27"),
+        )
+        calendar = [
+            "2026-09-30", "2026-10-08", "2026-10-09", "2026-10-12", "2026-10-13",
+            "2026-10-14", "2026-10-15", "2026-10-16", "2026-10-19", "2026-10-20",
+            "2026-10-21", "2026-10-22", "2026-10-23", "2026-10-26", "2026-10-27",
+        ]
+        self.service._trade_dates = lambda _source_date, _days: calendar
+        dates, start, end = self.service._delisting_period_dates(body, "2026-09-23", "301139")
+        self.assertEqual((start, end), ("2026-09-30", "2026-10-27"))
+        self.assertEqual(len(dates), 15)
 
     def test_zts_source_fetches_transaction_and_delisting_alerts(self):
         service = AnnouncementService()
@@ -240,7 +259,7 @@ class MonitorWindowTests(unittest.TestCase):
             "/article/getArticleList": {
                 "rows": [
                     {"id": 1, "title": "关于“新华传媒”（600825）的交易风险提示", "publishTime": "2026-10-16 09:00:00"},
-                    {"id": 2, "title": "关于“*ST萃华”(002731)进入退市整理期的风险警示", "publishTime": "2026-10-16 10:00:00"},
+                    {"id": 2, "title": "关于“*ST元道”(301139)进入退市整理期的风险警示", "publishTime": "2026-09-23 08:46:52"},
                 ]
             },
             "/article/getArticleDetail": {
@@ -249,10 +268,10 @@ class MonitorWindowTests(unittest.TestCase):
         }
         def request(path, params):
             if params.get("id") == 2:
-                return {"data": {"id": 2, "title": "关于“*ST萃华”(002731)进入退市整理期的风险警示", "publishTime": "2026-10-16 10:00:00", "content": "退市整理"}}
+                return {"data": {"id": 2, "title": "关于“*ST元道”(301139)进入退市整理期的风险警示", "publishTime": "2026-09-23 08:46:52", "content": "自2026年9月30日起进入退市整理期，预计最后交易日期为2026年10月27日。"}}
             return responses[path]
         service._zts_request = request
-        result = service.query_zts_risk_alerts("2026-10-16", "2026-10-17")
+        result = service.query_zts_risk_alerts("2026-09-01", "2026-10-17")
         self.assertTrue(result["available"])
         self.assertEqual([item["riskToneHint"] for item in result["items"]], ["ordinary", "delisting-warning"])
 

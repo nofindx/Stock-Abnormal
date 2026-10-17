@@ -29,7 +29,7 @@ BOARD_BY_MARKET = {"主板": Board.MAIN, "创业板": Board.CHINEXT, "科创板"
 SHANGHAI_TZ = ZoneInfo("Asia/Shanghai") if ZoneInfo else timezone(timedelta(hours=8))
 # 停牌/复牌重置、上涨同向计数和预测阶段切换属于同一套规则口径。
 # 版本变化会触发服务启动时从已确认收盘行情重建计算基础数据与预测集。
-PREDICTION_RULE_VERSION = "2026-10-unified-max-window-simulation-v35-preserve-target-day-forecast"
+PREDICTION_RULE_VERSION = "2026-10-unified-max-window-simulation-v36-rebase-today-market-fields"
 
 
 class CalculationDataUnavailable(RuntimeError):
@@ -1981,8 +1981,8 @@ class MarketService:
             target_trade_date = base_trade_date if scope == "today" else next_trade_date
             try:
                 if scope == "today":
-                    # 今日预测是在前一交易日收盘后以 next_day 生成的。盘后
-                    # 当前基线已包含今日正式行情，不能再用它反算并覆盖今日预测。
+                    # The prior-day next_day set determines candidate identities;
+                    # the target-day vectors determine every displayed calculation.
                     source = self._prediction_record("next_day", target_trade_date)
                     source_target = str((source or {}).get("target_trade_date") or "")
                     source_base = str((source or {}).get("base_trade_date") or "")
@@ -1994,33 +1994,82 @@ class MarketService:
                         or source.get("status") != "ready"
                         or not source.get("dataset_quote_complete", False)
                     ):
-                        raise RuntimeError(f"缺少 {target_trade_date} 前一交易日生成的完整次日候选集，拒绝用同日收盘数据重算当日预测")
-                    items = [dict(item) for item in source.get("items") or []]
+                        raise RuntimeError(f"缺少 {target_trade_date} 前一交易日生成的完整次日候选集，拒绝发布当日预测")
+                    # The prior-day next_day dataset owns candidate selection, not
+                    # the target-day quote or calculation fields. Recompute from
+                    # the target day's persisted stock/index vectors, then retain
+                    # only the prior-day candidate identities.
+                    source_items = source.get("items") or []
+                    candidate_keys = {
+                        (str(item.get("ts_code") or ""), str(item.get("ruleKey") or ""))
+                        for item in source_items
+                    }
+                    items = self._compute_prediction_from_repository(
+                        "today", use_realtime=False, target_trade_date=target_trade_date,
+                        candidate_keys=candidate_keys,
+                    ) or []
+                    recalculated_keys = {
+                        (str(item.get("ts_code") or ""), str(item.get("ruleKey") or ""))
+                        for item in items
+                    }
+                    missing_candidates = candidate_keys - recalculated_keys
+                    if missing_candidates:
+                        raise RuntimeError(
+                            f"{target_trade_date} 有 {len(missing_candidates)} 张前序候选卡片未能按目标日重算，拒绝发布不完整或过期数据"
+                        )
                     for item in items:
                         item["targetTradeDate"] = target_trade_date
                         item["scope"] = "当日"
                         item["predictionKey"] = f"{item.get('ts_code', '')}-{item.get('ruleKey', '')}-{target_trade_date}"
                     updated_at = self._now()
-                    self._prediction_cache[scope] = (updated_at, items)
-                    self._prediction_trade_date[scope] = target_trade_date
                     if self._calc_repository.available:
+                        calculations = self._calc_repository.all_calculations() or {}
+                        indexes = self._calc_repository.all_indexes() or {}
+                        active_stocks = self._stock_rows()
+                        missing_stock_bases = [
+                            stock.get("ts_code") for stock in active_stocks
+                            if self._date_key((calculations.get(stock.get("ts_code")) or {}).get("as_of_trade_date"))
+                            != target_trade_date
+                        ]
+                        required_index_codes = {_index_code_for_stock(stock) for stock in active_stocks}
+                        missing_index_bases = [
+                            code for code in required_index_codes
+                            if self._date_key((indexes.get(code) or {}).get("as_of_trade_date")) != target_trade_date
+                        ]
+                        target_quotes = [
+                            str(row.get("quote_updated_at") or "")
+                            for row in list(calculations.values()) + list(indexes.values())
+                            if self._date_key(row.get("as_of_trade_date")) == target_trade_date
+                            and row.get("quote_updated_at")
+                        ]
+                        if missing_stock_bases or missing_index_bases or not target_quotes or any(
+                            str(item.get("tradeDate") or "") != target_trade_date for item in items
+                        ):
+                            raise RuntimeError(
+                                f"{target_trade_date} 股票/指数基线不完整或日期不匹配"
+                                f"（缺股票 {len(missing_stock_bases)} 只，缺指数 {len(missing_index_bases)} 个），拒绝发布 today 数据集"
+                            )
+                        target_quote_updated_at = max(target_quotes)
+                        target_data_stage = str(data_stage or "formal")
                         self._calc_repository.save_prediction(
                             scope,
                             target_trade_date,
                             items,
                             updated_at,
-                            data_stage=str(source.get("data_stage") or "formal"),
-                            data_quality=str(source.get("data_quality") or "confirmed"),
+                            data_stage=target_data_stage,
+                            data_quality="confirmed" if target_data_stage == "formal" else "provisional",
                             rule_version=PREDICTION_RULE_VERSION,
                             target_trade_date=target_trade_date,
                             base_trade_date=str(source.get("base_trade_date") or ""),
-                            dataset_quote_updated_at=str(source.get("dataset_quote_updated_at") or ""),
-                            dataset_quote_as_of=str(source.get("dataset_quote_as_of") or ""),
-                            dataset_quote_source=str(source.get("dataset_quote_source") or ""),
-                            dataset_quote_complete=bool(source.get("dataset_quote_complete")),
+                            dataset_quote_updated_at=target_quote_updated_at,
+                            dataset_quote_as_of=target_trade_date,
+                            dataset_quote_source="tushare" if target_data_stage == "formal" else "initial",
+                            dataset_quote_complete=True,
                             exclusion_stats=source.get("exclusion_stats") or {},
                             status="ready",
                         )
+                    self._prediction_cache[scope] = (updated_at, items)
+                    self._prediction_trade_date[scope] = target_trade_date
                     continue
                 items = self._compute_prediction_from_repository(scope, use_realtime=False, target_trade_date=target_trade_date) or []
                 for item in items:
@@ -2123,7 +2172,13 @@ class MarketService:
             raise CalculationDataUnavailable("数据库中的股票或指数基线缺失/日期不一致，单股计算已停止")
         return result
 
-    def _compute_prediction_from_repository(self, scope: str, use_realtime: bool = False, target_trade_date: str = "") -> Optional[List[Dict[str, Any]]]:
+    def _compute_prediction_from_repository(
+        self,
+        scope: str,
+        use_realtime: bool = False,
+        target_trade_date: str = "",
+        candidate_keys: Optional[set] = None,
+    ) -> Optional[List[Dict[str, Any]]]:
         """从统一行情规则计算普通、同向和严重异动预测卡。"""
 
         calculations = self._calc_repository.all_calculations()
@@ -2137,6 +2192,12 @@ class MarketService:
         self._prediction_generation_stats[scope] = stats
         candidates: List[Dict[str, Any]] = []
         for ts_code, calc in calculations.items():
+            candidate_rule_keys = {
+                rule_key for candidate_code, rule_key in (candidate_keys or set())
+                if candidate_code == ts_code
+            }
+            if candidate_keys is not None and not candidate_rule_keys:
+                continue
             stock = stocks.get(ts_code)
             if not stock:
                 continue
@@ -2192,16 +2253,18 @@ class MarketService:
                 ("severe_10d", 10, board_rule.severe_10d_threshold.up, "deviation", board_rule.severe_10d_threshold.up),
                 ("severe_30d", 30, board_rule.severe_30d_threshold.up, "deviation", board_rule.severe_30d_threshold.up),
             ]
-            if severe_monitored:
+            if severe_monitored or "ordinary_3d" in candidate_rule_keys:
                 rules.insert(0, ("ordinary_3d", 3, board_rule.ordinary_deviation, "deviation", board_rule.ordinary_deviation))
+            if candidate_keys is not None:
+                rules = [option for option in rules if option[0] in candidate_rule_keys]
             rule_options: List[Dict[str, Any]] = []
             for rule_key, rule_window, threshold, kind, target in rules:
-                if scope in {"today", "next_day"} and (stock.get("symbol") in monitored_codes.get(rule_key, set()) or ts_code.split(".")[0] in monitored_codes.get(rule_key, set())):
+                if candidate_keys is None and scope in {"today", "next_day"} and (stock.get("symbol") in monitored_codes.get(rule_key, set()) or ts_code.split(".")[0] in monitored_codes.get(rule_key, set())):
                     stats["excludedByMonitor"] += 1
                     continue
                 deviation = metrics["deviations"].get(rule_window)
                 actual_window = metrics.get("window_lengths", {}).get(rule_window)
-                if deviation is None or actual_window is None or deviation <= 0:
+                if deviation is None or actual_window is None or (deviation <= 0 and candidate_keys is None):
                     stats["excludedByDataQuality"] += 1
                     continue
                 distance = self._required_up_percent(
@@ -2218,7 +2281,7 @@ class MarketService:
                 if scope == "next_day" and triggered:
                     stats["excludedByTriggered"] += 1
                     continue
-                if not triggered and distance > limit:
+                if not triggered and distance > limit and candidate_keys is None:
                     stats["excludedByLimit"] += 1
                     continue
                 rule_options.append({"ruleKey": rule_key, "ruleWindow": rule_window, "actualWindow": actual_window, "deviation": deviation, "threshold": threshold, "distance": distance, "kind": kind, "triggered": triggered})
