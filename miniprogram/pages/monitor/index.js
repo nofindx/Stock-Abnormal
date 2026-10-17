@@ -132,8 +132,7 @@ function isVisibleMonitorItem(item) {
   // 退市整理单独保留；风险提示与严重异动按产品去杂规则只影响页面展示。
   if (item.riskTone === 'delisting-warning') return true
   if (!['ordinary', 'severe-10d', 'severe-30d'].includes(item.riskTone)) return true
-  const marketChange = Number(item.marketChange)
-  if (['severe-10d', 'severe-30d'].includes(item.riskTone) && Number.isFinite(marketChange) && marketChange < 0) return false
+  if (['severe-10d', 'severe-30d'].includes(item.riskTone) && item.eventDirection === 'down') return false
   const code = String(item.symbol || item.ts_code || '').match(/\d{6}/)
   const name = String(item.name || '').replace(/\s+/g, '').toUpperCase()
   return !(code && /^[15]/.test(code[0])) && !/^\*?ST/.test(name) && !name.includes('退')

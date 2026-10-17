@@ -331,6 +331,7 @@ class MonitorWindowTests(unittest.TestCase):
 
     def test_bse_negative_severe_deviation_is_monitor_record(self):
         body = "股票连续4个交易日内日收盘价跌幅偏离值累计达到-61.39%，属于股票交易严重异常波动情形。"
+        self.assertEqual(OfficialMonitorService._severe_event_direction(body), "down")
         self.assertEqual(
             OfficialMonitorService._classify_monitor_text("股票交易严重异常波动公告", body, "920229"),
             ("10日严重异动", "severe-10d"),
@@ -345,10 +346,26 @@ class MonitorWindowTests(unittest.TestCase):
 
     def test_bse_positive_severe_deviation_with_actual_short_window_is_monitor_record(self):
         body = "股票连续4个交易日内日收盘价涨幅偏离值累计达到105.39%，属于股票交易严重异常波动情形。"
+        self.assertEqual(OfficialMonitorService._severe_event_direction(body), "up")
         self.assertEqual(
             OfficialMonitorService._monitor_type("股票交易严重异常波动公告", body),
             ("10日严重异动", "severe-10d"),
         )
+
+    def test_real_issuer_severe_notices_preserve_event_direction(self):
+        self.assertEqual(
+            OfficialMonitorService._severe_event_direction(
+                "连续8个交易日内日收盘价格涨幅偏离值累计达到117.06%，属于严重异常波动。"
+            ),
+            "up",
+        )
+        self.assertEqual(
+            OfficialMonitorService._severe_event_direction(
+                "连续4个交易日内日收盘价跌幅偏离值累计达到-61.39%，属于严重异常波动。"
+            ),
+            "down",
+        )
+        self.assertEqual(OfficialMonitorService._severe_event_direction("严重异常波动，未披露方向"), "")
 
     def test_monitor_rule_version_requires_refresh_after_direction_change(self):
         self.assertIn("zts-strict-risk", MONITOR_RULE_VERSION)
@@ -404,6 +421,36 @@ class MonitorWindowTests(unittest.TestCase):
                 "关于股票交易异常波动的公告",
                 "连续3个交易日内收盘价格涨幅偏离值累计超过30%，属于股票交易异常波动。",
             ),
+            ("", ""),
+        )
+
+    def test_same_direction_count_severe_notice_is_classified(self):
+        body = (
+            "公司A股股票2026年9月21日至2026年10月9日连续9个交易日涨停，"
+            "连续9个交易日内出现4次同向异常波动，根据上海证券交易所交易规则，"
+            "属于股票交易严重异常波动的情形。"
+        )
+        self.assertEqual(
+            OfficialMonitorService._classify_monitor_text(
+                "股票交易异常波动暨严重异常波动公告", body, "600825"
+            ),
+            ("10日严重异动", "severe-10d"),
+        )
+        self.assertEqual(OfficialMonitorService._severe_event_direction(body), "up")
+        self.assertEqual(
+            OfficialMonitorService._event_end_date("2026-10-10", body),
+            "2026-10-09",
+        )
+
+    def test_same_direction_threshold_differs_by_board(self):
+        body3 = "连续9个交易日内出现3次同向异常波动，属于股票交易严重异常波动情形。"
+        body4 = "连续9个交易日内出现3次同向异常波动，属于股票交易严重异常波动情形。"
+        self.assertEqual(
+            OfficialMonitorService._classify_monitor_text("严重异常波动公告", body3, "301190"),
+            ("10日严重异动", "severe-10d"),
+        )
+        self.assertEqual(
+            OfficialMonitorService._classify_monitor_text("严重异常波动公告", body4, "600825"),
             ("", ""),
         )
 

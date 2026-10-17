@@ -40,7 +40,7 @@ MONITOR_PERIOD_TRADING_DAYS = {
 MONITOR_WINDOW_TRADING_DAYS = MONITOR_PERIOD_TRADING_DAYS
 # 公告分类口径变化时，启动任务主动重采一次当前快照；避免必须等到次日
 # 00:00 才让修复后的北交所严重异动进入重点监控。
-MONITOR_RULE_VERSION = "2026-10-monitor-zts-strict-risk-monitoring-wording-downside-filter-v13"
+MONITOR_RULE_VERSION = "2026-10-monitor-zts-strict-risk-monitoring-wording-event-direction-v14"
 
 
 class MonitorRepository:
@@ -293,6 +293,25 @@ class OfficialMonitorService:
         down_30 = -75 if is_bse else -70
         has_30_threshold = any(value >= threshold_30 or value <= down_30 for value in values_30)
         has_10_threshold = any(value >= threshold_10 or value <= down_10 for value in values_10)
+        # 上海主板、创业板/科创板等规则还允许以连续交易日内多次
+        # 同向异常波动认定为严重异常；这类公告可能不重复披露
+        # “10 个交易日涨幅偏离值”句式，不能因此漏掉。
+        same_direction_count = 0
+        same_direction_window = 0
+        same_match = re.search(r"连续(\d+)个交易日.{0,80}?出现(\d+)次同向异常波动", text)
+        if same_match:
+            same_direction_window = int(same_match.group(1))
+            same_direction_count = int(same_match.group(2))
+        code_value = code_match.group(0) if code_match else ""
+        same_direction_threshold = 3 if (
+            is_bse or code_value.startswith("3") or code_value.startswith("68")
+        ) else 4
+        has_same_direction_severe = (
+            same_direction_window > 0
+            and same_direction_count >= same_direction_threshold
+        )
+        if has_same_direction_severe:
+            has_10_threshold = True
         has_risk_wording = OfficialMonitorService._has_exchange_strict_monitoring_wording(text)
         if has_30_window and has_30_threshold:
             return "30日严重异动", "severe-30d"
@@ -303,11 +322,25 @@ class OfficialMonitorService:
         has_severe_title = "严重异常波动" in str(title or "") or "严重异常波动" in text
         has_threshold_deviation = any(value >= threshold_10 or value <= down_10 for value in deviation_values(""))
         has_actual_window = bool(re.search(r"连续\d+个交易日", text))
-        if has_severe_title and has_actual_window and not has_30_window and has_threshold_deviation:
+        if has_severe_title and has_actual_window and not has_30_window and (has_threshold_deviation or has_same_direction_severe):
             return "10日严重异动", "severe-10d"
         if has_risk_wording:
             return "风险提示", "ordinary"
         return "", ""
+
+    @staticmethod
+    def _severe_event_direction(body: str) -> str:
+        """Return the direction explicitly stated for a severe-abnormality fact.
+
+        Do not infer this from the latest daily return: a stock can fall today
+        while remaining under an active, upward severe-abnormality notice.
+        """
+        text = re.sub(r"\s+", "", str(body or "")).replace("％", "%")
+        if re.search(r"跌幅(?:偏离值)?|累计下跌|跌停|下跌幅度", text):
+            return "down"
+        if re.search(r"涨幅(?:偏离值)?|累计上涨|涨停|上涨幅度", text):
+            return "up"
+        return ""
 
     @staticmethod
     def _has_exchange_strict_monitoring_wording(text: str) -> bool:
@@ -609,6 +642,10 @@ class OfficialMonitorService:
                     if item.get("ruleResetConfirmed"):
                         same_date["ruleResetConfirmed"] = True
                         same_date["ruleResetDate"] = item.get("ruleResetDate") or same_date.get("ruleResetDate", "")
+                    if item.get("eventDirection"):
+                        # Prefer the direction parsed from the issuer/exchange
+                        # notice when the primary feed only provides a summary.
+                        same_date["eventDirection"] = item["eventDirection"]
                     same_date["monitorKey"] = hashlib.sha256("\n".join(sorted(
                         [same_date["sourceId"], item["sourceId"]]
                     )).encode("utf-8")).hexdigest()[:24]
@@ -705,6 +742,7 @@ class OfficialMonitorService:
                     "monitorDates": monitor_dates,
                     "ruleResetDate": monitor_dates[0].replace("-", "") if event_end_date and monitor_dates else "",
                     "ruleResetConfirmed": bool(risk_tone.startswith("severe-")),
+                    "eventDirection": self._severe_event_direction(body) if risk_tone.startswith("severe-") else "",
                     "monitorType": monitor_type, "riskTone": risk_tone,
                     "isST": "ST" in announcement["stockName"].upper(),
                     "source": announcement["source"], "sourceUrl": announcement["url"] if risk_tone != "ordinary" else "",
@@ -737,6 +775,7 @@ class OfficialMonitorService:
                     "monitorEnd": monitor_end[5:], "monitorEndDate": monitor_end,
                     "days": None, "daysTotal": MONITOR_PERIOD_TRADING_DAYS.get(risk_tone, 10), "monitorDates": monitor_dates,
                     "monitorType": monitor_type, "riskTone": risk_tone,
+                    "eventDirection": self._severe_event_direction(alert.get("body", "")) if risk_tone.startswith("severe-") else "",
                     "isST": "ST" in alert["stockName"].upper(),
                     "source": alert["source"], "sourceUrl": alert["url"] if risk_tone != "ordinary" else "",
                     "sourceType": alert["sourceType"], "sourceRole": alert["sourceRole"],
