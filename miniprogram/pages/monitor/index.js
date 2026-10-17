@@ -133,7 +133,7 @@ function isVisibleMonitorItem(item) {
   if (item.riskTone === 'delisting-warning') return true
   if (!['ordinary', 'severe-10d', 'severe-30d'].includes(item.riskTone)) return true
   const marketChange = Number(item.marketChange)
-  if (Number.isFinite(marketChange) && marketChange < 0) return false
+  if (['severe-10d', 'severe-30d'].includes(item.riskTone) && Number.isFinite(marketChange) && marketChange < 0) return false
   const code = String(item.symbol || item.ts_code || '').match(/\d{6}/)
   const name = String(item.name || '').replace(/\s+/g, '').toUpperCase()
   return !(code && /^[15]/.test(code[0])) && !/^\*?ST/.test(name) && !name.includes('退')

@@ -12,6 +12,7 @@ assert.strictEqual(isVisibleMonitorItem({ riskTone: 'severe-30d', symbol: '60000
 assert.strictEqual(isVisibleMonitorItem({ riskTone: 'delisting-warning', symbol: '301139', name: '*ST元道' }), true)
 assert.strictEqual(isVisibleMonitorItem({ riskTone: 'severe-10d', symbol: '920229', name: '世纪数码', marketChange: -5.48 }), false)
 assert.strictEqual(isVisibleMonitorItem({ riskTone: 'ordinary', symbol: '301234', name: '五洲医疗', marketChange: 1.25 }), true)
+assert.strictEqual(isVisibleMonitorItem({ riskTone: 'ordinary', symbol: '301234', name: '五洲医疗', marketChange: -11.27 }), true)
 assert.strictEqual(isVisibleMonitorItem({ riskTone: 'ordinary', symbol: '301234', name: '五洲医疗' }), true)
 assert.strictEqual(isVisibleMonitorItem({ riskTone: 'delisting-warning', symbol: '301139', name: '*ST元道', marketChange: -10 }), true)
 
