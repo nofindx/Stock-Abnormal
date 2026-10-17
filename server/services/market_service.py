@@ -29,7 +29,7 @@ BOARD_BY_MARKET = {"主板": Board.MAIN, "创业板": Board.CHINEXT, "科创板"
 SHANGHAI_TZ = ZoneInfo("Asia/Shanghai") if ZoneInfo else timezone(timedelta(hours=8))
 # 停牌/复牌重置、上涨同向计数和预测阶段切换属于同一套规则口径。
 # 版本变化会触发服务启动时从已确认收盘行情重建计算基础数据与预测集。
-PREDICTION_RULE_VERSION = "2026-10-unified-max-contiguous-window-v39"
+PREDICTION_RULE_VERSION = "2026-10-unified-max-contiguous-window-v40"
 
 
 class CalculationDataUnavailable(RuntimeError):
@@ -1315,8 +1315,15 @@ class MarketService:
         if not dates:
             return None
         horizon = int(rule_window or actual_window)
-        max_prior_returns = horizon - 1 if horizon in (10, 30) else horizon
         today_scope = forecast_scope == "today"
+        # N-day rules have at most N-1 known stock returns before today's
+        # unknown return. The next-day 3-day rule retains its full current
+        # window, matching the product's T+1 projection semantics.
+        max_prior_returns = (
+            max(0, horizon - 1)
+            if today_scope or horizon in (10, 30)
+            else horizon
+        )
         max_prior_returns = min(max_prior_returns, len(dates) - 1 if today_scope else len(dates))
         distances = []
         # 触发距离是从最新有效日向目标日延伸的区间，不能拿一个早于最新日
