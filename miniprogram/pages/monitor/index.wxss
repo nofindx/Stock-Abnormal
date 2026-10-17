@@ -13,7 +13,7 @@
   background: #FFFFFF;
   color: #6B7280;
   font-size: 22rpx;
-  font-weight: 600;
+  font-weight: 400;
   line-height: 58rpx;
   text-align: center;
   white-space: nowrap;
@@ -84,7 +84,8 @@
 /* Monitoring status is informational, not a price quote: keep it grayscale. */
 .monitor-page .filter-segment.active,
 .monitor-page .filter-segment-risk.active,
-.monitor-page .filter-segment-severe.active { border-color: #4B5563 !important; background: #F2F3F5 !important; color: #1C1C1E !important; }
+.monitor-page .filter-segment-severe.active,
+.monitor-page .filter-segment-delisting.active { border-color: #4B5563 !important; background: #F2F3F5 !important; color: #1C1C1E !important; font-weight: 600 !important; }
 .monitor-page .snapshot-refresh { border-color: #9CA3AF !important; color: #1C1C1E !important; }
 .monitor-page .source-link,
 .monitor-page .badge-ordinary,
