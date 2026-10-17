@@ -687,6 +687,29 @@ class MarketVectorTests(unittest.TestCase):
         self.assertEqual(metrics["window_lengths"][30], 1)
         self.assertAlmostEqual(metrics["deviations"][30], 20.0)
 
+    def test_xinhua_resume_counts_one_valid_return_after_three_day_suspension(self):
+        """新华传媒 10/13-10/15 停牌、10/16 复牌，不能把停牌日算成四个行情日。"""
+        service = self.service
+        service._clock = lambda: datetime(2026, 10, 16)
+        service.set_monitor_provider(lambda: {"items": [{
+            "symbol": "600825", "riskTone": "severe-10d", "sourceType": "issuer-disclosure",
+            "monitorType": "10日严重异动",
+            "monitorDates": ["2026-10-12", "2026-10-13", "2026-10-14", "2026-10-15", "2026-10-16"],
+            "monitorEndDate": "2026-10-23",
+        }]})
+        stock = {"ts_code": "600825.SH", "symbol": "600825"}
+        stock_vector = [
+            {"date": "2026-10-12", "return": 10.0},
+            {"date": "2026-10-16", "return": 5.0},
+        ]
+        index_vector = [{"date": day, "return": 0.0} for day in ("2026-10-12", "2026-10-13", "2026-10-14", "2026-10-15", "2026-10-16")]
+        trimmed_stock, trimmed_index, meta, monitoring = service._rule_vectors_for_stock(stock, stock_vector, index_vector)
+        self.assertEqual([item["date"] for item in trimmed_stock], ["2026-10-16"])
+        self.assertEqual([item["date"] for item in trimmed_index], ["2026-10-16"])
+        self.assertEqual(meta["resetDate"], "20261016")
+        self.assertEqual(meta["ruleResetDate"], "20261013")
+        self.assertEqual(monitoring["monitorType"], "10日严重异动")
+
     def test_broker_risk_alert_does_not_reset_market_window(self):
         """18.cn 风险提示不是交易所正文公告，不得截断行情累计。"""
         service = self.service
