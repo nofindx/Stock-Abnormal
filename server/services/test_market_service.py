@@ -504,6 +504,21 @@ class MarketVectorTests(unittest.TestCase):
         self.assertIn("3 日普通异动", result["statusReason"])
         self.assertTrue(all("上涨阈值" not in item["target"] for item in result["warnings"]))
 
+    def test_detail_keeps_monitoring_fact_on_weekend_between_monitor_dates(self):
+        service = self.service
+        service._clock = lambda: datetime(2026, 10, 18)  # Sunday
+        service.set_monitor_provider(lambda: {"items": [{
+            "symbol": "301190", "riskTone": "severe-10d", "monitorType": "10日严重异动",
+            "monitorStartDate": "2026-10-09", "monitorEndDate": "2026-10-22",
+            "monitorDates": ["2026-10-16", "2026-10-19", "2026-10-20", "2026-10-21", "2026-10-22"],
+            "days": 4,
+        }]})
+        stock = {"ts_code": "301190.SZ", "symbol": "301190", "name": "善水科技", "market": "SZSE", "board": "创业板", "isST": False}
+        active = service._active_monitor_for_stock(stock)
+
+        self.assertIsNotNone(active)
+        self.assertEqual(active["monitorType"], "10日严重异动")
+
     def test_detail_does_not_mix_unpaired_realtime_quotes_into_calculation(self):
         service = self.service
         service._calc_repository = SimpleNamespace(get_index=lambda _code: {

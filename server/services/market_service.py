@@ -1120,10 +1120,17 @@ class MarketService:
                 if item_symbol != symbol:
                     continue
                 dates = {str(value)[:10] for value in (item.get("monitorDates") or [])}
+                start_date = str(item.get("monitorStartDate") or "")[:10]
                 end_date = str(item.get("monitorEndDate") or "")[:10]
-                if dates and today not in dates:
+                # 监管事实按公告确认的起止日期持续有效；monitorDates 只描述
+                # 监管交易日，不能用它排除周末或节假日的详情状态。
+                if start_date:
+                    if today < start_date or (end_date and today > end_date):
+                        continue
+                elif dates and today not in dates:
+                    # 没有完整日期范围的兼容记录仍只能按交易日列表判断。
                     continue
-                if not dates and end_date and end_date < today:
+                elif end_date and today > end_date:
                     continue
                 matches.append(item)
             if not matches:
