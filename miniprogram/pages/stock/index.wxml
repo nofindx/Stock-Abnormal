@@ -47,6 +47,11 @@
             <text wx:if="{{nextDayForecastLine}}" class="next-day-forecast-date">{{nextDayForecastLine}}</text>
             <text class="next-day-forecast-result">{{nextDayForecastText}}</text>
           </view>
+          <view wx:if="{{detail.monitoringSummary}}" class="monitoring-summary">
+            <view class="monitoring-divider"></view>
+            <text class="monitoring-badge">已被重点监管</text>
+            <text class="monitoring-meta">监管日期{{detail.monitoringSummary.dateText}} · {{detail.monitoringSummary.ruleText}} · 剩余 {{detail.monitoringSummary.remainingText}} 天</text>
+          </view>
         </view>
       </view>
     </view>

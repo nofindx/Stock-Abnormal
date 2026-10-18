@@ -1,12 +1,12 @@
 const assert = require('assert')
 
 global.Page = () => {}
-const { bestDeviation, buildNextDayForecast, calculateSimulationRows, createInputRows, presentWarnings, summaryStatus } = require('./index')
+const { bestDeviation, buildNextDayForecast, calculateSimulationRows, createInputRows, presentWarnings, summaryStatus, formatMonthDay, monitoringRuleLabel, formatMonitoringSummary } = require('./index')
 
 const forecastBase = { baseTradeDate: '20261016', targetTradeDate: '20261019', available: true }
 assert.deepStrictEqual(buildNextDayForecast({ ...forecastBase, rules: [] }), {
   line: '按 2026-10-16 收盘数据预测 2026-10-19',
-  text: '未发现下一交易日可触发的异动条件'
+  text: '未发现下一交易日可触发的严重异动条件'
 })
 assert.deepStrictEqual(buildNextDayForecast({ ...forecastBase, rules: [
   { ruleKey: 'ordinary_3d', direction: 'up', rule: '连续3个交易日内收盘价涨幅偏离值累计达到 +20%' },
@@ -14,7 +14,7 @@ assert.deepStrictEqual(buildNextDayForecast({ ...forecastBase, rules: [
   { ruleKey: 'severe_30d', direction: 'up', rule: '连续30个交易日内收盘价涨幅偏离值累计达到 +200%' }
 ] }), {
   line: '按 2026-10-16 收盘数据预测 2026-10-19',
-  text: '下一交易日可能触发：连续3个交易日内收盘价涨幅偏离值累计达到 +20%；10个交易日内出现4次下跌同向普通异动；连续30个交易日内收盘价涨幅偏离值累计达到 +200%'
+  text: '次日可能触发：连续3个交易日内收盘价涨幅偏离值累计达到 +20%；10个交易日内出现4次下跌同向普通异动；连续30个交易日内收盘价涨幅偏离值累计达到 +200%'
 })
 assert.deepStrictEqual(buildNextDayForecast({ ...forecastBase, available: false, rules: [] }), {
   line: '', text: '次日预测暂不可用'
@@ -28,6 +28,12 @@ assert.deepStrictEqual(summaryStatus({ status: '正常', monitoringStatus: 'acti
 assert.deepStrictEqual(summaryStatus({ status: '触及', monitoring: null }), { text: '存在异动风险', tone: 'risk' })
 assert.deepStrictEqual(summaryStatus({ status: '正常', nextDayForecast: { available: true, rules: [{ ruleKey: 'severe_30d' }] } }), { text: '存在异动风险', tone: 'risk' })
 assert.deepStrictEqual(summaryStatus({ status: '正常', nextDayForecast: { available: true, rules: [] } }), { text: '暂无异动风险', tone: 'safe' })
+assert.strictEqual(formatMonthDay('2026-10-19'), '10/19')
+assert.strictEqual(monitoringRuleLabel({ riskTone: 'severe-30d', monitorType: '30日严重异动' }), '30日异动')
+assert.deepStrictEqual(formatMonitoringSummary({ active: true, monitorStartDate: '2026-10-15', monitorEndDate: '2026-10-22', riskTone: 'severe-10d', days: 4 }), {
+  dateText: '10/15-10/22', ruleText: '10日异动', remainingText: '4'
+})
+assert.strictEqual(formatMonitoringSummary(null), null)
 
 const maxTrailingInterval = bestDeviation([10, 10, 0, 0, 0, 0, 0, 0, -50, 10], Array(10).fill(0), 10)
 assert.strictEqual(maxTrailingInterval.window, 1)

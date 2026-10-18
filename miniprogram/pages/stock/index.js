@@ -74,6 +74,37 @@ function formatUpdatedAt(value) {
   return text.replace('T', ' ').replace(/\.\d+(Z)?$/, '').slice(0, 19)
 }
 
+function formatMonthDay(value) {
+  const text = String(value == null ? '' : value).trim()
+  const digits = text.replace(/[^\d]/g, '')
+  if (digits.length >= 8) return `${digits.slice(4, 6)}/${digits.slice(6, 8)}`
+  const match = text.match(/^(\d{1,2})[/-](\d{1,2})$/)
+  if (match) return `${String(match[1]).padStart(2, '0')}/${String(match[2]).padStart(2, '0')}`
+  return '--/--'
+}
+
+function monitoringRuleLabel(monitoring = {}) {
+  const tone = String(monitoring.riskTone || '').trim()
+  if (tone === 'severe-10d') return '10日异动'
+  if (tone === 'severe-30d') return '30日异动'
+  if (tone === 'delisting-warning') return '退市倒计时'
+  if (tone === 'ordinary') return '风险提示'
+  const type = String(monitoring.monitorType || '').trim()
+  return type.replace('严重异动', '异动') || '重点监管'
+}
+
+function formatMonitoringSummary(monitoring) {
+  if (!monitoring || monitoring.active === false) return null
+  const start = monitoring.monitorStartDate || monitoring.monitorStart
+  const end = monitoring.monitorEndDate || monitoring.monitorEnd
+  const remaining = monitoring.remainingDays != null ? monitoring.remainingDays : monitoring.days
+  return {
+    dateText: `${formatMonthDay(start)}-${formatMonthDay(end)}`,
+    ruleText: monitoringRuleLabel(monitoring),
+    remainingText: remaining == null || remaining === '' ? '--' : String(remaining)
+  }
+}
+
 const STOCK_HISTORY_KEY = 'stockSearchHistory'
 
 function normalizeTradeDate(value) {
@@ -91,7 +122,7 @@ function buildNextDayForecast(forecast = {}) {
   const rules = [...new Set(candidates.map(item => String(item.rule).trim()))]
   return {
     line,
-    text: rules.length ? `下一交易日可能触发：${rules.join('；')}` : '未发现下一交易日可触发的异动条件'
+    text: rules.length ? `次日可能触发：${rules.join('；')}` : '未发现下一交易日可触发的严重异动条件'
   }
 }
 
@@ -334,7 +365,8 @@ Page({
         changeClass: changeClass(detail.change),
         dataQuality: detail.dataQuality || {},
         warnings: presentWarnings(detail.warnings),
-        alerts: presentAlerts(detail.alerts)
+        alerts: presentAlerts(detail.alerts),
+        monitoringSummary: formatMonitoringSummary(detail.monitoring)
       }
       const statusSummary = summaryStatus(detail)
       displayDetail.summaryStatus = statusSummary.text
@@ -391,4 +423,4 @@ Page({
 })
 
 // 纯计算函数导出给前端回归测试；小程序运行时不影响 Page 注册。
-if (typeof module !== 'undefined') module.exports = { bestDeviation, buildNextDayForecast, calculateSimulationRows, createInputRows, presentWarnings, summaryStatus }
+if (typeof module !== 'undefined') module.exports = { bestDeviation, buildNextDayForecast, calculateSimulationRows, createInputRows, presentWarnings, summaryStatus, formatMonthDay, monitoringRuleLabel, formatMonitoringSummary }
