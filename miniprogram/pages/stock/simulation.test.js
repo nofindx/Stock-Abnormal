@@ -1,7 +1,7 @@
 const assert = require('assert')
 
 global.Page = () => {}
-const { bestDeviation, buildNextDayForecast, calculateSimulationRows, createInputRows, presentWarnings, summaryStatus, formatMonthDay, monitoringRuleLabel, formatMonitoringSummary, remainingMonitoringDays, findStockMonitoring } = require('./index')
+const { bestDeviation, buildMatrixGroups, buildNextDayForecast, calculateSimulationRows, createInputRows, presentWarnings, summaryStatus, formatMonthDay, monitoringRuleLabel, formatMonitoringSummary, remainingMonitoringDays, findStockMonitoring } = require('./index')
 
 const forecastBase = { baseTradeDate: '20261016', targetTradeDate: '20261019', available: true }
 assert.deepStrictEqual(buildNextDayForecast({ ...forecastBase, rules: [] }), {
@@ -38,6 +38,7 @@ assert.deepStrictEqual(formatMonitoringSummary({ active: true, monitorStartDate:
   dateText: '10/15-10/22', ruleText: '连续10个交易日内收盘价涨幅偏离值累计达到 +100%', remainingText: '4'
 })
 assert.strictEqual(remainingMonitoringDays({ monitorDates: ['2026-10-18', '2026-10-19', '2026-10-20'] }, '20261018'), '2')
+assert.strictEqual(remainingMonitoringDays({ monitorDates: ['2026-10-20', '2026-10-21'], monitorEndDate: '2026-10-21' }, '20261017'), '4')
 assert.strictEqual(remainingMonitoringDays({ monitorEndDate: '2026-10-18' }, '20261018'), '0')
 assert.strictEqual(formatMonitoringSummary(null), null)
 assert.strictEqual(findStockMonitoring([
@@ -59,18 +60,23 @@ const detail = {
 }
 
 const rows = createInputRows(2, ['2026-10-16', '2026-10-19'])
+assert.strictEqual(rows[0].stock, '')
+assert.strictEqual(rows[0].index, '')
+assert.deepStrictEqual(buildMatrixGroups(rows)[0].rows.map(item => item.label), ['股票涨幅', '指数涨幅', '10日偏离', '30日偏离', '安全空间'])
 rows[0].stock = '16'
 rows[0].index = '0'
 const result = calculateSimulationRows(rows, detail)
-assert.strictEqual(result[0].deviation3, '+32.60%')
 assert.strictEqual(result[0].deviation10, '+56.19%')
 assert.strictEqual(result[0].deviation30, '+200.68%')
 assert.strictEqual(result[0].space, '已触发')
 assert.strictEqual(result[0].deviation10Window, 10)
 assert.strictEqual(result[0].deviation30Window, 23)
 assert.notStrictEqual(result[1].deviation10, '--')
-assert.strictEqual(result[1].stock, '0')
-assert.strictEqual(result[1].index, '0')
+assert.strictEqual(result[1].stock, '')
+assert.strictEqual(result[1].index, '')
+assert.strictEqual(createInputRows(1, ['2026-10-19'])[0].date, '10-19')
+const blankResult = calculateSimulationRows(createInputRows(1), detail)
+assert.notStrictEqual(blankResult[0].deviation10, '--')
 
 console.log('stock simulation tests passed')
 
@@ -86,10 +92,20 @@ const orderedWarnings = presentWarnings([
   { title: '10 日偏离', value: '+30.00%', downValue: '-5.00%', target: '阈值 +100% / -50%' },
   { title: '10 日同向', up: '1', down: '0', target: '阈值 4 次' },
   { title: '3 日偏离', value: '+10.00%', downValue: '-3.00%', target: '阈值 +20% / -20%' }
-], { nextDayRisk: true })
+], { nextDayRules: [
+  { ruleKey: 'ordinary_3d' },
+  { ruleKey: 'same_direction_10d' },
+  { ruleKey: 'severe_10d' },
+  { ruleKey: 'severe_30d' }
+] })
 assert.deepStrictEqual(orderedWarnings.map(item => item.title), ['3 日偏离', '10 日同向', '10 日偏离', '30 日偏离'])
 assert.deepStrictEqual(orderedWarnings.map(item => item.labelTone), ['warning', 'warning', 'severe', 'severe'])
 assert.strictEqual(orderedWarnings[1].currentText, '+1次')
+const isolatedNextDayRisk = presentWarnings([
+  { title: '30 日偏离', value: '+20.00%', downValue: '-5.00%', target: '阈值 +200% / -70%' },
+  { title: '10 日偏离', value: '+30.00%', downValue: '-5.00%', target: '阈值 +100% / -50%' }
+], { nextDayRules: [{ ruleKey: 'severe_30d' }] })
+assert.deepStrictEqual(isolatedNextDayRisk.map(item => item.labelTone), ['base', 'severe'])
 
 const ordinaryOnlyDetail = {
   simulationBase: { stock: Array(29).fill(0), index: Array(29).fill(0) },
@@ -98,6 +114,5 @@ const ordinaryOnlyDetail = {
 const ordinaryOnlyRows = createInputRows(1)
 ordinaryOnlyRows[0].stock = '25'
 const ordinaryOnlyResult = calculateSimulationRows(ordinaryOnlyRows, ordinaryOnlyDetail)
-assert.strictEqual(ordinaryOnlyResult[0].deviation3, '+25.00%')
 assert.strictEqual(ordinaryOnlyResult[0].deviation10, '+25.00%')
-assert.strictEqual(ordinaryOnlyResult[0].space, '已触发')
+assert.strictEqual(ordinaryOnlyResult[0].space, '75.00%')

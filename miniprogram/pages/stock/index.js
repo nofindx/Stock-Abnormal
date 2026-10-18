@@ -1,13 +1,22 @@
 // 单股查询页：基础行情与当前状态来自后端，未来假设输入在本地即时重算。
 const { searchStocks, getStockDetail, getMonitor } = require('../../utils/api')
 
+function formatSimulationDate(value) {
+  const text = String(value == null ? '' : value).trim()
+  const dateMatch = text.match(/^\d{4}([\/-])(\d{1,2})[\/-](\d{1,2})/)
+  if (dateMatch) return `${String(dateMatch[2]).padStart(2, '0')}${dateMatch[1]}${String(dateMatch[3]).padStart(2, '0')}`
+  const digits = text.replace(/[^\d]/g, '')
+  if (digits.length >= 8) return `${digits.slice(4, 6)}-${digits.slice(6, 8)}`
+  return text
+}
+
 function createInputRows(days, dates = []) {
-  // 未来交易日默认按股票和指数均为 0% 计算，用户修改时即时重算。
+  // 输入框保持为空；计算时空值按 0% 处理，用户修改时即时重算。
   return Array.from({ length: Number(days) }, (_, index) => ({
     day: `T+${index + 1}`,
-    date: dates[index] || '--',
-    stock: '0', index: '0', stockSelectAll: false, indexSelectAll: false,
-    deviation3: '--', deviation10: '--', deviation30: '--', space: '--', deviationClass: ''
+    date: formatSimulationDate(dates[index] || '--'),
+    stock: '', index: '', stockSelectAll: false, indexSelectAll: false,
+    deviation10: '--', deviation30: '--', space: '--', deviationClass: ''
   }))
 }
 
@@ -15,7 +24,6 @@ function buildMatrixGroups(rows) {
   const fields = [
     { key: 'stock', label: '股票涨幅', editable: true },
     { key: 'index', label: '指数涨幅', editable: true },
-    { key: 'deviation3', label: '3日偏离' },
     { key: 'deviation10', label: '10日偏离' },
     { key: 'deviation30', label: '30日偏离' },
     { key: 'space', label: '安全空间' }
@@ -59,6 +67,12 @@ function parsePercent(value) {
   if (value == null || String(value).trim() === '') return null
   const parsed = Number.parseFloat(String(value).replace('%', ''))
   return Number.isFinite(parsed) ? parsed : null
+}
+
+function simulationInputValue(value) {
+  const text = String(value == null ? '' : value).trim()
+  if (!text) return 0
+  return parsePercent(value)
 }
 
 function changeClass(value) {
@@ -116,12 +130,12 @@ function localTodayKey() {
 
 function remainingMonitoringDays(monitoring = {}, today = localTodayKey()) {
   const dates = (monitoring.monitorDates || []).map(dateKey).filter(Boolean).sort()
-  if (dates.length) return String(dates.filter(value => value > today).length)
-  const end = dateKey(monitoring.monitorEndDate || monitoring.monitorEnd)
+  const end = dateKey(monitoring.monitorEndDate || monitoring.monitorEnd || dates[dates.length - 1])
   if (end && today) {
-    const endDate = new Date(`${end.slice(0, 4)}-${end.slice(4, 6)}-${end.slice(6, 8)}T00:00:00`)
-    const todayDate = new Date(`${today.slice(0, 4)}-${today.slice(4, 6)}-${today.slice(6, 8)}T00:00:00`)
-    if (!Number.isNaN(endDate.getTime()) && !Number.isNaN(todayDate.getTime())) return String(Math.max(0, Math.round((endDate - todayDate) / 86400000)))
+    const endDate = Date.UTC(Number(end.slice(0, 4)), Number(end.slice(4, 6)) - 1, Number(end.slice(6, 8)))
+    const todayKey = dateKey(today)
+    const todayDate = Date.UTC(Number(todayKey.slice(0, 4)), Number(todayKey.slice(4, 6)) - 1, Number(todayKey.slice(6, 8)))
+    if (Number.isFinite(endDate) && Number.isFinite(todayDate)) return String(Math.max(0, Math.round((endDate - todayDate) / 86400000)))
   }
   const fallback = monitoring.remainingDays != null ? monitoring.remainingDays : monitoring.days
   return fallback == null || fallback === '' ? '--' : String(fallback)
@@ -214,37 +228,29 @@ function calculateSimulationRows(rows, detail) {
   const indexBase = Array.isArray(base.index) ? base.index : []
   let complete = true
   return rows.map((row, rowIndex) => {
-    const stockValue = parsePercent(row.stock)
-    const indexValue = parsePercent(row.index)
+    const stockValue = simulationInputValue(row.stock)
+    const indexValue = simulationInputValue(row.index)
     if (stockValue == null || indexValue == null) complete = false
     if (!complete) {
-      return { ...row, deviation3: '--', deviation10: '--', deviation30: '--', space: '--', deviation3Window: null, deviation10Window: null, deviation30Window: null, deviationClass: '' }
+      return { ...row, deviation10: '--', deviation30: '--', space: '--', deviation10Window: null, deviation30Window: null, deviationClass: '' }
     }
-    const stockSeries = stockBase.concat(rows.slice(0, rowIndex + 1).map(item => parsePercent(item.stock)))
-    const indexSeries = indexBase.concat(rows.slice(0, rowIndex + 1).map(item => parsePercent(item.index)))
     const metricForWindow = window => {
       const stockWindowBase = base.stockByWindow && Array.isArray(base.stockByWindow[String(window)])
         ? base.stockByWindow[String(window)] : stockBase
       const indexWindowBase = base.indexByWindow && Array.isArray(base.indexByWindow[String(window)])
         ? base.indexByWindow[String(window)] : indexBase
       return bestDeviation(
-        stockWindowBase.concat(rows.slice(0, rowIndex + 1).map(item => parsePercent(item.stock))),
-        indexWindowBase.concat(rows.slice(0, rowIndex + 1).map(item => parsePercent(item.index))),
+        stockWindowBase.concat(rows.slice(0, rowIndex + 1).map(item => simulationInputValue(item.stock))),
+        indexWindowBase.concat(rows.slice(0, rowIndex + 1).map(item => simulationInputValue(item.index))),
         window
       )
     }
-    const metric3 = metricForWindow(3)
     const metric10 = metricForWindow(10)
     const metric30 = metricForWindow(30)
-    const deviation3 = metric3.value
     const deviation10 = metric10.value
     const deviation30 = metric30.value
     const display = value => value == null ? '--' : `${value >= 0 ? '+' : ''}${value.toFixed(2)}%`
-    const ordinaryThreshold = detail && detail.simulationThresholds && detail.simulationThresholds['3']
-      ? Number(detail.simulationThresholds['3'].up)
-      : detail && detail.calculationInput ? Number(detail.calculationInput.ordinaryDeviation) : NaN
     const safetyMetrics = [
-      { deviation: deviation3, downValue: metric3.downValue, up: ordinaryThreshold, down: thresholds['3'] && Number(thresholds['3'].down) },
       { deviation: deviation10, downValue: metric10.downValue, up: thresholds['10'] && Number(thresholds['10'].up), down: thresholds['10'] && Number(thresholds['10'].down) },
       { deviation: deviation30, downValue: metric30.downValue, up: thresholds['30'] && Number(thresholds['30'].up), down: thresholds['30'] && Number(thresholds['30'].down) }
     ].filter(item => (item.deviation != null || item.downValue != null) && (Number.isFinite(item.up) || Number.isFinite(item.down)))
@@ -256,18 +262,15 @@ function calculateSimulationRows(rows, detail) {
           Number.isFinite(item.up) && item.deviation != null ? Math.max(0, item.up - item.deviation) : Infinity,
           Number.isFinite(item.down) && item.downValue != null ? Math.max(0, item.downValue - item.down) : Infinity
         ])).toFixed(2)}%`
-    const currentDeviation = deviation10 == null ? (deviation3 == null ? 0 : deviation3) : deviation10
+    const currentDeviation = deviation10 == null ? (deviation30 == null ? 0 : deviation30) : deviation10
     const deviationClass = value => value == null ? '' : value > 0 ? 'risk' : value < 0 ? 'safe' : ''
     return {
       ...row,
-      deviation3: display(deviation3),
       deviation10: display(deviation10),
       deviation30: display(deviation30),
       space: safety,
-      deviation3Window: metric3.window,
       deviation10Window: metric10.window,
       deviation30Window: metric30.window,
-      deviation3Class: deviationClass(deviation3),
       deviation10Class: deviationClass(deviation10),
       deviation30Class: deviationClass(deviation30),
       deviationClass: deviationClass(currentDeviation)
@@ -288,12 +291,18 @@ function presentAlerts(alerts = []) {
 }
 
 function presentWarnings(warnings = [], options = {}) {
-  const colors = { base: '#4A90E2', warning: '#F5C542', severe: '#D94A45', unknown: '#BFD9F5' }
-  const nextDayRisk = Boolean(options.nextDayRisk)
+  const colors = { base: '#B9D6F2', warning: '#F5C542', severe: '#D94A45', unknown: '#DCEBFA' }
+  const nextDayRuleKeys = new Set((options.nextDayRules || []).map(item => String(item && item.ruleKey || '').trim()).filter(Boolean))
   const order = { '3 日偏离': 0, '10 日同向': 1, '10 日偏离': 2, '30 日偏离': 3 }
-  const displayTone = (title, triggered, hasValue) => {
+  const ruleKeyForTitle = title => ({
+    '3 日偏离': 'ordinary_3d',
+    '10 日同向': 'same_direction_10d',
+    '10 日偏离': 'severe_10d',
+    '30 日偏离': 'severe_30d'
+  })[title] || ''
+  const displayTone = (title, currentRisk, hasValue) => {
     const shortWindow = title === '3 日偏离' || title === '10 日同向'
-    if (nextDayRisk || triggered) return shortWindow ? 'warning' : 'severe'
+    if (currentRisk || nextDayRuleKeys.has(ruleKeyForTitle(title))) return shortWindow ? 'warning' : 'severe'
     return hasValue ? 'base' : 'unknown'
   }
   return warnings.map((item) => {
@@ -306,16 +315,18 @@ function presentWarnings(warnings = [], options = {}) {
       const count = isUp ? up : down
       const progress = limit > 0 ? Math.min(100, count / limit * 100) : 0
       const tone = limit <= 0 ? 'unknown' : progress >= 100 ? 'triggered' : progress >= 66.6667 ? 'warning' : 'safe'
-      const labelTone = displayTone(item.title, tone === 'triggered', limit > 0)
+      const currentRisk = tone === 'triggered' || tone === 'warning'
+      const labelTone = displayTone(item.title, currentRisk, limit > 0)
       const sign = isUp ? '+' : '-'
-      return { ...item, currentText: `${sign}${count}次`, target: `阈值 ${isUp ? '+' : '-'}${limit}次`, remainingText: tone === 'triggered' ? '已触及' : `还差 ${Math.max(0, limit - count)} 次`, ringText: tone === 'triggered' ? '已触及' : tone === 'unknown' ? '--' : `${Math.max(0, limit - count)}次`, progress: Number(progress.toFixed(2)), tone, labelTone, toneColor: colors[labelTone] }
+      const ringTone = labelTone === 'warning' || labelTone === 'severe' ? labelTone : tone === 'unknown' ? 'unknown' : 'base'
+      return { ...item, currentText: `${sign}${count}次`, target: `阈值 ${isUp ? '+' : '-'}${limit}次`, remainingText: tone === 'triggered' ? '已触及' : `还差 ${Math.max(0, limit - count)} 次`, ringText: tone === 'triggered' ? '已触及' : tone === 'unknown' ? '--' : `${Math.max(0, limit - count)}次`, ringValueClass: 'metric-ring-value-count', progress: Number(progress.toFixed(2)), tone, labelTone: ringTone, toneColor: colors[ringTone], valueClass: 'metric-current-count' }
     }
     const rawValue = String(item.value || '').replace('%', '')
     const value = Number.parseFloat(rawValue)
     const downValue = Number.parseFloat(String(item.downValue || '').replace('%', ''))
     if (!Number.isFinite(value) && !Number.isFinite(downValue)) {
       const labelTone = displayTone(item.title, false, false)
-      return { ...item, currentText: '数据不足', remainingText: '暂不可判定', ringText: '--', progress: 0, tone: 'unknown', labelTone, toneColor: colors[labelTone], valueClass: '' }
+      return { ...item, currentText: '数据不足', remainingText: '暂不可判定', ringText: '--', ringValueClass: '', progress: 0, tone: 'unknown', labelTone, toneColor: colors[labelTone], valueClass: '' }
     }
     const thresholds = String(item.target || '').match(/[+-]?\d+(?:\.\d+)?/g) || []
     const up = Number.isFinite(Number(item.upThreshold)) ? Math.abs(Number(item.upThreshold)) : Math.abs(Number(thresholds[0] || 0))
@@ -333,8 +344,10 @@ function presentWarnings(warnings = [], options = {}) {
     const selectedThreshold = positive ? up : downThreshold
     const actualText = Number.isFinite(actual) ? `${actual >= 0 ? '+' : ''}${actual.toFixed(2)}%` : '--'
     const remaining = Math.max(0, selectedThreshold - Math.abs(Number.isFinite(actual) ? actual : 0))
-    const labelTone = displayTone(item.title, triggered, Number.isFinite(actual))
-    return { ...item, currentText: actualText, target: `阈值 ${positive ? '+' : '-'}${selectedThreshold}%`, remainingText: tone === 'triggered' ? '已触及' : `还差 ${remaining.toFixed(2)}%`, ringText: tone === 'triggered' ? '已触及' : `${remaining.toFixed(2)}%`, progress: Number(progress.toFixed(2)), tone, labelTone, toneColor: colors[labelTone], valueClass: Math.abs(Number.isFinite(actual) ? actual : 0) >= 100 ? 'metric-current-compact' : '' }
+    const currentRisk = tone === 'triggered' || tone === 'warning'
+    const labelTone = displayTone(item.title, currentRisk, Number.isFinite(actual))
+    const ringTone = labelTone === 'warning' || labelTone === 'severe' ? labelTone : 'base'
+    return { ...item, currentText: actualText, target: `阈值 ${positive ? '+' : '-'}${selectedThreshold}%`, remainingText: tone === 'triggered' ? '已触及' : `还差 ${remaining.toFixed(2)}%`, ringText: tone === 'triggered' ? '已触及' : `${remaining.toFixed(2)}%`, ringValueClass: 'metric-ring-value-percent', progress: Number(progress.toFixed(2)), tone, labelTone: ringTone, toneColor: colors[ringTone], valueClass: actualText.length >= 8 ? 'metric-current-compact' : '' }
   }).sort((left, right) => (order[left.title] ?? 99) - (order[right.title] ?? 99))
 }
 
@@ -428,7 +441,9 @@ Page({
         changeClass: changeClass(detailWithMonitoring.change),
         dataQuality: detailWithMonitoring.dataQuality || {},
         warnings: presentWarnings(detailWithMonitoring.warnings, {
-          nextDayRisk: Boolean(detailWithMonitoring.nextDayForecast && detailWithMonitoring.nextDayForecast.available && (detailWithMonitoring.nextDayForecast.rules || []).length)
+          nextDayRules: detailWithMonitoring.nextDayForecast && detailWithMonitoring.nextDayForecast.available
+            ? (detailWithMonitoring.nextDayForecast.rules || [])
+            : []
         }),
         alerts: presentAlerts(detailWithMonitoring.alerts),
         monitoringSummary: formatMonitoringSummary(monitoring && {
@@ -492,4 +507,4 @@ Page({
 })
 
 // 纯计算函数导出给前端回归测试；小程序运行时不影响 Page 注册。
-if (typeof module !== 'undefined') module.exports = { bestDeviation, buildNextDayForecast, calculateSimulationRows, createInputRows, presentWarnings, summaryStatus, formatMonthDay, monitoringRuleLabel, formatMonitoringSummary, remainingMonitoringDays, findStockMonitoring }
+if (typeof module !== 'undefined') module.exports = { bestDeviation, buildMatrixGroups, buildNextDayForecast, calculateSimulationRows, createInputRows, presentWarnings, summaryStatus, formatMonthDay, monitoringRuleLabel, formatMonitoringSummary, remainingMonitoringDays, findStockMonitoring }

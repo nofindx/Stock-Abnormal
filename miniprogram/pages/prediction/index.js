@@ -26,7 +26,7 @@ function preserveItemOrder(currentItems, nextItems) {
 }
 
 Page({
-  data: { scope: 'today', items: [], refreshing: false, buttonRefreshing: false, loading: false, error: '', quoteUpdatedAt: '', dataQuality: {}, dataUnavailable: false, nextDayAvailable: true, nextDayReason: '' },
+  data: { scope: 'today', items: [], refreshing: false, loading: false, error: '', quoteUpdatedAt: '', dataQuality: {}, dataUnavailable: false, nextDayAvailable: true, nextDayReason: '' },
   onLoad() { this.loadData() },
   onShow() {
     const tabBar = this.getTabBar && this.getTabBar()
@@ -51,21 +51,20 @@ Page({
       this.setData({ loading: false, error: '预测数据暂时不可用，请稍后重试' })
     })
   },
-  refresh(options = {}) {
-    const showButtonLoading = options.showButtonLoading !== false
-    if (this.data.buttonRefreshing) return Promise.resolve()
-    this.setData({ buttonRefreshing: showButtonLoading, error: '' })
+  refresh() {
+    if (this.data.refreshing || this.data.loading) return Promise.resolve()
+    this.setData({ refreshing: true, error: '' })
     return refreshPredictions(this.data.scope).then((result) => {
       const items = preserveItemOrder(this.data.items, normalizeItems(result.items, this.data.scope))
-      this.setData({ buttonRefreshing: false, refreshing: false, items, quoteUpdatedAt: result.quoteUpdatedAt || '', dataQuality: result.dataQuality || {}, dataUnavailable: Boolean(result.dataUnavailable), error: result.error || '', nextDayAvailable: result.nextDayAvailable !== false, nextDayReason: result.nextDayReason || '' })
+      this.setData({ refreshing: false, items, quoteUpdatedAt: result.quoteUpdatedAt || '', dataQuality: result.dataQuality || {}, dataUnavailable: Boolean(result.dataUnavailable), error: result.error || '', nextDayAvailable: result.nextDayAvailable !== false, nextDayReason: result.nextDayReason || '' })
       getApp().globalData.lastPredictionRefresh = result.quoteUpdatedAt || null
     }).catch(() => {
-      this.setData({ buttonRefreshing: false, refreshing: false, error: '刷新失败，请稍后重试' })
+      this.setData({ refreshing: false, error: '刷新失败，请稍后重试' })
     })
   },
   onPullDownRefresh() {
-    // 下拉刷新与页面刷新按钮使用同一条用户触发链路；切换 Tab 仍只读数据。
-    return this.refresh({ showButtonLoading: false }).finally(() => wx.stopPullDownRefresh())
+    // 仅使用小程序系统下拉刷新；切换 Tab 仍只读已发布数据集。
+    return this.refresh().finally(() => wx.stopPullDownRefresh())
   },
   openStock(event) {
     const stock = this.data.items.find(item => item.ts_code === event.currentTarget.dataset.code)
