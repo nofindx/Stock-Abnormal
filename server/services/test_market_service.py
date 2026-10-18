@@ -571,6 +571,28 @@ class MarketVectorTests(unittest.TestCase):
         self.assertIsNotNone(active)
         self.assertEqual(active["monitorType"], "10日严重异动")
 
+    def test_detail_monitoring_prefers_severe_fact_over_ordinary_risk_prompt(self):
+        """同一股票同时有风险提示和严重异动时，详情卡片优先显示严重异动。"""
+        service = self.service
+        service._clock = lambda: datetime(2026, 10, 18)
+        service.set_monitor_provider(lambda: {"items": [
+            {
+                "symbol": "600825", "riskTone": "ordinary", "monitorType": "风险提示",
+                "monitorStartDate": "2026-10-16", "monitorEndDate": "2026-10-29",
+            },
+            {
+                "symbol": "600825", "riskTone": "severe-10d", "monitorType": "10日严重异动",
+                "monitorStartDate": "2026-10-10", "monitorEndDate": "2026-10-23",
+            },
+        ]})
+        stock = {"ts_code": "600825.SH", "symbol": "600825", "name": "新华传媒"}
+
+        active = service._active_monitor_for_stock(stock)
+
+        self.assertIsNotNone(active)
+        self.assertEqual(active["riskTone"], "severe-10d")
+        self.assertEqual(active["monitorType"], "10日严重异动")
+
     def test_detail_does_not_mix_unpaired_realtime_quotes_into_calculation(self):
         service = self.service
         service._calc_repository = SimpleNamespace(get_index=lambda _code: {

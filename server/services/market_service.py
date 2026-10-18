@@ -1135,7 +1135,16 @@ class MarketService:
                 matches.append(item)
             if not matches:
                 return None
-            item = sorted(matches, key=lambda value: str(value.get("monitorEndDate") or ""), reverse=True)[0]
+            # 一只股票可能同时存在普通风险提示和严重异动监管事实。
+            # 详情状态卡片必须优先表达严重异动，再按结束日期处理同级记录。
+            item = sorted(
+                matches,
+                key=lambda value: (
+                    self._monitor_priority(value),
+                    str(value.get("monitorEndDate") or ""),
+                ),
+                reverse=True,
+            )[0]
             return {
                 "active": True,
                 "monitorType": item.get("monitorType") or "重点监控",
@@ -1153,6 +1162,15 @@ class MarketService:
             }
         except Exception:
             return None
+
+    @staticmethod
+    def _monitor_priority(item: Dict[str, Any]) -> int:
+        return {
+            "severe-30d": 4,
+            "severe-10d": 3,
+            "delisting-warning": 2,
+            "ordinary": 1,
+        }.get(str(item.get("riskTone") or ""), 0)
 
     @staticmethod
     def _monitor_rule_reset_date(monitoring: Optional[Dict[str, Any]]) -> str:
