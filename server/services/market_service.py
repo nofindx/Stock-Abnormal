@@ -1150,6 +1150,8 @@ class MarketService:
                 "monitorType": item.get("monitorType") or "重点监控",
                 "riskTone": item.get("riskTone") or "ordinary",
                 "title": item.get("title") or "",
+                "eventDirection": item.get("eventDirection") or "",
+                "ruleText": item.get("ruleText") or item.get("monitorReason") or "",
                 "monitorStartDate": item.get("monitorStartDate") or "",
                 "monitorEndDate": item.get("monitorEndDate") or "",
                 # 公告后的首个监管交易日是新的监管事实起点；规则累计从

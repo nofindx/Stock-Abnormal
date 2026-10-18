@@ -84,13 +84,25 @@ function formatMonthDay(value) {
 }
 
 function monitoringRuleLabel(monitoring = {}) {
+  const explicit = String(monitoring.ruleText || monitoring.monitorReason || '').trim()
+  if (explicit) return explicit
   const tone = String(monitoring.riskTone || '').trim()
-  if (tone === 'severe-10d') return '10日异动'
-  if (tone === 'severe-30d') return '30日异动'
-  if (tone === 'delisting-warning') return '退市倒计时'
-  if (tone === 'ordinary') return '风险提示'
+  const code = String(monitoring.ts_code || monitoring.symbol || '').match(/\d{6}/)
+  const symbol = code ? code[0] : ''
+  const isBse = /^(4|8|9)/.test(symbol)
+  const direction = String(monitoring.eventDirection || '').toLowerCase() === 'down' ? '跌幅' : '涨幅'
+  if (tone === 'severe-10d') {
+    const threshold = direction === '涨幅' ? (isBse ? 150 : 100) : (isBse ? 60 : 50)
+    return `连续10个交易日内收盘价${direction}偏离值累计达到 ${direction === '涨幅' ? '+' : '-'}${threshold}%`
+  }
+  if (tone === 'severe-30d') {
+    const threshold = direction === '涨幅' ? (isBse ? 300 : 200) : (isBse ? 75 : 70)
+    return `连续30个交易日内收盘价${direction}偏离值累计达到 ${direction === '涨幅' ? '+' : '-'}${threshold}%`
+  }
+  if (tone === 'delisting-warning') return '股票进入退市整理期'
+  if (tone === 'ordinary') return '交易所将对该证券的异常交易行为进行进一步从严认定'
   const type = String(monitoring.monitorType || '').trim()
-  return type.replace('严重异动', '异动') || '重点监管'
+  return type || '重点监管'
 }
 
 function dateKey(value) {
@@ -405,7 +417,11 @@ Page({
         dataQuality: detailWithMonitoring.dataQuality || {},
         warnings: presentWarnings(detailWithMonitoring.warnings),
         alerts: presentAlerts(detailWithMonitoring.alerts),
-        monitoringSummary: formatMonitoringSummary(monitoring)
+        monitoringSummary: formatMonitoringSummary(monitoring && {
+          ...monitoring,
+          ts_code: monitoring.ts_code || detailWithMonitoring.ts_code || stock.ts_code,
+          symbol: monitoring.symbol || detailWithMonitoring.symbol || stock.symbol
+        })
       }
       const statusSummary = summaryStatus(displayDetail)
       displayDetail.summaryStatus = statusSummary.text

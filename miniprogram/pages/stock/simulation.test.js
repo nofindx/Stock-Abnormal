@@ -29,9 +29,13 @@ assert.deepStrictEqual(summaryStatus({ status: '触及', monitoring: null }), { 
 assert.deepStrictEqual(summaryStatus({ status: '正常', nextDayForecast: { available: true, rules: [{ ruleKey: 'severe_30d' }] } }), { text: '存在异动风险', tone: 'risk' })
 assert.deepStrictEqual(summaryStatus({ status: '正常', nextDayForecast: { available: true, rules: [] } }), { text: '暂无异动风险', tone: 'safe' })
 assert.strictEqual(formatMonthDay('2026-10-19'), '10/19')
-assert.strictEqual(monitoringRuleLabel({ riskTone: 'severe-30d', monitorType: '30日严重异动' }), '30日异动')
+assert.strictEqual(monitoringRuleLabel({ riskTone: 'severe-30d', monitorType: '30日严重异动', symbol: '600825' }), '连续30个交易日内收盘价涨幅偏离值累计达到 +200%')
+assert.strictEqual(monitoringRuleLabel({ riskTone: 'severe-10d', monitorType: '10日严重异动', symbol: '920229' }), '连续10个交易日内收盘价涨幅偏离值累计达到 +150%')
+assert.strictEqual(monitoringRuleLabel({ riskTone: 'severe-10d', eventDirection: 'down', symbol: '600825' }), '连续10个交易日内收盘价跌幅偏离值累计达到 -50%')
+assert.strictEqual(monitoringRuleLabel({ riskTone: 'ordinary' }), '交易所将对该证券的异常交易行为进行进一步从严认定')
+assert.strictEqual(monitoringRuleLabel({ riskTone: 'delisting-warning' }), '股票进入退市整理期')
 assert.deepStrictEqual(formatMonitoringSummary({ active: true, monitorStartDate: '2026-10-15', monitorEndDate: '2026-10-22', monitorDates: ['2026-10-16', '2026-10-19', '2026-10-20', '2026-10-21', '2026-10-22'], riskTone: 'severe-10d', days: 4 }, '20261018'), {
-  dateText: '10/15-10/22', ruleText: '10日异动', remainingText: '4'
+  dateText: '10/15-10/22', ruleText: '连续10个交易日内收盘价涨幅偏离值累计达到 +100%', remainingText: '4'
 })
 assert.strictEqual(remainingMonitoringDays({ monitorDates: ['2026-10-18', '2026-10-19', '2026-10-20'] }, '20261018'), '2')
 assert.strictEqual(remainingMonitoringDays({ monitorEndDate: '2026-10-18' }, '20261018'), '0')
