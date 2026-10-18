@@ -662,6 +662,23 @@ class MarketVectorTests(unittest.TestCase):
         self.assertEqual(metrics["up"], 2)
         self.assertIn(("same_direction_10d", "up"), {(item["ruleKey"], item["direction"]) for item in candidates})
 
+    def test_ten_day_reset_does_not_suppress_single_stock_thirty_day_candidate(self):
+        dates = [f"2026-09-{day:02d}" for day in range(1, 21)]
+        stock = [{"date": day, "return": 0.0} for day in dates]
+        index = [{"date": day, "return": 0.0} for day in dates]
+        for position in range(9, 20):
+            stock[position]["return"] = 10.0
+        stock[19]["return"] = 10.0
+        rule = BOARD_RULES[Board.CHINEXT]
+        metrics = MarketService._vector_metrics(stock, index, rule, "2026-09-11", False)
+
+        candidates = MarketService._next_day_rule_candidates(
+            stock, index, rule, "2026-09-21", metrics,
+            rule_reset_date="2026-09-11", reset_window=10, limit_price_ratio=20,
+        )
+
+        self.assertIn(("severe_30d", "up"), {(item["ruleKey"], item["direction"]) for item in candidates})
+
     def test_prediction_checks_ten_day_line_for_next_day_scope(self):
         """次日预测不能只检查 30 日线，10 日接近 +100% 也必须入选。"""
         service = self.service

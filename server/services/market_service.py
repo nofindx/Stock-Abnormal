@@ -1734,7 +1734,7 @@ class MarketService:
         next_day_rules = self._next_day_rule_candidates(
             forecast_stock_vector, forecast_index_vector, rule, forecast_target_date,
             forecast_metrics, suspension.get("ruleResetDate", ""),
-            30 if suspension.get("ruleResetWindow") == 30 else None, forecast_limit,
+            suspension.get("ruleResetWindow"), forecast_limit,
         )
         common_days = len(set(item.get("date") for item in stock_vector if item.get("date")) & set(item.get("date") for item in index_vector if item.get("date")))
         warnings = [

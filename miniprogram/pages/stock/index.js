@@ -97,7 +97,11 @@ function buildNextDayForecast(forecast = {}) {
 
 function summaryStatus(detail) {
   const marketStatus = detail.marketStatus || detail.status || '正常'
-  if (marketStatus !== '正常') return { text: '存在异动风险', tone: 'risk' }
+  const isMonitored = detail.monitoringStatus === 'active' || Boolean(detail.monitoring)
+  const forecastRules = detail.nextDayForecast && Array.isArray(detail.nextDayForecast.rules)
+    ? detail.nextDayForecast.rules
+    : []
+  if (marketStatus !== '正常' || isMonitored || forecastRules.length > 0) return { text: '存在异动风险', tone: 'risk' }
   return { text: '暂无异动风险', tone: 'safe' }
 }
 

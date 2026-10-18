@@ -127,7 +127,7 @@
 .summary-top { display: flex; min-height: 54rpx; align-items: center; justify-content: space-between; gap: 12rpx; }
 .status-pill { display: inline-flex; flex: 0 0 auto; align-items: center; padding: 4rpx 12rpx; border-radius: 7rpx; background: #F2F3F5; color: #4B5563; font-size: 19rpx; font-weight: 600; line-height: 28rpx; }
 .status-stock-line .status-pill { position: relative; top: 20rpx; }
-.status-pill-safe { background: #F2F3F5; color: #1C1C1E; }
+.status-pill-safe { background: #E8F5E9; color: #2E7D32; }
 .status-pill-risk { background: #D93025; color: #FFFFFF; }
 .status-pill-monitoring { background: #F2F3F5; color: #1C1C1E; }
 .status-heading { display: flex; min-height: 34rpx; align-items: center; gap: 10rpx; }
