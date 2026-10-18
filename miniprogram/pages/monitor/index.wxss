@@ -1,34 +1,47 @@
 .monitor-page { background: #F2F3F5; padding-top: 24rpx; padding-bottom: 220rpx; }
 .filter-row { display: flex; width: 100%; height: 80rpx; min-height: 80rpx; box-sizing: border-box; align-items: center; justify-content: flex-start; gap: 12rpx; margin-top: 12rpx; }
-.type-filters { display: flex; flex: 0 0 auto; width: auto; min-width: 0; align-items: center; justify-content: flex-start; gap: 12rpx; }
-.filter-segment {
-  flex: 0 0 88rpx;
-  width: 88rpx;
-  min-width: 88rpx;
+.type-filters {
+  display: flex;
+  flex: 1 1 auto;
+  width: auto;
+  min-width: 0;
   height: 60rpx;
+  box-sizing: border-box;
+  align-items: center;
+  gap: 4rpx;
+  padding: 4rpx;
+  border: 1rpx solid #DDE3EA;
+  border-radius: 12rpx;
+  background: #F2F3F5;
+}
+.filter-segment {
+  flex: 1 1 0;
+  width: auto;
+  min-width: 0;
+  height: 50rpx;
   padding: 0;
   box-sizing: border-box;
-  border: 1rpx solid #DDE3EA;
-  border-radius: 11rpx;
-  background: #FFFFFF;
+  border: 0;
+  border-radius: 9rpx;
+  background: transparent;
   color: #6B7280;
-  font-size: 22rpx;
+  font-size: 21rpx;
   font-weight: 400;
-  line-height: 58rpx;
+  line-height: 50rpx;
   text-align: center;
   white-space: nowrap;
 }
 .filter-segment-risk, .filter-segment-severe, .filter-segment-delisting {
-  flex-basis: auto;
+  flex-basis: 0;
   width: auto;
-  min-width: 112rpx;
-  padding: 0 20rpx;
+  min-width: 0;
+  padding: 0;
 }
-.filter-segment-all { font-size: 20rpx; }
+.filter-segment-all { font-size: 21rpx; }
 .filter-segment.active,
 .filter-segment-risk.active,
 .filter-segment-severe.active,
-.filter-segment-delisting.active { border-color: #E49A8E; background: #FDEBE8; color: #C0271E; box-shadow: none; }
+.filter-segment-delisting.active { background: #FFFFFF; color: #1C1C1E; font-weight: 600; box-shadow: 0 1rpx 4rpx rgba(28, 28, 30, .12); }
 .snapshot-row { position: relative; display: flex; height: 48rpx; min-height: 48rpx; align-items: center; margin-top: 12rpx; box-sizing: border-box; }
 .snapshot-summary { display: flex; min-width: 0; max-width: 100%; align-items: baseline; gap: 10rpx; color: #6B7280; font-size: 22rpx; line-height: 30rpx; white-space: nowrap; overflow: hidden; }
 .snapshot-count { color: #1A1A1A; font-size: 28rpx; font-weight: 700; font-variant-numeric: tabular-nums; }
@@ -85,7 +98,7 @@
 .monitor-page .filter-segment.active,
 .monitor-page .filter-segment-risk.active,
 .monitor-page .filter-segment-severe.active,
-.monitor-page .filter-segment-delisting.active { border-color: #4B5563 !important; background: #F2F3F5 !important; color: #1C1C1E !important; font-weight: 600 !important; }
+.monitor-page .filter-segment-delisting.active { border-color: transparent !important; background: #FFFFFF !important; color: #1C1C1E !important; font-weight: 600 !important; box-shadow: 0 1rpx 4rpx rgba(28, 28, 30, .12); }
 .monitor-page .snapshot-refresh { border-color: #9CA3AF !important; color: #1C1C1E !important; }
 .monitor-page .source-link,
 .monitor-page .badge-ordinary,
