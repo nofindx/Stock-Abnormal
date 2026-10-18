@@ -60,7 +60,7 @@
     <view class="metric-grid">
       <view wx:for="{{detail.warnings}}" wx:key="title" wx:for-index="metricIndex" class="card metric-card metric-card-{{metricIndex}} metric-tone-{{item.tone}}">
         <view class="metric-copy"><text class="metric-label metric-label-{{item.labelTone}}">{{item.title}}</text><text class="metric-current {{item.valueClass || ''}}">{{item.currentText}}</text><text class="metric-target">{{item.target}}</text></view>
-        <view class="metric-ring" style="background: conic-gradient({{item.toneColor}} {{item.progress}}%, #DCEBFA 0);"><view class="metric-ring-inner"><text class="metric-ring-value" style="color: {{item.toneColor}};">{{item.ringText}}</text></view></view>
+        <view class="metric-ring" style="background: conic-gradient({{item.toneColor}} {{item.progress}}%, #DCEBFA 0);"><view class="metric-ring-inner"><text class="metric-ring-value">{{item.ringText}}</text></view></view>
       </view>
     </view>
 
