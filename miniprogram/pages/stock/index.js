@@ -93,15 +93,36 @@ function monitoringRuleLabel(monitoring = {}) {
   return type.replace('严重异动', '异动') || '重点监管'
 }
 
-function formatMonitoringSummary(monitoring) {
+function dateKey(value) {
+  return String(value == null ? '' : value).replace(/[^\d]/g, '').slice(0, 8)
+}
+
+function localTodayKey() {
+  const now = new Date()
+  return `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`
+}
+
+function remainingMonitoringDays(monitoring = {}, today = localTodayKey()) {
+  const dates = (monitoring.monitorDates || []).map(dateKey).filter(Boolean).sort()
+  if (dates.length) return String(dates.filter(value => value > today).length)
+  const end = dateKey(monitoring.monitorEndDate || monitoring.monitorEnd)
+  if (end && today) {
+    const endDate = new Date(`${end.slice(0, 4)}-${end.slice(4, 6)}-${end.slice(6, 8)}T00:00:00`)
+    const todayDate = new Date(`${today.slice(0, 4)}-${today.slice(4, 6)}-${today.slice(6, 8)}T00:00:00`)
+    if (!Number.isNaN(endDate.getTime()) && !Number.isNaN(todayDate.getTime())) return String(Math.max(0, Math.round((endDate - todayDate) / 86400000)))
+  }
+  const fallback = monitoring.remainingDays != null ? monitoring.remainingDays : monitoring.days
+  return fallback == null || fallback === '' ? '--' : String(fallback)
+}
+
+function formatMonitoringSummary(monitoring, today = localTodayKey()) {
   if (!monitoring || monitoring.active === false) return null
   const start = monitoring.monitorStartDate || monitoring.monitorStart
   const end = monitoring.monitorEndDate || monitoring.monitorEnd
-  const remaining = monitoring.remainingDays != null ? monitoring.remainingDays : monitoring.days
   return {
     dateText: `${formatMonthDay(start)}-${formatMonthDay(end)}`,
     ruleText: monitoringRuleLabel(monitoring),
-    remainingText: remaining == null || remaining === '' ? '--' : String(remaining)
+    remainingText: remainingMonitoringDays(monitoring, today)
   }
 }
 
@@ -442,4 +463,4 @@ Page({
 })
 
 // 纯计算函数导出给前端回归测试；小程序运行时不影响 Page 注册。
-if (typeof module !== 'undefined') module.exports = { bestDeviation, buildNextDayForecast, calculateSimulationRows, createInputRows, presentWarnings, summaryStatus, formatMonthDay, monitoringRuleLabel, formatMonitoringSummary, findStockMonitoring }
+if (typeof module !== 'undefined') module.exports = { bestDeviation, buildNextDayForecast, calculateSimulationRows, createInputRows, presentWarnings, summaryStatus, formatMonthDay, monitoringRuleLabel, formatMonitoringSummary, remainingMonitoringDays, findStockMonitoring }

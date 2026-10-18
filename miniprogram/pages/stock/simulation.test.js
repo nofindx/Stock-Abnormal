@@ -1,7 +1,7 @@
 const assert = require('assert')
 
 global.Page = () => {}
-const { bestDeviation, buildNextDayForecast, calculateSimulationRows, createInputRows, presentWarnings, summaryStatus, formatMonthDay, monitoringRuleLabel, formatMonitoringSummary, findStockMonitoring } = require('./index')
+const { bestDeviation, buildNextDayForecast, calculateSimulationRows, createInputRows, presentWarnings, summaryStatus, formatMonthDay, monitoringRuleLabel, formatMonitoringSummary, remainingMonitoringDays, findStockMonitoring } = require('./index')
 
 const forecastBase = { baseTradeDate: '20261016', targetTradeDate: '20261019', available: true }
 assert.deepStrictEqual(buildNextDayForecast({ ...forecastBase, rules: [] }), {
@@ -30,9 +30,11 @@ assert.deepStrictEqual(summaryStatus({ status: '正常', nextDayForecast: { avai
 assert.deepStrictEqual(summaryStatus({ status: '正常', nextDayForecast: { available: true, rules: [] } }), { text: '暂无异动风险', tone: 'safe' })
 assert.strictEqual(formatMonthDay('2026-10-19'), '10/19')
 assert.strictEqual(monitoringRuleLabel({ riskTone: 'severe-30d', monitorType: '30日严重异动' }), '30日异动')
-assert.deepStrictEqual(formatMonitoringSummary({ active: true, monitorStartDate: '2026-10-15', monitorEndDate: '2026-10-22', riskTone: 'severe-10d', days: 4 }), {
+assert.deepStrictEqual(formatMonitoringSummary({ active: true, monitorStartDate: '2026-10-15', monitorEndDate: '2026-10-22', monitorDates: ['2026-10-16', '2026-10-19', '2026-10-20', '2026-10-21', '2026-10-22'], riskTone: 'severe-10d', days: 4 }, '20261018'), {
   dateText: '10/15-10/22', ruleText: '10日异动', remainingText: '4'
 })
+assert.strictEqual(remainingMonitoringDays({ monitorDates: ['2026-10-18', '2026-10-19', '2026-10-20'] }, '20261018'), '2')
+assert.strictEqual(remainingMonitoringDays({ monitorEndDate: '2026-10-18' }, '20261018'), '0')
 assert.strictEqual(formatMonitoringSummary(null), null)
 assert.strictEqual(findStockMonitoring([
   { ts_code: '301190.SZ', riskTone: 'ordinary', monitorEndDate: '2026-10-22' },
