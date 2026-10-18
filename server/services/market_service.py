@@ -1157,6 +1157,8 @@ class MarketService:
                 "monitorDates": [str(value)[:10] for value in (item.get("monitorDates") or [])],
                 "sourceType": item.get("sourceType") or "",
                 "sourceRole": item.get("sourceRole") or "",
+                "sourceRelation": item.get("sourceRelation") or "",
+                "supportingFacts": list(item.get("supportingFacts") or []),
                 "days": item.get("days"),
                 "daysTotal": item.get("daysTotal"),
             }

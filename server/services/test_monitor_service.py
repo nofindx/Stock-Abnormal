@@ -152,6 +152,63 @@ class MonitorWindowTests(unittest.TestCase):
         self.assertEqual({item["riskTone"] for item in result}, {"severe-10d", "ordinary"})
         self.assertEqual({item["monitorType"] for item in result}, {"10日严重异动", "风险提示"})
 
+    def test_same_day_ordinary_prompt_is_attached_to_severe_fact(self):
+        """同日风险转述不重复生成监管卡片，但保留来源审计信息。"""
+        severe = self.event("2026-10-08", "2026-10-21", "severe-10d")
+        severe.update({
+            "symbol": "688137", "name": "近岸蛋白", "monitorType": "10日严重异动",
+            "sourceUrl": "https://wap.18.cn/article/detail/818/3603",
+        })
+        risk = self.event("2026-10-08", "2026-10-21", "ordinary")
+        risk.update({
+            "symbol": "688137", "name": "近岸蛋白", "monitorType": "风险提示",
+            "sourceType": "zts-risk-alert",
+            "sourceUrl": "https://www.zts.com.cn/news/business/announce?articleId=68029",
+            "sourceRelation": "severe-supporting",
+        })
+
+        result = self.service._collapse_by_stock([severe, risk], "2026-10-18")
+
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]["riskTone"], "severe-10d")
+        self.assertIn("https://www.zts.com.cn/news/business/announce?articleId=68029", result[0]["supportingSourceUrls"])
+        self.assertEqual(result[0]["supportingFacts"][0]["riskTone"], "ordinary")
+
+    def test_same_day_independent_risk_prompt_is_not_merged(self):
+        severe = self.event("2026-10-08", "2026-10-21", "severe-10d")
+        severe.update({"symbol": "688137", "name": "近岸蛋白", "monitorType": "10日严重异动"})
+        risk = self.event("2026-10-08", "2026-10-21", "ordinary")
+        risk.update({
+            "symbol": "688137", "name": "近岸蛋白", "monitorType": "风险提示",
+            "sourceRelation": "ordinary-independent",
+        })
+
+        result = self.service._collapse_by_stock([severe, risk], "2026-10-18")
+
+        self.assertEqual({item["riskTone"] for item in result}, {"severe-10d", "ordinary"})
+
+    def test_risk_prompt_relation_uses_body_not_same_date(self):
+        self.assertEqual(
+            self.service._risk_prompt_relation(
+                "关于“近岸蛋白”（688137）的交易风险提示",
+                "近期竞价交易出现上海证券交易所交易规则规定的严重异常波动情形。",
+                "ordinary",
+            ),
+            "severe-supporting",
+        )
+        self.assertEqual(
+            self.service._risk_prompt_relation(
+                "关于新华传媒（600825）的交易风险提示",
+                "交易所将对上述证券上的异常交易行为进行进一步从严认定。",
+                "ordinary",
+            ),
+            "ordinary-independent",
+        )
+        self.assertEqual(
+            self.service._risk_prompt_relation("进入退市整理期的风险警示", "", "delisting-warning"),
+            "delisting-independent",
+        )
+
     def test_delisting_period_description_survives_snapshot_collapse(self):
         event = self.event("2026-09-23", "2026-10-27", "delisting-warning")
         event.update({

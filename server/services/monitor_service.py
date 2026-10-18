@@ -40,7 +40,7 @@ MONITOR_PERIOD_TRADING_DAYS = {
 MONITOR_WINDOW_TRADING_DAYS = MONITOR_PERIOD_TRADING_DAYS
 # 公告分类口径变化时，启动任务主动重采一次当前快照；避免必须等到次日
 # 00:00 才让修复后的北交所严重异动进入重点监控。
-MONITOR_RULE_VERSION = "2026-10-monitor-zts-effective-date-event-direction-v15"
+MONITOR_RULE_VERSION = "2026-10-monitor-zts-effective-date-event-direction-source-relation-v16"
 
 
 class MonitorRepository:
@@ -66,7 +66,8 @@ class MonitorRepository:
                     announcement_date TEXT NOT NULL, title TEXT NOT NULL, source TEXT NOT NULL,
                     source_url TEXT NOT NULL, content_hash TEXT NOT NULL, confirmation_status TEXT NOT NULL,
                     fetched_at TEXT NOT NULL, monitor_type TEXT NOT NULL DEFAULT '',
-                    risk_tone TEXT NOT NULL DEFAULT '', source_type TEXT NOT NULL DEFAULT ''
+                    risk_tone TEXT NOT NULL DEFAULT '', source_type TEXT NOT NULL DEFAULT '',
+                    source_relation TEXT NOT NULL DEFAULT ''
                 );
                 CREATE TABLE IF NOT EXISTS monitor_snapshot (
                     snapshot_id TEXT PRIMARY KEY, snapshot_date TEXT NOT NULL, updated_at TEXT NOT NULL,
@@ -86,6 +87,7 @@ class MonitorRepository:
                 ("monitor_type", "TEXT NOT NULL DEFAULT ''"),
                 ("risk_tone", "TEXT NOT NULL DEFAULT ''"),
                 ("source_type", "TEXT NOT NULL DEFAULT ''"),
+                ("source_relation", "TEXT NOT NULL DEFAULT ''"),
             ):
                 if name not in columns:
                     db.execute(f"ALTER TABLE announcement_raw ADD COLUMN {name} {definition}")
@@ -117,13 +119,13 @@ class MonitorRepository:
                 db.execute("""
                     INSERT OR REPLACE INTO announcement_raw
                     (source_id, stock_code, stock_name, announcement_date, title, source, source_url,
-                     content_hash, confirmation_status, fetched_at, monitor_type, risk_tone, source_type)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     content_hash, confirmation_status, fetched_at, monitor_type, risk_tone, source_type, source_relation)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     item["sourceId"], item["symbol"], item["name"], item["announcementDate"],
                     item["title"], item["source"], item["sourceUrl"], item["contentHash"],
                     item["confirmationStatus"], snapshot["updatedAt"],
-                    item.get("monitorType", ""), item.get("riskTone", ""), item.get("sourceType", ""),
+                    item.get("monitorType", ""), item.get("riskTone", ""), item.get("sourceType", ""), item.get("sourceRelation", ""),
                 ))
             db.execute("""
                 INSERT INTO monitor_snapshot
@@ -386,6 +388,29 @@ class OfficialMonitorService:
         if "交易风险提示" in str(title or "") and OfficialMonitorService._has_exchange_strict_monitoring_wording(body):
             return "风险提示", "ordinary"
         return ("风险提示", "ordinary") if OfficialMonitorService._has_exchange_strict_monitoring_wording(body) else ("", "")
+
+    @staticmethod
+    def _risk_prompt_relation(title: str, body: str, risk_tone: str) -> str:
+        """标记风险提示与其他监管事实的关系，不用公告日期猜关系。
+
+        `ordinary` 是独立的风险提示事实；只有正文明确复述“严重异常波动”
+        或严重异动的窗口/偏离值时，才把它标记为同一轮严重异动的佐证来源。
+        退市整理永远是独立类别，即使和其他公告同日也不能合并。
+        """
+
+        if risk_tone == "delisting-warning":
+            return "delisting-independent"
+        if risk_tone not in ("ordinary", "severe-10d", "severe-30d"):
+            return ""
+        if risk_tone.startswith("severe-"):
+            return "severe-primary"
+        text = re.sub(r"\s+", "", f"{title or ''}{body or ''}").replace("％", "%")
+        severe_reference = (
+            "严重异常波动" in text
+            or "同向异常波动" in text
+            or bool(re.search(r"(?:连续|近)\d+个交易日.{0,120}(?:涨幅|跌幅|偏离值)", text))
+        )
+        return "severe-supporting" if severe_reference else "ordinary-independent"
 
     @staticmethod
     def _delisting_dates_from_body(body: str) -> tuple[str, str]:
@@ -672,6 +697,49 @@ class OfficialMonitorService:
                         else f"起始日起共 {MONITOR_PERIOD_TRADING_DAYS.get(item.get('riskTone'), 10)} 个交易日（起点计第1日）"
                     ),
                 })
+
+        # 只有来源正文明确复述严重异常波动事实的普通风险提示，才作为
+        # 同一轮严重异动的佐证来源；不能仅凭同股同日把两个类别合并。
+        # 独立风险提示仍保留独立卡片，退市整理始终独立。
+        merged_items: List[Dict[str, Any]] = []
+        for item in sorted(selected_items, key=self._risk_rank, reverse=True):
+            if item.get("riskTone") != "ordinary" or item.get("sourceRelation") != "severe-supporting":
+                merged_items.append(item)
+                continue
+            severe = next(
+                (
+                    candidate for candidate in merged_items
+                    if candidate.get("symbol") == item.get("symbol")
+                    and candidate.get("riskTone") in ("severe-10d", "severe-30d")
+                    and candidate.get("announcementDate") == item.get("announcementDate")
+                ),
+                None,
+            )
+            if not severe:
+                merged_items.append(item)
+                continue
+            urls = set(severe.get("supportingSourceUrls", []))
+            if item.get("sourceUrl"):
+                urls.add(str(item["sourceUrl"]))
+            severe["supportingSourceUrls"] = sorted(urls)
+            support = list(severe.get("supportingFacts") or [])
+            if any(str(value.get("sourceId")) == str(item.get("sourceId")) for value in support):
+                continue
+            support.append({
+                "sourceId": item.get("sourceId", ""),
+                "title": item.get("title", ""),
+                "announcementDate": item.get("announcementDate", ""),
+                "riskTone": item.get("riskTone", ""),
+                "monitorType": item.get("monitorType", ""),
+                "source": item.get("source", ""),
+                "sourceType": item.get("sourceType", ""),
+                "sourceUrl": item.get("sourceUrl", ""),
+                "confirmationStatus": item.get("confirmationStatus", ""),
+                "contentHash": item.get("contentHash", ""),
+                "sourceRelation": item.get("sourceRelation", ""),
+            })
+            severe["supportingFacts"] = support
+        selected_items = merged_items
         for item in selected_items:
             if item.get("riskTone") in ("ordinary", "delisting-warning"):
                 # 风险提示和退市整理风险警示只显示分类，不向小程序提供 PDF 入口。
@@ -745,6 +813,7 @@ class OfficialMonitorService:
                     "ruleResetConfirmed": bool(risk_tone.startswith("severe-")),
                     "eventDirection": self._severe_event_direction(body) if risk_tone.startswith("severe-") else "",
                     "monitorType": monitor_type, "riskTone": risk_tone,
+                    "sourceRelation": self._risk_prompt_relation(title, body, risk_tone),
                     "isST": "ST" in announcement["stockName"].upper(),
                     "source": announcement["source"], "sourceUrl": announcement["url"] if risk_tone != "ordinary" else "",
                     "sourceType": "issuer-disclosure", "sourceRole": "issuer_disclosure_backup",
@@ -776,6 +845,7 @@ class OfficialMonitorService:
                     "monitorEnd": monitor_end[5:], "monitorEndDate": monitor_end,
                     "days": None, "daysTotal": MONITOR_PERIOD_TRADING_DAYS.get(risk_tone, 10), "monitorDates": monitor_dates,
                     "monitorType": monitor_type, "riskTone": risk_tone,
+                    "sourceRelation": self._risk_prompt_relation(alert["title"], alert.get("body", ""), risk_tone),
                     "eventDirection": self._severe_event_direction(alert.get("body", "")) if risk_tone.startswith("severe-") else "",
                     "isST": "ST" in alert["stockName"].upper(),
                     "source": alert["source"], "sourceUrl": alert["url"] if risk_tone != "ordinary" else "",
@@ -820,6 +890,7 @@ class OfficialMonitorService:
                     "monitorEnd": monitor_end[5:], "monitorEndDate": monitor_end,
                     "days": None, "daysTotal": len(monitor_dates),
                     "monitorDates": monitor_dates, "monitorType": monitor_type, "riskTone": risk_tone,
+                    "sourceRelation": self._risk_prompt_relation(alert["title"], alert.get("body", ""), risk_tone),
                     "isST": "ST" in alert.get("stockName", "").upper(),
                     "source": alert["source"], "sourceUrl": alert["url"],
                     "sourceType": "zts-risk-alert", "sourceRole": "zts_primary",
