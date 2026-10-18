@@ -287,43 +287,55 @@ function presentAlerts(alerts = []) {
   })
 }
 
-function presentWarnings(warnings = []) {
-  const colors = { safe: '#4A90E2', warning: '#4A90E2', triggered: '#4A90E2', unknown: '#BFD9F5' }
+function presentWarnings(warnings = [], options = {}) {
+  const colors = { base: '#4A90E2', warning: '#F5C542', severe: '#D94A45', unknown: '#BFD9F5' }
+  const nextDayRisk = Boolean(options.nextDayRisk)
+  const order = { '3 日偏离': 0, '10 日同向': 1, '10 日偏离': 2, '30 日偏离': 3 }
+  const displayTone = (title, triggered, hasValue) => {
+    const shortWindow = title === '3 日偏离' || title === '10 日同向'
+    if (nextDayRisk || triggered) return shortWindow ? 'warning' : 'severe'
+    return hasValue ? 'base' : 'unknown'
+  }
   return warnings.map((item) => {
     if (item.title === '10 日同向') {
       const up = Number(item.up || 0)
       const match = String(item.target || '').match(/(\d+(?:\.\d+)?)\s*次/)
       const limit = match ? Number(match[1]) : 0
       const down = Number(item.down || 0)
-      const count = Math.max(up, down)
+      const isUp = up >= down
+      const count = isUp ? up : down
       const progress = limit > 0 ? Math.min(100, count / limit * 100) : 0
       const tone = limit <= 0 ? 'unknown' : progress >= 100 ? 'triggered' : progress >= 66.6667 ? 'warning' : 'safe'
-      return { ...item, currentText: `涨 ${up} / 跌 ${down} 次`, remainingText: tone === 'triggered' ? '已触及' : `还差 ${Math.max(0, limit - count)} 次`, ringText: tone === 'triggered' ? '已触及' : tone === 'unknown' ? '--' : `${Math.max(0, limit - count)}次`, progress: Number(progress.toFixed(2)), tone, toneColor: colors[tone] }
+      const labelTone = displayTone(item.title, tone === 'triggered', limit > 0)
+      const sign = isUp ? '+' : '-'
+      return { ...item, currentText: `${sign}${count}次`, target: `阈值 ${isUp ? '+' : '-'}${limit}次`, remainingText: tone === 'triggered' ? '已触及' : `还差 ${Math.max(0, limit - count)} 次`, ringText: tone === 'triggered' ? '已触及' : tone === 'unknown' ? '--' : `${Math.max(0, limit - count)}次`, progress: Number(progress.toFixed(2)), tone, labelTone, toneColor: colors[labelTone] }
     }
     const rawValue = String(item.value || '').replace('%', '')
     const value = Number.parseFloat(rawValue)
     const downValue = Number.parseFloat(String(item.downValue || '').replace('%', ''))
-    if (!Number.isFinite(value) && !Number.isFinite(downValue)) return { ...item, currentText: '数据不足', remainingText: '暂不可判定', ringText: '--', progress: 0, tone: 'unknown', toneColor: colors.unknown, valueClass: '' }
+    if (!Number.isFinite(value) && !Number.isFinite(downValue)) {
+      const labelTone = displayTone(item.title, false, false)
+      return { ...item, currentText: '数据不足', remainingText: '暂不可判定', ringText: '--', progress: 0, tone: 'unknown', labelTone, toneColor: colors[labelTone], valueClass: '' }
+    }
     const thresholds = String(item.target || '').match(/[+-]?\d+(?:\.\d+)?/g) || []
-    const up = Math.abs(Number(thresholds[0] || 0))
-    const downThreshold = Math.abs(Number(thresholds[1] || 0))
+    const up = Number.isFinite(Number(item.upThreshold)) ? Math.abs(Number(item.upThreshold)) : Math.abs(Number(thresholds[0] || 0))
+    const downThreshold = Number.isFinite(Number(item.downThreshold)) ? Math.abs(Number(item.downThreshold)) : Math.abs(Number(thresholds[1] || 0))
     const upProgress = up > 0 && Number.isFinite(value) ? Math.max(0, value) / up * 100 : 0
     const downProgress = downThreshold > 0 && Number.isFinite(downValue) ? Math.max(0, Math.abs(Math.min(0, downValue))) / downThreshold * 100 : 0
     const progress = Math.min(100, Math.max(upProgress, downProgress))
-    // 黄色仅用于 3 日偏离；10/30 日偏离只有达到严重线才变红，避免把严重指标的接近值误报成警戒。
     const triggered = Boolean(item.upTriggered || item.downTriggered)
     const tone = item.title === '3 日偏离'
       ? (triggered ? 'triggered' : progress >= 66.6667 ? 'warning' : 'safe')
       : (triggered ? 'triggered' : 'safe')
-    const remaining = Math.max(0, Math.min(up - Math.max(0, Number.isFinite(value) ? value : 0), downThreshold - Math.max(0, Number.isFinite(downValue) ? -downValue : 0)))
-    const upWindow = Number(item.upWindow || item.actualWindow)
-    const downWindow = Number(item.downWindow)
-    const upWindowText = Number.isFinite(upWindow) && upWindow > 0 ? `${upWindow}日 ` : ''
-    const downWindowText = Number.isFinite(downWindow) && downWindow > 0 ? `${downWindow}日 ` : ''
-    const upText = Number.isFinite(value) ? `${value >= 0 ? '+' : ''}${value.toFixed(2)}%` : '--'
-    const downText = Number.isFinite(downValue) ? `${downValue.toFixed(2)}%` : '--'
-    return { ...item, currentText: `涨 ${upWindowText}${upText} / 跌 ${downWindowText}${downText}`, remainingText: tone === 'triggered' ? '已触及' : `还差 ${remaining.toFixed(2)}%`, ringText: tone === 'triggered' ? '已触及' : `${remaining.toFixed(2)}%`, progress: Number(progress.toFixed(2)), tone, toneColor: colors[tone], valueClass: Math.max(Number.isFinite(value) ? Math.abs(value) : 0, Number.isFinite(downValue) ? Math.abs(downValue) : 0) >= 100 ? 'metric-current-compact' : '' }
-  })
+    const useUp = item.upTriggered ? true : (item.downTriggered ? false : (Number.isFinite(value) && value > 0))
+    const actual = useUp ? value : (Number.isFinite(downValue) && downValue < 0 ? downValue : (Number.isFinite(value) ? value : downValue))
+    const positive = Number.isFinite(actual) && actual >= 0
+    const selectedThreshold = positive ? up : downThreshold
+    const actualText = Number.isFinite(actual) ? `${actual >= 0 ? '+' : ''}${actual.toFixed(2)}%` : '--'
+    const remaining = Math.max(0, selectedThreshold - Math.abs(Number.isFinite(actual) ? actual : 0))
+    const labelTone = displayTone(item.title, triggered, Number.isFinite(actual))
+    return { ...item, currentText: actualText, target: `阈值 ${positive ? '+' : '-'}${selectedThreshold}%`, remainingText: tone === 'triggered' ? '已触及' : `还差 ${remaining.toFixed(2)}%`, ringText: tone === 'triggered' ? '已触及' : `${remaining.toFixed(2)}%`, progress: Number(progress.toFixed(2)), tone, labelTone, toneColor: colors[labelTone], valueClass: Math.abs(Number.isFinite(actual) ? actual : 0) >= 100 ? 'metric-current-compact' : '' }
+  }).sort((left, right) => (order[left.title] ?? 99) - (order[right.title] ?? 99))
 }
 
 Page({
@@ -415,7 +427,9 @@ Page({
         change: detailWithMonitoring.change == null || detailWithMonitoring.change === '' ? '--' : String(detailWithMonitoring.change),
         changeClass: changeClass(detailWithMonitoring.change),
         dataQuality: detailWithMonitoring.dataQuality || {},
-        warnings: presentWarnings(detailWithMonitoring.warnings),
+        warnings: presentWarnings(detailWithMonitoring.warnings, {
+          nextDayRisk: Boolean(detailWithMonitoring.nextDayForecast && detailWithMonitoring.nextDayForecast.available && (detailWithMonitoring.nextDayForecast.rules || []).length)
+        }),
         alerts: presentAlerts(detailWithMonitoring.alerts),
         monitoringSummary: formatMonitoringSummary(monitoring && {
           ...monitoring,

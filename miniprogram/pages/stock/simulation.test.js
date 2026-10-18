@@ -78,8 +78,18 @@ const downsideWarning = presentWarnings([{
   title: '10 日偏离', value: '--', downValue: '-55.00%',
   target: '阈值 +100% / -50%', downTriggered: true, downWindow: 10
 }])[0]
-assert(downsideWarning.currentText.includes('跌 10日 -55.00%'))
+assert.strictEqual(downsideWarning.currentText, '-55.00%')
+assert.strictEqual(downsideWarning.target, '阈值 -50%')
 assert.strictEqual(downsideWarning.tone, 'triggered')
+const orderedWarnings = presentWarnings([
+  { title: '30 日偏离', value: '+20.00%', downValue: '-5.00%', target: '阈值 +200% / -70%' },
+  { title: '10 日偏离', value: '+30.00%', downValue: '-5.00%', target: '阈值 +100% / -50%' },
+  { title: '10 日同向', up: '1', down: '0', target: '阈值 4 次' },
+  { title: '3 日偏离', value: '+10.00%', downValue: '-3.00%', target: '阈值 +20% / -20%' }
+], { nextDayRisk: true })
+assert.deepStrictEqual(orderedWarnings.map(item => item.title), ['3 日偏离', '10 日同向', '10 日偏离', '30 日偏离'])
+assert.deepStrictEqual(orderedWarnings.map(item => item.labelTone), ['warning', 'warning', 'severe', 'severe'])
+assert.strictEqual(orderedWarnings[1].currentText, '+1次')
 
 const ordinaryOnlyDetail = {
   simulationBase: { stock: Array(29).fill(0), index: Array(29).fill(0) },

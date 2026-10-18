@@ -245,7 +245,8 @@ class MarketVectorTests(unittest.TestCase):
 
         self.assertEqual(result["dataQuality"]["commonDays"], 0)
         self.assertFalse(result["dataQuality"]["isComplete"])
-        self.assertTrue(all(item["value"] == "--" for item in result["warnings"][:3]))
+        deviation_warnings = [item for item in result["warnings"] if item["title"] in {"3 日偏离", "10 日偏离", "30 日偏离"}]
+        self.assertTrue(all(item["value"] == "--" for item in deviation_warnings))
 
     def test_search_normalises_input_and_returns_total_matches(self):
         service = self.service

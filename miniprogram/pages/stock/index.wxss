@@ -165,13 +165,16 @@
 .metric-grid { display: grid; width: 100%; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: stretch; gap: 12rpx; margin-top: 12rpx; }
 .metric-card { display: flex; width: 100%; min-width: 0; height: 184rpx; min-height: 184rpx; box-sizing: border-box; align-items: center; justify-content: space-between; gap: 8rpx; padding: 16rpx; border-radius: 12rpx; text-align: left; }
 .metric-copy { display: flex; min-width: 0; flex: 1; align-self: stretch; flex-direction: column; justify-content: space-between; padding: 2rpx 0; }
-.metric-title { display: block; min-width: 0; overflow: hidden; color: #1A1A1A; font-size: 21rpx; font-weight: 600; line-height: 29rpx; text-overflow: ellipsis; white-space: nowrap; }
-.metric-ring { display: flex; width: 100rpx; height: 100rpx; flex: 0 0 100rpx; align-items: center; justify-content: center; border-radius: 50%; background: #E5E7EB; }
-.metric-ring-inner { display: flex; width: 76rpx; height: 76rpx; flex-direction: column; align-items: center; justify-content: center; border-radius: 50%; background: #FFFFFF; }
+.metric-label { display: inline-flex; max-width: 100%; align-items: center; align-self: flex-start; padding: 4rpx 12rpx; border: 1rpx solid #B9D6F2; border-radius: 7rpx; background: #EAF3FC; color: #185A96; font-size: 19rpx; font-weight: 600; line-height: 28rpx; white-space: nowrap; }
+.metric-label-warning { border-color: #F0D36A; background: #FFF5CC; color: #8A6D0B; }
+.metric-label-severe { border-color: #E7A8A2; background: #FDF3F2; color: #C0271E; }
+.metric-label-unknown { border-color: #DCEBFA; background: #F3F8FD; color: #6B7280; }
+.metric-ring { display: flex; width: 108rpx; height: 108rpx; flex: 0 0 108rpx; align-items: center; justify-content: center; border-radius: 50%; background: #E5E7EB; }
+.metric-ring-inner { display: flex; width: 82rpx; height: 82rpx; flex-direction: column; align-items: center; justify-content: center; border-radius: 50%; background: #FFFFFF; }
 .metric-ring-value { max-width: 72rpx; overflow: hidden; color: #4B5563; font-size: 17rpx; font-weight: 650; line-height: 22rpx; font-variant-numeric: tabular-nums; text-align: center; text-overflow: ellipsis; white-space: nowrap; }
-.metric-current { display: block; min-height: 36rpx; margin-top: auto; color: #1C1C1E; font-size: 23rpx; line-height: 31rpx; font-weight: 650; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.metric-current { display: block; min-height: 36rpx; margin-top: auto; color: #1C1C1E; font-size: 24rpx; line-height: 32rpx; font-weight: 650; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
 .metric-current-compact { font-size: 21rpx; letter-spacing: 0; }
-.metric-target { display: block; min-height: 26rpx; margin-top: 2rpx; color: #6B7280; font-size: 17rpx; line-height: 23rpx; overflow-wrap: anywhere; }
+.metric-target { display: block; min-height: 28rpx; margin-top: 2rpx; color: #4B5563; font-size: 20rpx; line-height: 28rpx; overflow-wrap: anywhere; }
 
 .alert-panel {
   padding: 20rpx;
@@ -282,7 +285,7 @@
   .metric-ring-value { max-width: 66rpx; font-size: 15rpx; }
   .metric-current { font-size: 21rpx; line-height: 29rpx; }
   .metric-current-compact { font-size: 19rpx; }
-  .metric-target { font-size: 16rpx; line-height: 22rpx; }
+  .metric-target { font-size: 20rpx; line-height: 28rpx; }
   .status-stock-line { align-items: flex-start; }
   .summary-top .stock-identity { flex-wrap: nowrap; }
   .status-name { font-size: 30rpx; }

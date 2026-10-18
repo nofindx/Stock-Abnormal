@@ -1778,9 +1778,9 @@ class MarketService:
         common_days = len(common_dates)
         warnings = [
             self._single_warning(3, metrics["up_deviations"][3], down_deviations[3], metrics["up_window_lengths"][3], metrics["down_window_lengths"][3], rule.ordinary_deviation, -rule.ordinary_deviation),
+            {"title": "10 日同向", "value": "", "up": str(metrics["up"]), "down": str(metrics["down"]), "target": f"阈值 {rule.severe_same_direction_count} 次", "upThreshold": rule.severe_same_direction_count, "downThreshold": -rule.severe_same_direction_count, "className": "risk" if max(metrics["up"], metrics["down"]) >= rule.severe_same_direction_count else "safe"},
             self._single_warning(10, metrics["up_deviations"][10], down_deviations[10], metrics["up_window_lengths"][10], metrics["down_window_lengths"][10], rule.severe_10d_threshold.up, rule.severe_10d_threshold.down),
             self._single_warning(30, metrics["up_deviations"][30], down_deviations[30], metrics["up_window_lengths"][30], metrics["down_window_lengths"][30], rule.severe_30d_threshold.up, rule.severe_30d_threshold.down),
-            {"title": "10 日同向", "value": "", "up": str(metrics["up"]), "down": str(metrics["down"]), "target": f"阈值 {rule.severe_same_direction_count} 次", "className": "risk" if max(metrics["up"], metrics["down"]) >= rule.severe_same_direction_count else "safe"},
         ]
         return {
             **stock,
@@ -1869,6 +1869,8 @@ class MarketService:
             "upWindow": up_window,
             "downWindow": down_window,
             "target": f"阈值 +{up_threshold:.0f}% / {down_threshold:.0f}%",
+            "upThreshold": up_threshold,
+            "downThreshold": down_threshold,
             "upTriggered": up_triggered,
             "downTriggered": down_triggered,
             "className": "risk" if up_triggered or down_triggered else "safe",
