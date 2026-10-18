@@ -6,9 +6,6 @@
 .prediction-snapshot-row .snapshot-count { color: #1A1A1A; font-size: 28rpx; font-weight: 700; font-variant-numeric: tabular-nums; }
 .prediction-snapshot-row .snapshot-dot { color: #9CA3AF; }
 .prediction-snapshot-row .snapshot-pending { color: #9CA3AF; }
-.prediction-snapshot-row .snapshot-refresh { position: absolute; top: 50%; right: 0; display: flex; width: 120rpx; min-width: 120rpx; max-width: 120rpx; height: 48rpx; align-items: center; justify-content: center; margin: 0; padding: 0 !important; border: 1rpx solid #DDE3EA; border-radius: 11rpx; background: #FFFFFF; color: #405A78; font-size: 20rpx; font-weight: 600; line-height: 1; transform: translateY(-50%); }
-.prediction-snapshot-row .snapshot-refresh::after { display: none; }
-.prediction-snapshot-row .snapshot-refresh-disabled { opacity: .56; }
 .refresh-panel { display: none; }
 .refresh-copy { min-width: 0; }
 .refresh-label { display: block; color: #1C1C1E; font-size: 23rpx; font-weight: 600; }
@@ -25,8 +22,7 @@
   background: #F2F3F5;
 }
 .prediction-controls { display: flex; width: 100%; height: 80rpx; min-height: 80rpx; box-sizing: border-box; align-items: center; justify-content: flex-start; gap: 14rpx; margin-top: 12rpx; }
-.prediction-page .prediction-controls .segmented { width: 66.666%; flex: 0 0 66.666%; margin-top: 0; }
-.prediction-refresh { position: static; flex: 0 0 120rpx; width: 120rpx; min-width: 120rpx; max-width: 120rpx; height: 60rpx; min-height: 60rpx; padding: 0 !important; border: 1rpx solid #9BC2E8; border-radius: 10rpx; background: #EAF3FC; color: #1F5F99; font-size: 20rpx; line-height: 58rpx; transform: none; }
+.prediction-page .prediction-controls .segmented { width: 100%; flex: 0 0 100%; margin-top: 0; }
 .prediction-page .segment {
   flex: 1;
   height: 50rpx;
@@ -123,41 +119,14 @@
 .prediction-page .prediction-rule-tag,
 .prediction-page .prediction-triggered-badge { border-color: #9CA3AF !important; background: #F2F3F5 !important; color: #1C1C1E !important; }
 .prediction-page .prediction-row-triggered { border-color: #9CA3AF !important; background: #F2F3F5 !important; }
-.prediction-page .snapshot-refresh,
 .prediction-page .refresh-button { border-color: #9CA3AF !important; background: #FFFFFF !important; color: #1C1C1E !important; box-shadow: none !important; }
 .prediction-page .refresh-button.loading { border-color: #D1D5DB !important; background: #F2F3F5 !important; color: #6B7280 !important; }
 .prediction-page .error-state { color: #4B5563 !important; }
 .prediction-page .snapshot-summary { width: 100%; }
 .prediction-page .snapshot-updated { margin-left: 0; text-align: left; }
-.prediction-page .prediction-refresh { margin-right: 0 !important; margin-left: auto; align-self: center; border-color: #9BC2E8 !important; background: #EAF3FC !important; color: #1F5F99 !important; box-shadow: none !important; }
 .prediction-page .prediction-deviation-tag,
 .prediction-page .prediction-rule-tag { border-color: #D93025 !important; background: #FFF5F5 !important; color: #D93025 !important; }
 
-/* Keep refresh geometry and treatment identical to the monitoring page. */
-.prediction-page .prediction-refresh {
-  flex: 0 0 120rpx;
-  width: 120rpx;
-  min-width: 120rpx;
-  max-width: 120rpx;
-  height: 60rpx;
-  min-height: 60rpx;
-  margin-left: auto !important;
-  margin-right: 0 !important;
-  padding: 0 !important;
-  align-self: center;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border: 1rpx solid #9BC2E8 !important;
-  border-radius: 10rpx;
-  background: #EAF3FC !important;
-  color: #1F5F99 !important;
-  font-size: 20rpx;
-  font-weight: 600;
-  line-height: 1;
-  box-shadow: none !important;
-  transform: none;
-}
 
 @media (max-width: 390px) {
   .prediction-page .badge { padding: 0 8rpx; font-size: 18rpx; }

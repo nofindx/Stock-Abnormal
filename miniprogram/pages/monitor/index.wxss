@@ -1,5 +1,5 @@
 .monitor-page { background: #F2F3F5; padding-top: 24rpx; padding-bottom: 220rpx; }
-.filter-row { display: flex; width: 100%; height: 80rpx; min-height: 80rpx; box-sizing: border-box; align-items: center; justify-content: flex-start; gap: 12rpx; margin-top: 12rpx; }
+.filter-row { display: flex; width: 100%; height: 80rpx; min-height: 80rpx; box-sizing: border-box; align-items: center; justify-content: flex-start; margin-top: 12rpx; }
 .type-filters {
   display: flex;
   flex: 1 1 auto;
@@ -47,10 +47,6 @@
 .snapshot-count { color: #1A1A1A; font-size: 28rpx; font-weight: 700; font-variant-numeric: tabular-nums; }
 .snapshot-dot { color: #9CA3AF; }
 .snapshot-pending { color: #9CA3AF; }
-.snapshot-refresh { position: absolute; top: 50%; right: 0; display: flex; width: 120rpx; min-width: 120rpx; max-width: 120rpx; height: 48rpx; align-items: center; justify-content: center; margin: 0; padding: 0 !important; border: 1rpx solid #DDE3EA; border-radius: 11rpx; background: #FFFFFF; color: #405A78; font-size: 20rpx; font-weight: 600; line-height: 1; transform: translateY(-50%); }
-.snapshot-refresh::after { display: none; }
-.snapshot-refresh-disabled { opacity: .56; }
-.monitor-refresh { position: static; flex: 0 0 120rpx; width: 120rpx; min-width: 120rpx; max-width: 120rpx; height: 60rpx; min-height: 60rpx; padding: 0 !important; border: 1rpx solid #9BC2E8; border-radius: 10rpx; background: #EAF3FC; color: #1F5F99; font-size: 20rpx; line-height: 58rpx; transform: none; }
 .monitor-list { margin-top: 24rpx; }
 .monitor-row { position: relative; margin-top: 12rpx; padding: 18rpx; border: 1rpx solid #EBEDF0; border-radius: 14rpx; background: #FFFFFF; box-shadow: 0 2rpx 8rpx rgba(26, 26, 26, .025); }
 .monitor-tone-ordinary, .monitor-tone-severe-10d, .monitor-tone-severe-30d { background: #FFFFFF; }
@@ -99,7 +95,6 @@
 .monitor-page .filter-segment-risk.active,
 .monitor-page .filter-segment-severe.active,
 .monitor-page .filter-segment-delisting.active { border-color: transparent !important; background: #FFFFFF !important; color: #1C1C1E !important; font-weight: 600 !important; box-shadow: 0 1rpx 4rpx rgba(28, 28, 30, .12); }
-.monitor-page .snapshot-refresh { border-color: #9CA3AF !important; color: #1C1C1E !important; }
 .monitor-page .source-link,
 .monitor-page .badge-ordinary,
 .monitor-page .badge-severe-10d,
@@ -117,36 +112,9 @@
 
 .monitor-page .snapshot-summary { width: 100%; }
 .monitor-page .snapshot-updated { margin-left: 0; text-align: left; }
-.monitor-page .monitor-refresh { margin-right: 0 !important; margin-left: auto; align-self: center; border-color: #9BC2E8 !important; background: #EAF3FC !important; color: #1F5F99 !important; }
 .monitor-page .source-link { color: #2F80ED !important; }
 .monitor-page .badge-ordinary,
 .monitor-page .badge-severe-10d,
 .monitor-page .badge-severe-30d { padding: 2rpx 10rpx !important; border: 2rpx solid #D93025 !important; border-radius: 8rpx; background: #FFF5F5 !important; color: #D93025 !important; line-height: 30rpx; }
 .monitor-page .badge-delisting-warning { padding: 2rpx 10rpx !important; border: 2rpx solid #D93025 !important; border-radius: 8rpx; background: #FFF5F5 !important; color: #D93025 !important; line-height: 30rpx; }
 .monitor-page .days-number { color: #D93025 !important; }
-
-/* Refresh control contract shared with the prediction page. */
-.monitor-page .monitor-refresh {
-  flex: 0 0 120rpx;
-  width: 120rpx;
-  min-width: 120rpx;
-  max-width: 120rpx;
-  height: 60rpx;
-  min-height: 60rpx;
-  margin-left: auto !important;
-  margin-right: 0 !important;
-  padding: 0 !important;
-  align-self: center;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border: 1rpx solid #9BC2E8 !important;
-  border-radius: 10rpx;
-  background: #EAF3FC !important;
-  color: #1F5F99 !important;
-  font-size: 20rpx;
-  font-weight: 600;
-  line-height: 1;
-  box-shadow: none;
-  transform: none;
-}

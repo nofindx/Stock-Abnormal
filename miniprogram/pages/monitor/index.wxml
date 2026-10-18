@@ -3,7 +3,6 @@
     <view class="type-filters">
       <view wx:for="{{types}}" wx:key="key" class="filter-segment filter-segment-{{item.key}} {{type === item.key ? 'active' : ''}}" hover-class="chip-feedback" data-type="{{item.key}}" bindtap="selectType">{{item.label}}</view>
     </view>
-    <button class="snapshot-refresh monitor-refresh {{buttonRefreshing ? 'snapshot-refresh-disabled' : ''}}" loading="{{buttonRefreshing}}" disabled="{{buttonRefreshing}}" hover-class="button-press" bindtap="refreshSnapshot">刷新</button>
   </view>
   <view class="snapshot-row">
     <view class="snapshot-summary">

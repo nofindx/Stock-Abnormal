@@ -3,7 +3,7 @@ const { getMonitor } = require('../../utils/api')
 const { openPdf } = require('../../utils/open-pdf')
 
 Page({
-  data: { type: 'all', items: [], rawItems: [], visibleCount: 0, updatedAt: '', loading: false, refreshing: false, buttonRefreshing: false, error: '', skeletonRows: [0, 1, 2, 3], types: [{ key: 'all', label: '全部' }, { key: 'risk', label: '风险提示' }, { key: 'severe', label: '严重异动' }, { key: 'delisting', label: '退市整理' }] },
+  data: { type: 'all', items: [], rawItems: [], visibleCount: 0, updatedAt: '', loading: false, refreshing: false, error: '', skeletonRows: [0, 1, 2, 3], types: [{ key: 'all', label: '全部' }, { key: 'risk', label: '风险提示' }, { key: 'severe', label: '严重异动' }, { key: 'delisting', label: '退市整理' }] },
   onLoad() { this.restoreCache(); this.loadData() },
   onShow() {
     const tabBar = this.getTabBar && this.getTabBar()
@@ -15,13 +15,6 @@ Page({
     if (this.pollTimer) clearTimeout(this.pollTimer)
     this.pollAttempts = 0
     this.setData({ type: event.currentTarget.dataset.type }, () => { if (!this.restoreCache()) this.setData({ items: [], rawItems: [], updatedAt: '' }); this.loadData() })
-  },
-  refreshSnapshot() {
-    if (this.data.buttonRefreshing) return this.loadPromise || Promise.resolve()
-    this.pollAttempts = 0
-    if (this.pollTimer) clearTimeout(this.pollTimer)
-    this.setData({ buttonRefreshing: true })
-    return this.loadData().finally(() => this.setData({ buttonRefreshing: false }))
   },
   cacheKey(type = this.data.type) { return `monitorSnapshot:v3:current:${type}` },
   restoreCache() {
