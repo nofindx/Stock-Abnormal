@@ -1,7 +1,7 @@
 const assert = require('assert')
 
 global.Page = () => {}
-const { bestDeviation, buildNextDayForecast, calculateSimulationRows, createInputRows, presentWarnings, summaryStatus, formatMonthDay, monitoringRuleLabel, formatMonitoringSummary } = require('./index')
+const { bestDeviation, buildNextDayForecast, calculateSimulationRows, createInputRows, presentWarnings, summaryStatus, formatMonthDay, monitoringRuleLabel, formatMonitoringSummary, findStockMonitoring } = require('./index')
 
 const forecastBase = { baseTradeDate: '20261016', targetTradeDate: '20261019', available: true }
 assert.deepStrictEqual(buildNextDayForecast({ ...forecastBase, rules: [] }), {
@@ -34,6 +34,11 @@ assert.deepStrictEqual(formatMonitoringSummary({ active: true, monitorStartDate:
   dateText: '10/15-10/22', ruleText: '10日异动', remainingText: '4'
 })
 assert.strictEqual(formatMonitoringSummary(null), null)
+assert.strictEqual(findStockMonitoring([
+  { ts_code: '301190.SZ', riskTone: 'ordinary', monitorEndDate: '2026-10-22' },
+  { ts_code: '301190.SZ', riskTone: 'severe-10d', monitorEndDate: '2026-10-22' },
+  { ts_code: '688137.SH', riskTone: 'severe-30d' }
+], '301190.SZ').riskTone, 'severe-10d')
 
 const maxTrailingInterval = bestDeviation([10, 10, 0, 0, 0, 0, 0, 0, -50, 10], Array(10).fill(0), 10)
 assert.strictEqual(maxTrailingInterval.window, 1)

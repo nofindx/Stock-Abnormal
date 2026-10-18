@@ -1,5 +1,5 @@
 // 单股查询页：基础行情与当前状态来自后端，未来假设输入在本地即时重算。
-const { searchStocks, getStockDetail } = require('../../utils/api')
+const { searchStocks, getStockDetail, getMonitor } = require('../../utils/api')
 
 function createInputRows(days, dates = []) {
   // 未来交易日默认按股票和指数均为 0% 计算，用户修改时即时重算。
@@ -103,6 +103,17 @@ function formatMonitoringSummary(monitoring) {
     ruleText: monitoringRuleLabel(monitoring),
     remainingText: remaining == null || remaining === '' ? '--' : String(remaining)
   }
+}
+
+function monitoringPriority(item = {}) {
+  return { 'severe-30d': 4, 'severe-10d': 3, 'delisting-warning': 2, ordinary: 1 }[String(item.riskTone || '')] || 0
+}
+
+function findStockMonitoring(items = [], tsCode = '') {
+  const code = String(tsCode || '').split('.')[0]
+  return (items || [])
+    .filter(item => String(item.ts_code || item.symbol || '').split('.')[0] === code)
+    .sort((left, right) => monitoringPriority(right) - monitoringPriority(left) || String(right.monitorEndDate || '').localeCompare(String(left.monitorEndDate || '')))[0] || null
 }
 
 const STOCK_HISTORY_KEY = 'stockSearchHistory'
@@ -353,29 +364,37 @@ Page({
     this.detailRequestId = (this.detailRequestId || 0) + 1
     const requestId = this.detailRequestId
     this.setData({ selected: stock, detail: null, detailLoading: true, detailError: '', dataUpdatedAt: '', nextDayForecastLine: '', nextDayForecastText: '正在核对下一交易日预测…', query: stock.name === '正在加载' ? stock.ts_code : `${stock.name} ${stock.symbol}`, suggestions: [], suggestionHint: false, inputRows, matrixGroups: buildMatrixGroups(inputRows), simulationExpanded: false, visibleDays: 2 })
-    getStockDetail(stock.ts_code).then((detail) => {
+    Promise.all([
+      getStockDetail(stock.ts_code),
+      // 详情页读取未去杂的监管快照；监控接口失败不影响行情详情展示。
+      getMonitor({ status: 'current', type: 'all' }).catch(() => ({ items: [] }))
+    ]).then(([detail, monitorSnapshot]) => {
       if (requestId !== this.detailRequestId) return
-      const futureTradeDates = detail.futureTradeDates || []
-      const rows = calculateSimulationRows(createInputRows(2, futureTradeDates), detail)
+      const monitoring = detail.monitoring || findStockMonitoring(monitorSnapshot.items, detail.ts_code || stock.ts_code)
+      const detailWithMonitoring = monitoring
+        ? { ...detail, monitoring, monitoringStatus: 'active', monitoringStatusDisplay: '监管中' }
+        : detail
+      const futureTradeDates = detailWithMonitoring.futureTradeDates || []
+      const rows = calculateSimulationRows(createInputRows(2, futureTradeDates), detailWithMonitoring)
       const displayDetail = {
-        ...detail,
-        statusDisplay: detail.statusDisplay || (detail.status === '正常' ? '状态安全' : '状态异常'),
-        marketStatusDisplay: detail.marketStatusDisplay || (detail.statusReason ? `已触发 · ${detail.statusReason}` : '当前行情规则未触发'),
-        change: detail.change == null || detail.change === '' ? '--' : String(detail.change),
-        changeClass: changeClass(detail.change),
-        dataQuality: detail.dataQuality || {},
-        warnings: presentWarnings(detail.warnings),
-        alerts: presentAlerts(detail.alerts),
-        monitoringSummary: formatMonitoringSummary(detail.monitoring)
+        ...detailWithMonitoring,
+        statusDisplay: detailWithMonitoring.statusDisplay || (detailWithMonitoring.status === '正常' ? '状态安全' : '状态异常'),
+        marketStatusDisplay: detailWithMonitoring.marketStatusDisplay || (detailWithMonitoring.statusReason ? `已触发 · ${detailWithMonitoring.statusReason}` : '当前行情规则未触发'),
+        change: detailWithMonitoring.change == null || detailWithMonitoring.change === '' ? '--' : String(detailWithMonitoring.change),
+        changeClass: changeClass(detailWithMonitoring.change),
+        dataQuality: detailWithMonitoring.dataQuality || {},
+        warnings: presentWarnings(detailWithMonitoring.warnings),
+        alerts: presentAlerts(detailWithMonitoring.alerts),
+        monitoringSummary: formatMonitoringSummary(monitoring)
       }
-      const statusSummary = summaryStatus(detail)
+      const statusSummary = summaryStatus(displayDetail)
       displayDetail.summaryStatus = statusSummary.text
       displayDetail.summaryTone = statusSummary.tone
-      const dataUpdatedAt = formatUpdatedAt((detail.dataQuality || {}).quoteUpdatedAt || detail.tradeDate)
-      const recentStocks = [{ ts_code: detail.ts_code || stock.ts_code, symbol: detail.symbol || stock.symbol || stock.ts_code.split('.')[0], name: detail.name || stock.name || stock.ts_code }, ...(this.data.recentStocks || []).filter(item => item.ts_code !== (detail.ts_code || stock.ts_code))].slice(0, 5)
+      const dataUpdatedAt = formatUpdatedAt((detailWithMonitoring.dataQuality || {}).quoteUpdatedAt || detailWithMonitoring.tradeDate)
+      const recentStocks = [{ ts_code: detailWithMonitoring.ts_code || stock.ts_code, symbol: detailWithMonitoring.symbol || stock.symbol || stock.ts_code.split('.')[0], name: detailWithMonitoring.name || stock.name || stock.ts_code }, ...(this.data.recentStocks || []).filter(item => item.ts_code !== (detailWithMonitoring.ts_code || stock.ts_code))].slice(0, 5)
       wx.setStorageSync(STOCK_HISTORY_KEY, recentStocks)
-      this.setData({ selected: { ...stock, ...detail }, detail: displayDetail, detailLoading: false, detailError: '', dataUpdatedAt, recentStocks, futureTradeDates, inputRows: rows, matrixGroups: buildMatrixGroups(rows), query: `${detail.name} ${detail.symbol}` })
-      const forecast = buildNextDayForecast(detail.nextDayForecast || {})
+      this.setData({ selected: { ...stock, ...detailWithMonitoring }, detail: displayDetail, detailLoading: false, detailError: '', dataUpdatedAt, recentStocks, futureTradeDates, inputRows: rows, matrixGroups: buildMatrixGroups(rows), query: `${detailWithMonitoring.name} ${detailWithMonitoring.symbol}` })
+      const forecast = buildNextDayForecast(detailWithMonitoring.nextDayForecast || {})
       this.setData({ nextDayForecastLine: forecast.line, nextDayForecastText: forecast.text })
     }).catch((error) => {
       if (requestId !== this.detailRequestId) return
@@ -423,4 +442,4 @@ Page({
 })
 
 // 纯计算函数导出给前端回归测试；小程序运行时不影响 Page 注册。
-if (typeof module !== 'undefined') module.exports = { bestDeviation, buildNextDayForecast, calculateSimulationRows, createInputRows, presentWarnings, summaryStatus, formatMonthDay, monitoringRuleLabel, formatMonitoringSummary }
+if (typeof module !== 'undefined') module.exports = { bestDeviation, buildNextDayForecast, calculateSimulationRows, createInputRows, presentWarnings, summaryStatus, formatMonthDay, monitoringRuleLabel, formatMonitoringSummary, findStockMonitoring }
