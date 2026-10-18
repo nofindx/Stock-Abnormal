@@ -1,6 +1,6 @@
 .prediction-page { padding-top: 24rpx; padding-bottom: 220rpx; }
 .prediction-page .page-header { display: none; }
-.prediction-page .segmented { height: 72rpx; align-items: center; margin-top: 12rpx; }
+.prediction-page .segmented { height: 60rpx; align-items: center; margin-top: 12rpx; }
 .prediction-snapshot-row { position: relative; display: flex; height: 48rpx; min-height: 48rpx; align-items: center; margin-top: 12rpx; padding-right: 0; box-sizing: border-box; }
 .prediction-snapshot-row .snapshot-summary { display: flex; min-width: 0; max-width: 100%; align-items: baseline; gap: 10rpx; color: #6B7280; font-size: 22rpx; line-height: 30rpx; white-space: nowrap; overflow: hidden; }
 .prediction-snapshot-row .snapshot-count { color: #1A1A1A; font-size: 28rpx; font-weight: 700; font-variant-numeric: tabular-nums; }
@@ -12,7 +12,7 @@
 .refresh-panel .refresh-time { display: block; margin-top: 3rpx; color: #8E8E93; font-size: 20rpx; font-variant-numeric: tabular-nums; }
 .prediction-page .segmented {
   display: flex;
-  height: 72rpx;
+  height: 60rpx;
   box-sizing: border-box;
   align-items: center;
   gap: 4rpx;
@@ -25,14 +25,14 @@
 .prediction-page .prediction-controls .segmented { width: 100%; flex: 0 0 100%; margin-top: 0; }
 .prediction-page .segment {
   flex: 1;
-  height: 62rpx;
+  height: 50rpx;
   padding: 0;
   border: 0;
   border-radius: 9rpx;
   background: transparent;
   color: #636366;
   font-size: 23rpx;
-  line-height: 62rpx;
+  line-height: 50rpx;
   text-align: center;
   box-sizing: border-box;
 }
