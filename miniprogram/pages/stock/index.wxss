@@ -169,9 +169,9 @@
 .metric-label-warning { border-color: #F0D36A; background: #FFF5CC; color: #8A6D0B; }
 .metric-label-severe { border-color: #E7A8A2; background: #FDF3F2; color: #C0271E; }
 .metric-label-unknown { border-color: #DCEBFA; background: #F3F8FD; color: #6B7280; }
-.metric-ring { display: flex; width: 116rpx; height: 116rpx; flex: 0 0 116rpx; align-items: center; justify-content: center; margin-right: 18rpx; border-radius: 50%; background: #E5E7EB; }
-.metric-ring-inner { display: flex; width: 88rpx; height: 88rpx; flex-direction: column; align-items: center; justify-content: center; border-radius: 50%; background: #FFFFFF; }
-.metric-ring-value { max-width: 72rpx; overflow: hidden; color: #4B5563; font-size: 17rpx; font-weight: 650; line-height: 22rpx; font-variant-numeric: tabular-nums; text-align: center; text-overflow: ellipsis; white-space: nowrap; }
+.metric-ring { display: flex; width: 152rpx; height: 152rpx; flex: 0 0 152rpx; align-items: center; justify-content: center; margin-right: 16rpx; border-radius: 50%; background: #E5E7EB; }
+.metric-ring-inner { display: flex; width: 116rpx; height: 116rpx; flex-direction: column; align-items: center; justify-content: center; border-radius: 50%; background: #FFFFFF; }
+.metric-ring-value { max-width: 100rpx; overflow: hidden; color: #4B5563; font-size: 17rpx; font-weight: 650; line-height: 22rpx; font-variant-numeric: tabular-nums; text-align: center; text-overflow: ellipsis; white-space: nowrap; }
 .metric-current { display: block; min-height: 36rpx; margin-top: auto; color: #1C1C1E; font-size: 24rpx; line-height: 32rpx; font-weight: 650; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
 .metric-current-compact { font-size: 21rpx; letter-spacing: 0; }
 .metric-target { display: block; min-height: 28rpx; margin-top: 2rpx; color: #4B5563; font-size: 20rpx; line-height: 28rpx; overflow-wrap: anywhere; }
@@ -292,8 +292,8 @@
   .quote-line .change { font-size: 30rpx; }
   .metric-card { height: 176rpx; min-height: 176rpx; padding: 14rpx; }
   .metric-copy { padding-left: 2rpx; }
-  .metric-ring { width: 112rpx; height: 112rpx; flex-basis: 112rpx; margin-right: 18rpx; }
-  .metric-ring-inner { width: 84rpx; height: 84rpx; }
+  .metric-ring { width: 148rpx; height: 148rpx; flex-basis: 148rpx; margin-right: 14rpx; }
+  .metric-ring-inner { width: 112rpx; height: 112rpx; }
   .metric-ring-value { font-size: 16rpx; }
   .metric-current { font-size: 27rpx; }
   .metric-remaining { font-size: 17rpx; }
