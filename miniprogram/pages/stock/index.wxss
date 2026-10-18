@@ -155,7 +155,7 @@
 .monitoring-reason { display: block; color: #4B5563; font-size: 20rpx; font-weight: 400; line-height: 28rpx; overflow-wrap: anywhere; }
 .monitoring-meta { margin-top: 8rpx; }
 .monitoring-reason { margin-top: 4rpx; }
-.monitoring-emphasis { color: #4B5563; font-weight: 600; }
+.monitoring-emphasis { color: #C0271E; font-weight: 600; }
 .stock-identity { display: flex; min-width: 0; align-items: baseline; gap: 14rpx; }
 .quote-line { display: flex; min-width: 0; flex: 1; align-items: baseline; gap: 12rpx; }
 .quote-line .status-price.change { color: #D93025; font-size: 48rpx; font-weight: 700; line-height: 54rpx; font-variant-numeric: tabular-nums; }
@@ -253,9 +253,8 @@
 .stock-page .status-severe .status-state,
 .stock-page .status-monitoring .status-state,
 .stock-page .monitoring-meta,
-.stock-page .monitoring-reason,
-.stock-page .monitoring-meta .monitoring-emphasis,
-.stock-page .monitoring-reason .monitoring-emphasis { color: #4B5563 !important; }
+.stock-page .monitoring-reason { color: #4B5563 !important; }
+.stock-page .monitoring-meta .monitoring-emphasis { color: #C0271E !important; }
 .stock-page .alert-bar,
 .stock-page .alert-bar.risk,
 .stock-page .alert-bar.severe,
