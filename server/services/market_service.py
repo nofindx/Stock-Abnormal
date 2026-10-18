@@ -1691,7 +1691,7 @@ class MarketService:
         stock_by_date = {self._date_key(item.get("date")): item for item in stock_vector if item.get("date")}
         index_by_date = {self._date_key(item.get("date")): item for item in index_vector if item.get("date")}
         common_dates = sorted(set(stock_by_date) & set(index_by_date))
-        if not common_dates:
+        if not common_dates and stock_vector and index_vector:
             return None
         stock_vector = [stock_by_date[date] for date in common_dates]
         index_vector = [index_by_date[date] for date in common_dates]

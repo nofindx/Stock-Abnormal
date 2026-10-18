@@ -226,6 +226,27 @@ class MarketVectorTests(unittest.TestCase):
         self.assertEqual(result["calculationInput"]["stock"][-1]["date"], "20260831")
         self.assertEqual(result["calculationInput"]["index"][-1]["date"], "20260831")
 
+    def test_single_stock_detail_keeps_first_listing_with_empty_stock_vector(self):
+        """首个交易日没有可计算收益点时仍返回股票详情，而不是 503。"""
+        service = self.service
+        service._calc_repository = SimpleNamespace(get_index=lambda _code: {
+            "index_code": "399107.SZ", "latest_close": 100.0, "as_of_trade_date": "20261016",
+            "index_return_vector": [{"date": "20261016", "return": 0.0}],
+        })
+        service._realtime = SimpleNamespace(fetch_many=lambda _codes: {})
+        service._future_trade_dates = lambda *_args: ["2026-10-19"]
+        stock = {"ts_code": "000196.SZ", "symbol": "000196", "name": "新股", "market": "SZSE", "board": "主板", "isST": False}
+        calc = {
+            "latest_close": 12.0, "as_of_trade_date": "20261016", "data_stage": "formal",
+            "stock_return_vector": [],
+        }
+
+        result = service._detail_from_repository(stock, calc)
+
+        self.assertEqual(result["dataQuality"]["commonDays"], 0)
+        self.assertFalse(result["dataQuality"]["isComplete"])
+        self.assertTrue(all(item["value"] == "--" for item in result["warnings"][:3]))
+
     def test_search_normalises_input_and_returns_total_matches(self):
         service = self.service
         service._stock_rows = lambda: [
