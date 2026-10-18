@@ -1663,9 +1663,9 @@ class MarketService:
         index_vector_date = self._vector_latest_date(index_vector)
         if (
             not stored_stock_date
-            or stored_stock_date != stored_index_date
-            # 新上市首个交易日可能还没有收益率点；保留空向量，详情页展示
-            # 股票/指数和“暂无足够交易日”的预警，而不是把整张详情页判为不可用。
+            or not stored_index_date
+            # 每一侧的向量必须和自己的基准日期一致；股票停牌时股票与指数
+            # 的基准日期允许不同，后续统一按共同日期计算有效窗口。
             or (stock_vector_date and stock_vector_date != stored_stock_date)
             or (index_vector_date and index_vector_date != stored_index_date)
         ):
@@ -1685,6 +1685,16 @@ class MarketService:
         if realtime:
             stock_vector = self._apply_quote_to_vector(stock_vector, calc.get("latest_close"), quote)
             index_vector = self._apply_quote_to_vector(index_vector, index.get("latest_close"), index_quote)
+        # 停牌、刚上市或上游缺记录都会造成两侧向量长度/终点不同。正式计算
+        # 绝不能按数组位置配对，统一裁剪到共同日期；没有共同日期才判定为
+        # 数据集不可用。这样详情页仍能展示已有 1 日、2 日等有效结果。
+        stock_by_date = {self._date_key(item.get("date")): item for item in stock_vector if item.get("date")}
+        index_by_date = {self._date_key(item.get("date")): item for item in index_vector if item.get("date")}
+        common_dates = sorted(set(stock_by_date) & set(index_by_date))
+        if not common_dates:
+            return None
+        stock_vector = [stock_by_date[date] for date in common_dates]
+        index_vector = [index_by_date[date] for date in common_dates]
         metrics = self._vector_metrics(
             stock_vector, index_vector, rule,
             suspension.get("ruleResetDate", ""),
@@ -1743,7 +1753,7 @@ class MarketService:
             forecast_metrics, suspension.get("ruleResetDate", ""),
             suspension.get("ruleResetWindow"), forecast_limit,
         )
-        common_days = len(set(item.get("date") for item in stock_vector if item.get("date")) & set(item.get("date") for item in index_vector if item.get("date")))
+        common_days = len(common_dates)
         warnings = [
             self._single_warning(3, metrics["up_deviations"][3], down_deviations[3], metrics["up_window_lengths"][3], metrics["down_window_lengths"][3], rule.ordinary_deviation, -rule.ordinary_deviation),
             self._single_warning(10, metrics["up_deviations"][10], down_deviations[10], metrics["up_window_lengths"][10], metrics["down_window_lengths"][10], rule.severe_10d_threshold.up, rule.severe_10d_threshold.down),

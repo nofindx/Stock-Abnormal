@@ -195,6 +195,37 @@ class MarketVectorTests(unittest.TestCase):
         self.assertEqual(result["nextDayForecast"]["targetTradeDate"], "2026-10-16")
         self.assertTrue(result["nextDayForecast"]["available"])
 
+    def test_single_stock_detail_accepts_stock_index_asof_mismatch_when_common_history_exists(self):
+        """停牌导致股票只到旧日期时，详情仍按共同日期返回有效窗口。"""
+        service = self.service
+        service._calc_repository = SimpleNamespace(get_index=lambda _code: {
+            "index_code": "399107.SZ", "latest_close": 100.0, "as_of_trade_date": "20261016",
+            "index_return_vector": [
+                {"date": "20260828", "return": 0.0},
+                {"date": "20260831", "return": 0.0},
+                {"date": "20260901", "return": 0.0},
+                {"date": "20261016", "return": 0.0},
+            ],
+        })
+        service._realtime = SimpleNamespace(fetch_many=lambda _codes: {})
+        service._future_trade_dates = lambda *_args: ["2026-10-19"]
+        stock = {"ts_code": "002731.SZ", "symbol": "002731", "name": "*ST萃华", "market": "SZSE", "board": "主板", "isST": True}
+        calc = {
+            "latest_close": 8.0, "as_of_trade_date": "20260831", "data_stage": "formal",
+            "stock_return_vector": [
+                {"date": "20260828", "return": 1.0},
+                {"date": "20260831", "return": 2.0},
+            ],
+        }
+
+        result = service._detail_from_repository(stock, calc)
+
+        self.assertEqual(result["dataQuality"]["commonDays"], 2)
+        self.assertFalse(result["dataQuality"]["isComplete"])
+        self.assertEqual(result["warnings"][0]["value"], "+3.02%")
+        self.assertEqual(result["calculationInput"]["stock"][-1]["date"], "20260831")
+        self.assertEqual(result["calculationInput"]["index"][-1]["date"], "20260831")
+
     def test_search_normalises_input_and_returns_total_matches(self):
         service = self.service
         service._stock_rows = lambda: [

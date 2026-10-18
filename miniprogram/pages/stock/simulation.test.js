@@ -23,8 +23,8 @@ assert.strictEqual(buildNextDayForecast({ ...forecastBase, rules: [
   { ruleKey: 'severe_10d' }
 ] }).text, '次日预测规则说明暂不可用')
 assert.strictEqual(buildNextDayForecast({}).text, '预测数据版本未同步')
-assert.deepStrictEqual(summaryStatus({ status: '正常', monitoring: { monitorType: '严重异动' } }), { text: '存在异动风险', tone: 'risk' })
-assert.deepStrictEqual(summaryStatus({ status: '正常', monitoringStatus: 'active' }), { text: '存在异动风险', tone: 'risk' })
+assert.deepStrictEqual(summaryStatus({ status: '正常', monitoring: { monitorType: '严重异动' } }), { text: '暂无异动风险', tone: 'safe' })
+assert.deepStrictEqual(summaryStatus({ status: '正常', monitoringStatus: 'active' }), { text: '暂无异动风险', tone: 'safe' })
 assert.deepStrictEqual(summaryStatus({ status: '触及', monitoring: null }), { text: '存在异动风险', tone: 'risk' })
 assert.deepStrictEqual(summaryStatus({ status: '正常', nextDayForecast: { available: true, rules: [{ ruleKey: 'severe_30d' }] } }), { text: '存在异动风险', tone: 'risk' })
 assert.deepStrictEqual(summaryStatus({ status: '正常', nextDayForecast: { available: true, rules: [] } }), { text: '暂无异动风险', tone: 'safe' })
