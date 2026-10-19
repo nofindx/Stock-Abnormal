@@ -1,6 +1,12 @@
 // 异动预测页面：只请求后端批量快照，不在前端逐票扫描或模拟刷新。
 const { getPredictions, refreshPredictions } = require('../../utils/api')
-const FIRST_OPEN_REFRESH_KEY = 'predictionFirstOpenRealtime:v1'
+// 只记录“首次成功拿到盘中实时结果”，避免把非交易时段回退误记为完成。
+const FIRST_OPEN_REFRESH_KEY = 'predictionFirstOpenRealtime:v2'
+
+function isIntradayRefreshResult(result = {}) {
+  const quality = result.dataQuality || {}
+  return result.refreshStatus === 'applied' && (quality.intraday === true || result.dataStage === 'realtime')
+}
 
 function normalizeItems(items = [], scope = 'today') {
   const ruleLabels = {
@@ -39,8 +45,8 @@ Page({
       this.loadData()
       return
     }
-    this.refresh().then(() => {
-      if (!this.data.error) {
+    this.refresh().then((result) => {
+      if (!this.data.error && isIntradayRefreshResult(result)) {
         try { wx.setStorageSync(FIRST_OPEN_REFRESH_KEY, '1') } catch (error) {}
       }
     })
@@ -87,8 +93,10 @@ Page({
       const quoteUpdatedAt = formatUpdatedAt(result.quoteUpdatedAt)
       this.setData({ refreshing: false, items, quoteUpdatedAt, dataQuality: result.dataQuality || {}, dataUnavailable: Boolean(result.dataUnavailable), error: result.error || '', nextDayAvailable: result.nextDayAvailable !== false, nextDayReason: result.nextDayReason || '' })
       getApp().globalData.lastPredictionRefresh = result.quoteUpdatedAt || null
+      return result
     }).catch(() => {
       this.setData({ refreshing: false, error: '刷新失败，请稍后重试' })
+      return { refreshStatus: 'failed' }
     })
   },
   onPullDownRefresh() {
@@ -105,3 +113,5 @@ Page({
     if (this.nextDayNoticeTimer) clearTimeout(this.nextDayNoticeTimer)
   },
 })
+
+module.exports = { isIntradayRefreshResult }
