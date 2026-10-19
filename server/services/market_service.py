@@ -29,7 +29,7 @@ BOARD_BY_MARKET = {"主板": Board.MAIN, "创业板": Board.CHINEXT, "科创板"
 SHANGHAI_TZ = ZoneInfo("Asia/Shanghai") if ZoneInfo else timezone(timedelta(hours=8))
 # 停牌/复牌重置、上涨同向计数和预测阶段切换属于同一套规则口径。
 # 版本变化会触发服务启动时从已确认收盘行情重建计算基础数据与预测集。
-PREDICTION_RULE_VERSION = "2026-10-endpoint-window-scoped-reset-v45"
+PREDICTION_RULE_VERSION = "2026-10-endpoint-window-scoped-reset-v46"
 
 
 class CalculationDataUnavailable(RuntimeError):
@@ -2618,8 +2618,9 @@ class MarketService:
                 kind = option["kind"]
                 deviation = option.get("deviation")
                 deviation_label = f"{option['actualWindow']}日 {_pct(deviation)}"
-                # 卡片展示下一交易日达到规则所需的上涨距离；规则阈值保留在 rule 文案。
-                display_distance = float(option["threshold"]) if triggered else max(0.0, float(option["distance"]))
+                # 触发条件展示目标日实际还需上涨的距离；已经触发时通常为 0，
+                # 规则阈值只保留在 rule 文案，不能覆盖触发距离。
+                display_distance = max(0.0, float(option["distance"]))
                 trigger_value = f"+{display_distance:.2f}%"
                 trigger_condition = f"涨幅达 {display_distance:.2f}%"
                 if option["ruleKey"] == "ordinary_3d":
@@ -2710,7 +2711,7 @@ class MarketService:
                             rule_reset_date=reset_date,
                             reset_window=reset_window,
                         )
-                        display_distance = threshold if item["triggered"] else max(0.0, float(distance or 0.0))
+                        display_distance = max(0.0, float(distance or 0.0))
                         item["triggerValue"] = f"+{display_distance:.2f}%"
                         item["triggerCondition"] = f"涨幅达 {display_distance:.2f}%"
                         item["trigger"] = item["triggerCondition"]

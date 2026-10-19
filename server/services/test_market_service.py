@@ -824,6 +824,9 @@ class MarketVectorTests(unittest.TestCase):
         self.assertTrue(by_rule["severe_10d"]["triggered"])
         self.assertEqual(by_rule["severe_10d"]["alertText"], "已触发")
         self.assertTrue(by_rule["severe_10d"]["triggerValue"].startswith("+"))
+        # 已触发卡仍显示达到阈值所需的目标日涨幅，不能退化成固定规则阈值。
+        self.assertNotEqual(by_rule["severe_10d"]["triggerValue"], "+100.00%")
+        self.assertNotEqual(by_rule["severe_30d"]["triggerValue"], "+200.00%")
 
     def test_today_prediction_drops_unreachable_pending_thirty_day_card(self):
         service = self.service
