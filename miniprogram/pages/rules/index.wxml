@@ -4,22 +4,33 @@
     <view class="rules-heading">异动规则</view>
     <view class="threshold-table">
       <view class="threshold-row threshold-header">
-        <text>板块</text><text>3日</text><text>10日</text><text>30日</text><text>同向</text>
+        <text>板块</text><text>方向</text><text>3日</text><text>10日</text><text>30日</text><text>同向</text>
       </view>
       <view class="threshold-row">
-        <text class="threshold-name">主板（沪 / 深）</text><text>+20%</text><text>+100%</text><text>+200%</text><text>4次</text>
+        <text class="threshold-name">主板（沪 / 深）</text><text>上涨</text><text>+20%</text><text>+100%</text><text>+200%</text><text>4次</text>
       </view>
       <view class="threshold-row">
-        <text class="threshold-name">创业板</text><text>+30%</text><text>+100%</text><text>+200%</text><text>3次</text>
+        <text class="threshold-name">主板（沪 / 深）</text><text>下跌</text><text>-20%</text><text>-100%</text><text>-200%</text><text>4次</text>
       </view>
       <view class="threshold-row">
-        <text class="threshold-name">科创板</text><text>+30%</text><text>+100%</text><text>+200%</text><text>3次</text>
+        <text class="threshold-name">创业板</text><text>上涨</text><text>+30%</text><text>+100%</text><text>+200%</text><text>3次</text>
       </view>
       <view class="threshold-row">
-        <text class="threshold-name">北交所</text><text>+40%</text><text>+150%</text><text>+300%</text><text>3次</text>
+        <text class="threshold-name">创业板</text><text>下跌</text><text>-30%</text><text>-100%</text><text>-200%</text><text>3次</text>
+      </view>
+      <view class="threshold-row">
+        <text class="threshold-name">科创板</text><text>上涨</text><text>+30%</text><text>+100%</text><text>+200%</text><text>3次</text>
+      </view>
+      <view class="threshold-row">
+        <text class="threshold-name">科创板</text><text>下跌</text><text>-30%</text><text>-100%</text><text>-200%</text><text>3次</text>
+      </view>
+      <view class="threshold-row">
+        <text class="threshold-name">北交所</text><text>上涨</text><text>+40%</text><text>+150%</text><text>+300%</text><text>3次</text>
+      </view>
+      <view class="threshold-row">
+        <text class="threshold-name">北交所</text><text>下跌</text><text>-40%</text><text>-150%</text><text>-300%</text><text>3次</text>
       </view>
     </view>
-    <view class="threshold-note">各项数值均为上涨偏离值阈值</view>
     <view class="rules-version">阈值以交易所最新规则为准</view>
   </view>
 

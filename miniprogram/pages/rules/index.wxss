@@ -10,20 +10,19 @@
 .rules-section { margin-top: 22rpx; padding: 20rpx; border: 1rpx solid #E5E5EA; border-radius: 18rpx; background: #FFFFFF; }
 .rules-heading { margin-bottom: 14rpx; color: #1C1C1E; font-size: 25rpx; font-weight: 600; line-height: 34rpx; }
 .formula { color: #1C1C1E; font-size: 22rpx; line-height: 36rpx; text-indent: 0; }
-.rules-copy { margin-top: 12rpx; color: #636366; font-size: 21rpx; line-height: 34rpx; text-indent: 0; }
+.rules-copy { margin-top: 12rpx; color: #1C1C1E; font-size: 21rpx; line-height: 34rpx; text-indent: 0; }
 .threshold-table { overflow: hidden; border: 1rpx solid #E5E5EA; border-radius: 12rpx; background: #F8F8FA; }
-.threshold-row { display: grid; grid-template-columns: 1.55fr .82fr .9fr .9fr .8fr; align-items: center; min-height: 64rpx; padding: 0 12rpx; border-bottom: 1rpx solid #E5E5EA; color: #636366; font-size: 19rpx; line-height: 28rpx; text-align: center; }
+.threshold-row { display: grid; grid-template-columns: 1.55fr .72fr .82fr .9fr .9fr .8fr; align-items: center; min-height: 64rpx; padding: 0 12rpx; border-bottom: 1rpx solid #E5E5EA; color: #636366; font-size: 19rpx; line-height: 28rpx; text-align: center; }
 .threshold-row:last-child { border-bottom: 0; }
 .threshold-row > text { min-width: 0; }
 .threshold-name { color: #1C1C1E; font-size: 20rpx; font-weight: 600; text-align: left; }
 .threshold-header { min-height: 58rpx; background: #EEF0F3; color: #636366; font-size: 18rpx; font-weight: 600; }
-.threshold-note { margin-top: 10rpx; color: #636366; font-size: 19rpx; line-height: 28rpx; }
 .rules-risk { border-color: #E5E5EA; background: #FFFFFF; }
 .rules-page .free-note { display: none; }
 
 @media (max-width: 390px) {
   .rules-page { padding-right: 22rpx; padding-left: 22rpx; }
-  .threshold-row { grid-template-columns: 1.5fr .82fr .9fr .9fr .78fr; padding-right: 8rpx; padding-left: 8rpx; font-size: 18rpx; }
+  .threshold-row { grid-template-columns: 1.5fr .72fr .82fr .9fr .9fr .78fr; padding-right: 8rpx; padding-left: 8rpx; font-size: 18rpx; }
   .threshold-name { font-size: 19rpx; }
   .threshold-header { font-size: 17rpx; }
 }
