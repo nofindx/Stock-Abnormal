@@ -7,7 +7,7 @@
         <text>板块</text><text>3日</text><text>10日</text><text>30日</text><text>同向</text>
       </view>
       <view class="threshold-row">
-        <text class="threshold-name">沪深主板</text><text>±20%</text><text class="threshold-pair">+100%/-50%</text><text class="threshold-pair">+200%/-70%</text><text>4次</text>
+        <text class="threshold-name">主板</text><text>±20%</text><text class="threshold-pair">+100%/-50%</text><text class="threshold-pair">+200%/-70%</text><text>4次</text>
       </view>
       <view class="threshold-row">
         <text class="threshold-name">创业板</text><text>±30%</text><text class="threshold-pair">+100%/-50%</text><text class="threshold-pair">+200%/-70%</text><text>3次</text>
