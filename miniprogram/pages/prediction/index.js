@@ -1,5 +1,6 @@
 // 异动预测页面：只请求后端批量快照，不在前端逐票扫描或模拟刷新。
 const { getPredictions, refreshPredictions } = require('../../utils/api')
+const FIRST_OPEN_REFRESH_KEY = 'predictionFirstOpenRealtime:v1'
 
 function normalizeItems(items = [], scope = 'today') {
   const ruleLabels = {
@@ -30,8 +31,20 @@ function preserveItemOrder(currentItems, nextItems) {
 }
 
 Page({
-  data: { scope: 'today', items: [], refreshing: false, loading: false, error: '', quoteUpdatedAt: '', dataQuality: {}, dataUnavailable: false, nextDayAvailable: true, nextDayReason: '' },
-  onLoad() { this.loadData() },
+  data: { scope: 'today', items: [], refreshing: false, loading: false, error: '', quoteUpdatedAt: '', dataQuality: {}, dataUnavailable: false, nextDayAvailable: true, nextDayReason: '', nextDayNoticeVisible: false },
+  onLoad() {
+    let firstOpen = false
+    try { firstOpen = !wx.getStorageSync(FIRST_OPEN_REFRESH_KEY) } catch (error) { firstOpen = true }
+    if (!firstOpen) {
+      this.loadData()
+      return
+    }
+    this.refresh().then(() => {
+      if (!this.data.error) {
+        try { wx.setStorageSync(FIRST_OPEN_REFRESH_KEY, '1') } catch (error) {}
+      }
+    })
+  },
   onShow() {
     const tabBar = this.getTabBar && this.getTabBar()
     if (tabBar) tabBar.setData({ selected: 2 })
@@ -39,7 +52,17 @@ Page({
   switchScope(event) {
     const scope = event.currentTarget.dataset.scope
     if (scope === 'next_day' && !this.data.nextDayAvailable) {
-      wx.showToast({ title: this.data.nextDayReason || '收盘数据准备后开放', icon: 'none' })
+      const reason = this.data.nextDayReason || '收盘数据准备后开放'
+      if (reason === '交易时间内暂不开放次日预测') {
+        if (this.nextDayNoticeTimer) clearTimeout(this.nextDayNoticeTimer)
+        this.setData({ nextDayNoticeVisible: true })
+        this.nextDayNoticeTimer = setTimeout(() => {
+          this.nextDayNoticeTimer = null
+          this.setData({ nextDayNoticeVisible: false })
+        }, 1800)
+      } else {
+        wx.showToast({ title: reason, icon: 'none' })
+      }
       return
     }
     if (scope === this.data.scope) return
@@ -77,5 +100,8 @@ Page({
     if (!stock) return
     getApp().globalData.pendingStock = stock
     wx.switchTab({ url: '/pages/stock/index' })
+  },
+  onUnload() {
+    if (this.nextDayNoticeTimer) clearTimeout(this.nextDayNoticeTimer)
   },
 })

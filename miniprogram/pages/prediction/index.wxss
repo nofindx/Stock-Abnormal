@@ -1,4 +1,5 @@
 .prediction-page { padding-top: 24rpx; padding-bottom: 220rpx; }
+.next-day-notice { position: fixed; z-index: 100; top: 50%; left: 50%; display: flex; width: 400rpx; max-width: calc(100vw - 80rpx); box-sizing: border-box; flex-direction: column; align-items: center; justify-content: center; padding: 24rpx 28rpx; border-radius: 14rpx; background: #59595B; color: #FFFFFF; font-size: 28rpx; line-height: 46rpx; text-align: center; transform: translate(-50%, -50%); }
 .prediction-page .page-header { display: none; }
 .prediction-page .segmented { height: 60rpx; align-items: center; margin-top: 12rpx; }
 .prediction-snapshot-row { position: relative; display: flex; height: 48rpx; min-height: 48rpx; align-items: center; margin-top: 12rpx; padding-right: 0; box-sizing: border-box; }
@@ -118,7 +119,7 @@
 .prediction-page .prediction-deviation-tag,
 .prediction-page .prediction-rule-tag,
 .prediction-page .prediction-triggered-badge { border-color: #9CA3AF !important; background: #F2F3F5 !important; color: #1C1C1E !important; }
-.prediction-page .prediction-row-triggered { border-color: #D93025 !important; background: #FFFFFF !important; }
+.prediction-page .prediction-row-triggered { border-color: #D93025 !important; background: #FFF5F5 !important; }
 .prediction-page .refresh-button { border-color: #9CA3AF !important; background: #FFFFFF !important; color: #1C1C1E !important; box-shadow: none !important; }
 .prediction-page .refresh-button.loading { border-color: #D1D5DB !important; background: #F2F3F5 !important; color: #6B7280 !important; }
 .prediction-page .error-state { color: #4B5563 !important; }
