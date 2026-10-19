@@ -4,47 +4,33 @@
     <view class="rules-heading">异动规则</view>
     <view class="threshold-table">
       <view class="threshold-row threshold-header">
-        <text>板块</text><text>方向</text><text>3日</text><text>10日</text><text>30日</text><text>同向</text>
+        <text>板块</text><text>3日</text><text>10日</text><text>30日</text><text>同向</text>
       </view>
       <view class="threshold-row">
-        <text class="threshold-name">主板（沪 / 深）</text><text>上涨</text><text>+20%</text><text>+100%</text><text>+200%</text><text>4次</text>
+        <text class="threshold-name">主板（沪 / 深）</text><text>±20%</text><view class="threshold-pair"><text>+100%</text><text>-50%</text></view><view class="threshold-pair"><text>+200%</text><text>-70%</text></view><text>4次</text>
       </view>
       <view class="threshold-row">
-        <text class="threshold-name">主板（沪 / 深）</text><text>下跌</text><text>-20%</text><text>-100%</text><text>-200%</text><text>4次</text>
+        <text class="threshold-name">创业板</text><text>±30%</text><view class="threshold-pair"><text>+100%</text><text>-50%</text></view><view class="threshold-pair"><text>+200%</text><text>-70%</text></view><text>3次</text>
       </view>
       <view class="threshold-row">
-        <text class="threshold-name">创业板</text><text>上涨</text><text>+30%</text><text>+100%</text><text>+200%</text><text>3次</text>
+        <text class="threshold-name">科创板</text><text>±30%</text><view class="threshold-pair"><text>+100%</text><text>-50%</text></view><view class="threshold-pair"><text>+200%</text><text>-70%</text></view><text>3次</text>
       </view>
       <view class="threshold-row">
-        <text class="threshold-name">创业板</text><text>下跌</text><text>-30%</text><text>-100%</text><text>-200%</text><text>3次</text>
-      </view>
-      <view class="threshold-row">
-        <text class="threshold-name">科创板</text><text>上涨</text><text>+30%</text><text>+100%</text><text>+200%</text><text>3次</text>
-      </view>
-      <view class="threshold-row">
-        <text class="threshold-name">科创板</text><text>下跌</text><text>-30%</text><text>-100%</text><text>-200%</text><text>3次</text>
-      </view>
-      <view class="threshold-row">
-        <text class="threshold-name">北交所</text><text>上涨</text><text>+40%</text><text>+150%</text><text>+300%</text><text>3次</text>
-      </view>
-      <view class="threshold-row">
-        <text class="threshold-name">北交所</text><text>下跌</text><text>-40%</text><text>-150%</text><text>-300%</text><text>3次</text>
+        <text class="threshold-name">北交所</text><text>±40%</text><view class="threshold-pair"><text>+150%</text><text>-60%</text></view><view class="threshold-pair"><text>+300%</text><text>-75%</text></view><text>3次</text>
       </view>
     </view>
-    <view class="rules-version">阈值以交易所最新规则为准</view>
   </view>
 
   <view class="rules-section">
     <view class="rules-heading">偏离值</view>
     <view class="formula">偏离值 =（证券期末收盘价 ÷ 证券期初前收盘价 − 1）× 100% −（对应指数期末点数 ÷ 指数期初点数 − 1）× 100%</view>
-    <view class="rules-copy">期初前收盘价指区间起始日前一交易日收盘价。对应指数按股票所属板块选取，结果是个股涨幅与指数涨幅之差。</view>
+    <view class="rules-copy rules-muted">期初前收盘价指区间起始日前一交易日收盘价。对应指数按股票所属板块选取，结果是个股涨幅与指数涨幅之差。</view>
   </view>
 
   <view class="rules-section">
     <view class="rules-heading">计算口径</view>
     <view class="rules-copy">10 日窗口使用最近 11 条有效交易日 K，30 日窗口使用最近 31 条。停牌、无效价格与缺失指数不做 0 填充。</view>
     <view class="rules-copy">普通异动按连续 3 个交易日收盘价偏离累计计算；同向次数按最近 10 个交易日滚动统计，分别统计上涨和下跌方向，连续重叠窗口只计一次。</view>
-    <view class="rules-copy">重点监控不纳入 3 日普通异动，只纳入交易所风险提示、10 日严重异动和 30 日严重异动。监控期按交易日计算：18.cn 从提示日后的首个交易日开始，巨潮严重异动公告从公告日所在交易日开始。</view>
   </view>
 
   <view class="rules-section rules-risk">
