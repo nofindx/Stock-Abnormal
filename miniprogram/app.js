@@ -23,9 +23,9 @@ App({
     cloudService: 'flask-9a5y',
     // 本地联调时可临时填写 http://127.0.0.1:8787；留空即使用云托管。
     apiBaseUrl: '',
-    // 仅开发者工具 develop 环境使用，与本地 server.app 保持同一接口；体验版和正式版不会读取。
-    // 若要在开发者工具直接验收云端，可临时改为云托管 URL，不提交该临时值。
-    devApiBaseUrl: 'http://127.0.0.1:8787',
+    // 仅开发者工具 develop 环境使用，上传的开发版本也能直接访问真实数据；体验版和正式版不会读取。
+    // 本地联调时临时改为 http://127.0.0.1:8787，验收云端后恢复此地址再上传。
+    devApiBaseUrl: 'https://flask-9a5y-319926-10-1496305218.sh.run.tcloudbase.com',
     lastStock: null,
     pendingStock: null,
     lastPredictionRefresh: null

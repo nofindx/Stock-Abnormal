@@ -39,7 +39,7 @@ python3 -m server.app
 
 ## 微信开发者工具
 
-使用微信开发者工具导入 `miniprogram/`。生产环境通过 `wx.cloud.callContainer` 调用云托管服务；开发者工具 `develop` 环境默认请求本地 `http://127.0.0.1:8787`，需要云端验收时临时修改 `app.js` 的 `devApiBaseUrl`。真实页面编译、下拉刷新和截图验收按测试文档执行。
+使用微信开发者工具导入 `miniprogram/`。生产环境通过 `wx.cloud.callContainer` 调用云托管服务；开发者工具 `develop` 环境默认请求云托管地址，上传的开发版本可直接访问真实数据。需要本地联调时临时把 `app.js` 的 `devApiBaseUrl` 改为 `http://127.0.0.1:8787`，云端验收和上传前恢复云托管地址。真实页面编译、下拉刷新和截图验收按测试文档执行。
 
 ## 测试
 
