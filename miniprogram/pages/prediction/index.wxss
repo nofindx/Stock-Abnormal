@@ -115,7 +115,7 @@
 
 /* Prediction semantics are monochrome; only the current quote remains red/green. */
 .prediction-page .segment.active { border-color: transparent !important; color: #1C1C1E !important; }
-.prediction-page .trigger-value { color: #1C1C1E !important; }
+.prediction-page .trigger-value { color: #D93025 !important; }
 .prediction-page .prediction-deviation-tag,
 .prediction-page .prediction-rule-tag,
 .prediction-page .prediction-triggered-badge { border-color: #636366 !important; background: #F2F3F5 !important; color: #1C1C1E !important; }
