@@ -3000,38 +3000,68 @@ class MarketService:
     def prediction_health(self, today_is_trade_day: Optional[bool] = None) -> Dict[str, Any]:
         """返回两个预测数据集的更新时间、年龄和错误状态。"""
 
+        # 健康检查必须观察公开预测接口实际使用的数据集。盘中 today
+        # 复用上一交易日生成的 next_day 候选集；直接读取 scope=today
+        # 的旧记录会把合法的盘中状态误报为过期。
+        state: Optional[Dict[str, Any]] = None
+        if today_is_trade_day is not None:
+            try:
+                state = self._prediction_state()
+            except Exception:
+                state = None
         result: Dict[str, Any] = {}
         for scope in ("today", "next_day"):
+            effective_scope = scope
+            lookup_date = ""
+            if state:
+                effective_scope = state["todaySourceScope"] if scope == "today" else "next_day"
+                lookup_date = str(state.get("targetTradeDate") or "")
+                if scope == "next_day" and state.get("phase") in ("post_close_pending", "post_close_confirmed"):
+                    lookup_date = str(state.get("nextTradeDate") or "")
+                if effective_scope == "today" and state.get("phase") in ("rest_day", "pre_open"):
+                    lookup_date = str(state.get("previousTradeDate") or lookup_date)
             record: Optional[Dict[str, Any]] = None
             job: Optional[Dict[str, Any]] = None
             if self._calc_repository.available:
                 try:
-                    record = self._prediction_record(scope)
+                    record = self._prediction_record(effective_scope, lookup_date)
                     status_reader = getattr(self._calc_repository, "prediction_job_status", None)
                     if status_reader:
-                        job = status_reader(scope)
+                        job = status_reader(effective_scope)
                 except Exception as exc:  # noqa: BLE001 - 健康接口不能影响业务接口
                     result[scope] = {"available": False, "error": str(exc)[:160]}
                     continue
-            cached = self._prediction_cache.get(scope)
+            cached = self._prediction_cache.get(effective_scope)
             updated = (record or {}).get("updated_at") or (cached[0] if cached else None)
             items = (record or {}).get("items")
             if items is None and cached:
                 items = cached[1]
+            phase_available = not (state and scope == "next_day" and state.get("phase") in ("dataset_open_pending", "intraday"))
+            if not phase_available:
+                items = []
             age_seconds = self._age_seconds(updated)
+            phase = str((state or {}).get("phase") or "")
+            realtime_phase = phase in ("dataset_open_pending", "intraday")
+            # 盘中使用上一份已确认收盘集作为实时刷新基线，这是预期状态；
+            # 次日预测在交易时段按产品规则暂不开放，也不应被标成过期故障。
+            expected_phase_state = realtime_phase and (scope == "today" or scope == "next_day")
             result[scope] = {
-                "available": bool(record or cached),
-                "tradeDate": str((record or {}).get("base_trade_date") or (record or {}).get("trade_date") or self._prediction_trade_date.get(scope, "")),
+                "available": bool(record or cached) and phase_available,
+                "phaseAvailable": phase_available,
+                "tradeDate": str((record or {}).get("base_trade_date") or (record or {}).get("trade_date") or self._prediction_trade_date.get(effective_scope, "")),
                 "targetTradeDate": str((record or {}).get("target_trade_date") or ""),
                 "updatedAt": self._format_prediction_datetime(updated),
                 "ageSeconds": age_seconds,
                 # 节假日允许沿用最近成功数据，不把自然日年龄误报成故障。
-                "stale": bool(age_seconds is None or (age_seconds > 36 * 3600 and today_is_trade_day is not False)),
+                "stale": bool(not expected_phase_state and (age_seconds is None or (age_seconds > 36 * 3600 and today_is_trade_day is not False))),
+                "effectiveScope": effective_scope,
+                "phase": phase,
                 "itemCount": len(items or []),
                 "datasetQuoteUpdatedAt": self._format_prediction_datetime((record or {}).get("dataset_quote_updated_at")),
                 "datasetQuoteComplete": bool((record or {}).get("dataset_quote_complete", False)),
-                "exclusionStats": (record or {}).get("exclusion_stats") or self._prediction_generation_stats.get(scope, {}),
+                "exclusionStats": (record or {}).get("exclusion_stats") or self._prediction_generation_stats.get(effective_scope, {}),
                 "status": str(
+                    "not_available_in_phase" if not phase_available else
                     "failed" if (job or {}).get("status") == "failed" else
                     (record or {}).get("status") or ("ready" if record else "missing")
                 ),
@@ -3041,7 +3071,7 @@ class MarketService:
                 "lastError": str(
                     (job or {}).get("last_error")
                     or (record or {}).get("last_error")
-                    or self._prediction_last_error.get(scope, "")
+                    or self._prediction_last_error.get(effective_scope, "")
                 )[:160],
             }
         return result

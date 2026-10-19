@@ -80,6 +80,36 @@ class PredictionHealthTests(unittest.TestCase):
         finally:
             service.close()
 
+    def test_prediction_health_uses_intraday_public_dataset(self):
+        service = MarketService()
+        try:
+            updated = datetime.now(SHANGHAI_TZ) - timedelta(hours=48)
+            records = {
+                ("today", ""): {"scope": "today", "target_trade_date": "20261016", "updated_at": updated, "items": [{"ts_code": "000001.SZ"}]},
+                ("next_day", "20261019"): {"scope": "next_day", "base_trade_date": "20261016", "target_trade_date": "20261019", "updated_at": updated, "items": [{"ts_code": "000002.SZ"}], "status": "ready", "dataset_quote_complete": True},
+            }
+            service._calc_repository = SimpleNamespace(
+                available=True,
+                get_prediction=lambda scope, target_trade_date=None: records.get((scope, target_trade_date or "")) or records.get((scope, "")),
+                prediction_job_status=lambda _scope: {"status": "ready"},
+            )
+            service._prediction_state = lambda: {
+                "phase": "intraday",
+                "todaySourceScope": "next_day",
+                "targetTradeDate": "20261019",
+                "nextTradeDate": "20261020",
+                "previousTradeDate": "20261016",
+            }
+            result = service.prediction_health(today_is_trade_day=True)
+            self.assertEqual(result["today"]["effectiveScope"], "next_day")
+            self.assertEqual(result["today"]["targetTradeDate"], "20261019")
+            self.assertEqual(result["today"]["itemCount"], 1)
+            self.assertFalse(result["today"]["stale"])
+            self.assertFalse(result["next_day"]["phaseAvailable"])
+            self.assertEqual(result["next_day"]["itemCount"], 0)
+        finally:
+            service.close()
+
     def test_health_alerts_cover_failed_dataset_without_redis_requirement(self):
         alerts = collect_alerts({
             "marketCalc": {"lastErrorActive": False},

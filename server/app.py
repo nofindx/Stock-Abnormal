@@ -73,6 +73,10 @@ def _health_ui(payload: dict) -> str:
     def count(scope):
         return text((prediction.get(scope) or {}).get("itemCount", 0), "0")
 
+    def prediction_status(scope):
+        value = (prediction.get(scope) or {}).get("status")
+        return "交易时段暂不开放" if value == "not_available_in_phase" else (value or "-")
+
     def source_state(name):
         item = sources.get(name) or {}
         totals = item.get("totals") or {}
@@ -102,7 +106,7 @@ ul{{margin:0;padding-left:20px}}li+li{{margin-top:5px}}.ok-text{{color:var(--ok)
 <section class=\"grid\"><div class=\"card\"><div class=\"label\">行情计算服务</div><div class=\"value {market_class}\">{status(market.get('available'))}</div><div class=\"sub\">数据日期：{text(market.get('latestDataDate'))} · 阶段：{text(market.get('dataStage'))}</div></div>
 <div class=\"card\"><div class=\"label\">数据源</div><div class=\"value\">Tushare {source_state('tushare')}</div><div class=\"sub\">实时行情：{source_state('realtime')}</div></div>
 <div class=\"card\"><div class=\"label\">股票池完整性</div><div class=\"value {coverage_class}\">{text(coverage.get('total'), '-')} 只 · {coverage_status}</div><div class=\"sub\">活跃股票基础资料覆盖</div></div></section>
-<section class=\"card\"><h2>预测数据集</h2><div class=\"grid\"><div><div class=\"label\">当日预测</div><div class=\"value\">{count('today')} 条</div><div class=\"sub\">目标日期：{text(today_state.get('targetTradeDate'))} · {text(today_state.get('status'))}</div></div><div><div class=\"label\">次日预测</div><div class=\"value\">{count('next_day')} 条</div><div class=\"sub\">目标日期：{text(next_day_state.get('targetTradeDate'))} · {text(next_day_state.get('status'))}</div></div></div></section>
+<section class=\"card\"><h2>预测数据集</h2><div class=\"grid\"><div><div class=\"label\">当日预测</div><div class=\"value\">{count('today')} 条</div><div class=\"sub\">目标日期：{text(today_state.get('targetTradeDate'))} · {text(prediction_status('today'))}</div></div><div><div class=\"label\">次日预测</div><div class=\"value\">{count('next_day')} 条</div><div class=\"sub\">目标日期：{text(next_day_state.get('targetTradeDate'))} · {text(prediction_status('next_day'))}</div></div></div></section>
 <section class=\"card\" style=\"margin-top:12px\"><h2>重点监控</h2><p><strong>{text(monitor.get('itemCount'), '0')}</strong> 条 · {monitor_status} · 快照日期 {text(monitor.get('snapshotDate'))}</p><p>{text((monitor.get('dataQuality') or {}).get('activeSource'), '未提供来源')}</p></section>
 <section class=\"card\" style=\"margin-top:12px\"><h2>需要关注的事项</h2><ul>{issue_html}</ul></section>
 <footer>原始机器接口：<code>GET /health</code> · 本页面：<code>GET /health/ui</code> · 预测迁移兼容读取：{migration_status}</footer>
