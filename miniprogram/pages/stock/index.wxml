@@ -3,11 +3,11 @@
     <view class="search-box {{searchFocused ? 'focused' : ''}}">
       <view class="search-icon"></view>
       <input class="search-input" value="{{query}}" placeholder="输入股票名称、代码或首字母" confirm-type="search" bindfocus="onSearchFocus" bindblur="onSearchBlur" bindinput="onQueryInput" />
-      <text wx:if="{{query}}" class="clear-icon" hover-class="tap-feedback" hover-stay-time="80" bindtap="clearQuery">×</text>
+      <text wx:if="{{query}}" class="clear-icon" hover-class="tap-feedback" hover-stay-time="80" bindtap="clearQuery" aria-role="button" aria-label="清除搜索内容">×</text>
     </view>
     <view wx:if="{{searchError}}" class="inline-error">{{searchError}}</view>
     <view wx:if="{{suggestions.length || suggestionHint}}" class="suggestions card">
-      <view wx:for="{{suggestions}}" wx:key="ts_code" class="suggestion" hover-class="tap-feedback" hover-stay-time="80" bindtap="chooseStock" data-index="{{index}}">
+      <view wx:for="{{suggestions}}" wx:key="ts_code" class="suggestion" hover-class="tap-feedback" hover-stay-time="80" bindtap="chooseStock" data-index="{{index}}" aria-role="button" aria-label="选择{{item.name}}">
         <view class="suggestion-identity"><text class="suggestion-name">{{item.name}}</text><text class="suggestion-code">{{item.symbol}}</text><text wx:if="{{item.isST}}" class="st-badge">ST</text></view><text class="suggestion-market">{{item.marketLabel}}</text>
       </view>
       <view wx:if="{{suggestionHint}}" class="suggestion-hint">匹配到 {{suggestionTotal}} 条，仅显示前 5 条，请继续输入</view>
@@ -16,9 +16,9 @@
   <view class="history-row">
     <view class="history-title-wrap"><view class="history-clock"><view class="clock-hand clock-hand-hour"></view><view class="clock-hand clock-hand-minute"></view></view><text class="history-label">历史:</text></view>
     <scroll-view class="history-scroll" scroll-x="true" enable-flex="true" show-scrollbar="false">
-      <view class="history-items"><view wx:if="{{!recentStocks.length}}" class="history-empty">暂无历史记录</view><view wx:for="{{recentStocks}}" wx:key="ts_code" class="history-chip" hover-class="tap-feedback" data-index="{{index}}" bindtap="chooseRecent">{{item.name}}</view></view>
+      <view class="history-items"><view wx:if="{{!recentStocks.length}}" class="history-empty">暂无历史记录</view><view wx:for="{{recentStocks}}" wx:key="ts_code" class="history-chip" hover-class="tap-feedback" data-index="{{index}}" bindtap="chooseRecent" aria-role="button" aria-label="打开{{item.name}}">{{item.name}}</view></view>
     </scroll-view>
-    <view class="history-clear" hover-class="history-clear-pressed" aria-label="清空搜索历史" bindtap="clearHistory"><view class="history-trash"><view class="trash-lid"></view><view class="trash-can"><view></view><view></view></view></view><text>清空</text></view>
+    <view class="history-clear" hover-class="history-clear-pressed" aria-role="button" aria-label="清空搜索历史" bindtap="clearHistory"><view class="history-trash"><view class="trash-lid"></view><view class="trash-can"><view></view><view></view></view></view><text>清空</text></view>
   </view>
   <block wx:if="{{!detail && !detailError && !detailLoading}}">
     <view class="guide-card card">
@@ -65,7 +65,7 @@
     </view>
 
     <view class="section simulation-section">
-      <view class="simulation-head"><view class="simulation-heading"><view class="simulation-title">模拟计算</view><view class="simulation-note">填入股票与指数涨幅后自动重算</view></view><view class="days-picker"><view class="day-option {{simulationExpanded ? 'active' : ''}}" hover-class="button-press" hover-stay-time="100" bindtap="expandSimulation">10日计算</view></view></view>
+      <view class="simulation-head"><view class="simulation-heading"><view class="simulation-title">模拟计算</view><view class="simulation-note">填入股票与指数涨幅后自动重算</view></view><view class="days-picker"><view class="day-option {{simulationExpanded ? 'active' : ''}}" hover-class="button-press" hover-stay-time="100" bindtap="expandSimulation" aria-role="button" aria-label="展开十日模拟计算">10日计算</view></view></view>
       <view wx:for="{{matrixGroups}}" wx:for-item="matrix" wx:key="groupKey" class="matrix-card {{matrix.countClass}}">
         <view class="matrix-head"><text class="matrix-label matrix-head-label">指标</text><view wx:for="{{matrix.columns}}" wx:for-item="column" wx:key="*this" class="matrix-column"><text class="day-badge">{{column.day}}</text><text class="table-date">{{column.date}}</text></view></view>
       <view wx:for="{{matrix.rows}}" wx:for-item="matrixRow" wx:key="key" class="matrix-row"><text class="matrix-label {{matrixRow.key === 'space' ? 'matrix-safety-label' : ''}}">{{matrixRow.label}}</text><view wx:for="{{matrixRow.values}}" wx:for-item="cell" wx:key="*this" class="matrix-cell"><block wx:if="{{cell.placeholder}}"><text class="matrix-placeholder">—</text></block><block wx:elif="{{cell.editable}}"><view class="matrix-input-wrap"><input class="matrix-input" type="digit" placeholder="" value="{{cell.value}}" selection-start="{{cell.selectionStart}}" selection-end="{{cell.selectionEnd}}" data-row="{{cell.rowIndex}}" data-field="{{cell.field}}" bindfocus="selectInput" bindblur="blurInput" bindinput="editRow" /><text wx:if="{{cell.value !== ''}}" class="matrix-suffix">%</text></view></block><block wx:elif="{{matrixRow.key === 'space' && cell.value === '已触发'}}"><text class="matrix-safety-badge">已触发</text></block><block wx:else><text class="matrix-value {{matrixRow.key === 'space' ? 'safety-value' : cell.className}}">{{cell.value}}</text></block></view></view>

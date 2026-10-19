@@ -5,12 +5,12 @@
 .prediction-snapshot-row { position: relative; display: flex; height: 48rpx; min-height: 48rpx; align-items: center; margin-top: 12rpx; padding-right: 0; box-sizing: border-box; }
 .prediction-snapshot-row .snapshot-summary { display: flex; min-width: 0; max-width: 100%; align-items: baseline; gap: 10rpx; color: #6B7280; font-size: 22rpx; line-height: 30rpx; white-space: nowrap; overflow: hidden; }
 .prediction-snapshot-row .snapshot-count { color: #1A1A1A; font-size: 28rpx; font-weight: 700; font-variant-numeric: tabular-nums; }
-.prediction-snapshot-row .snapshot-dot { color: #9CA3AF; }
-.prediction-snapshot-row .snapshot-pending { color: #9CA3AF; }
+.prediction-snapshot-row .snapshot-dot { color: #636366; }
+.prediction-snapshot-row .snapshot-pending { color: #636366; }
 .refresh-panel { display: none; }
 .refresh-copy { min-width: 0; }
 .refresh-label { display: block; color: #1C1C1E; font-size: 23rpx; font-weight: 600; }
-.refresh-panel .refresh-time { display: block; margin-top: 3rpx; color: #8E8E93; font-size: 20rpx; font-variant-numeric: tabular-nums; }
+.refresh-panel .refresh-time { display: block; margin-top: 3rpx; color: #636366; font-size: 20rpx; font-variant-numeric: tabular-nums; }
 .prediction-page .segmented {
   display: flex;
   height: 60rpx;
@@ -42,7 +42,7 @@
 .notice { display: none; }
 .summary, .list-head, .title-row { display: none; }
 .prediction-list { overflow: visible; margin-top: 24rpx; border: 0; background: transparent; }
-.prediction-page .loading-state, .prediction-page .error-state { margin-top: 14rpx; padding: 34rpx 24rpx; color: #8E8E93; text-align: center; }
+.prediction-page .loading-state, .prediction-page .error-state { margin-top: 14rpx; padding: 34rpx 24rpx; color: #636366; text-align: center; }
 .prediction-page .error-state { color: #C83A36; }
 .prediction-row {
   margin-top: 12rpx;
@@ -58,7 +58,7 @@
 .prediction-top { display: flex; align-items: center; justify-content: space-between; gap: 12rpx; }
 .prediction-stock { display: flex; min-width: 0; flex: 1; flex-direction: column; align-items: flex-start; gap: 4rpx; overflow: hidden; }
 .prediction-page .stock-line { display: flex; min-width: 0; align-items: baseline; gap: 12rpx; overflow: hidden; }
-.quote-label { color: #8E8E93; font-size: 18rpx; }
+.quote-label { color: #636366; font-size: 18rpx; }
 .scope-mark { flex: 0 0 auto; padding: 4rpx 9rpx; border-radius: 7rpx; background: #F2F2F7; color: #636366; font-size: 19rpx; }
 .prediction-page .stock-name { min-width: 0; overflow: hidden; color: #1A1A1A; font-size: 30rpx; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
 .prediction-page .stock-meta { flex: 0 0 auto; margin-left: 0; color: #6B7280; font-size: 20rpx; font-variant-numeric: tabular-nums; white-space: nowrap; }
@@ -106,7 +106,7 @@
   font-size: 20rpx;
   line-height: 48rpx;
 }
-.refresh-button.loading { border-color: #E5E5EA; background: #F2F2F7; color: #8E8E93; }
+.refresh-button.loading { border-color: #E5E5EA; background: #F2F2F7; color: #636366; }
 .refresh-panel .refresh-button { margin-left: auto; }
 .refresh-icon { display: inline-block; margin-right: 5rpx; font-size: 24rpx; line-height: 1; vertical-align: -2rpx; }
 .refresh-feedback { background: #F2F2F7 !important; }
@@ -118,9 +118,9 @@
 .prediction-page .trigger-value { color: #1C1C1E !important; }
 .prediction-page .prediction-deviation-tag,
 .prediction-page .prediction-rule-tag,
-.prediction-page .prediction-triggered-badge { border-color: #9CA3AF !important; background: #F2F3F5 !important; color: #1C1C1E !important; }
+.prediction-page .prediction-triggered-badge { border-color: #636366 !important; background: #F2F3F5 !important; color: #1C1C1E !important; }
 .prediction-page .prediction-row-triggered { border-color: #D93025 !important; background: #FFF5F5 !important; }
-.prediction-page .refresh-button { border-color: #9CA3AF !important; background: #FFFFFF !important; color: #1C1C1E !important; box-shadow: none !important; }
+.prediction-page .refresh-button { border-color: #636366 !important; background: #FFFFFF !important; color: #1C1C1E !important; box-shadow: none !important; }
 .prediction-page .refresh-button.loading { border-color: #D1D5DB !important; background: #F2F3F5 !important; color: #6B7280 !important; }
 .prediction-page .error-state { color: #4B5563 !important; }
 .prediction-page .snapshot-summary { width: 100%; }
