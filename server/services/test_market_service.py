@@ -694,6 +694,16 @@ class MarketVectorTests(unittest.TestCase):
         )
         self.assertEqual(status, "触及")
 
+    def test_same_compatibility_count_uses_either_direction(self):
+        """兼容字段 same 必须覆盖下跌同向达到阈值的情况。"""
+        dates = [f"2026-08-{index:02d}" for index in range(1, 11)]
+        stock = [{"date": day, "return": -10.0} for day in dates]
+        index = [{"date": day, "return": 0.0} for day in dates]
+        metrics = MarketService._vector_metrics(stock, index, BOARD_RULES[Board.MAIN])
+        self.assertEqual(metrics["up"], 0)
+        self.assertEqual(metrics["down"], 3)
+        self.assertEqual(metrics["same"], 3)
+
     def test_same_direction_does_not_pair_returns_without_common_dates(self):
         """无共同日期时不能按数组位置错配股票和指数收益。"""
         stock = [{"date": f"2026-08-{index:02d}", "return": 10.0} for index in range(1, 5)]

@@ -1575,7 +1575,10 @@ class MarketService:
             "down_window_lengths": down_window_lengths,
             "up": up_count,
             "down": down_count,
-            "same": up_count,
+            # Compatibility consumers use ``same`` as the direction-neutral
+            # severe trigger. It must represent either direction reaching the
+            # board threshold, not only the upside count.
+            "same": max(up_count, down_count),
         }
 
     @staticmethod
