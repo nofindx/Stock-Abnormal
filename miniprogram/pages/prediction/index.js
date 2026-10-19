@@ -18,6 +18,10 @@ function normalizeItems(items = [], scope = 'today') {
   })
 }
 
+function formatUpdatedAt(value) {
+  return String(value || '').replace('T', ' ')
+}
+
 function preserveItemOrder(currentItems, nextItems) {
   const nextByKey = new Map(nextItems.map(item => [item.predictionKey, item]))
   const ordered = currentItems.map(item => nextByKey.get(item.predictionKey)).filter(Boolean)
@@ -45,7 +49,8 @@ Page({
     if (this.data.loading) return Promise.resolve()
     this.setData({ loading: true, error: '' })
     return getPredictions(this.data.scope).then((result) => {
-      this.setData({ items: normalizeItems(result.items, this.data.scope), quoteUpdatedAt: result.quoteUpdatedAt || '', dataQuality: result.dataQuality || {}, dataUnavailable: Boolean(result.dataUnavailable), loading: false, refreshing: false, error: result.error || '', nextDayAvailable: result.nextDayAvailable !== false, nextDayReason: result.nextDayReason || '' })
+      const quoteUpdatedAt = formatUpdatedAt(result.quoteUpdatedAt)
+      this.setData({ items: normalizeItems(result.items, this.data.scope), quoteUpdatedAt, dataQuality: result.dataQuality || {}, dataUnavailable: Boolean(result.dataUnavailable), loading: false, refreshing: false, error: result.error || '', nextDayAvailable: result.nextDayAvailable !== false, nextDayReason: result.nextDayReason || '' })
       getApp().globalData.lastPredictionRefresh = result.quoteUpdatedAt || null
     }).catch(() => {
       this.setData({ loading: false, error: '预测数据暂时不可用，请稍后重试' })
@@ -56,7 +61,8 @@ Page({
     this.setData({ refreshing: true, error: '' })
     return refreshPredictions(this.data.scope).then((result) => {
       const items = preserveItemOrder(this.data.items, normalizeItems(result.items, this.data.scope))
-      this.setData({ refreshing: false, items, quoteUpdatedAt: result.quoteUpdatedAt || '', dataQuality: result.dataQuality || {}, dataUnavailable: Boolean(result.dataUnavailable), error: result.error || '', nextDayAvailable: result.nextDayAvailable !== false, nextDayReason: result.nextDayReason || '' })
+      const quoteUpdatedAt = formatUpdatedAt(result.quoteUpdatedAt)
+      this.setData({ refreshing: false, items, quoteUpdatedAt, dataQuality: result.dataQuality || {}, dataUnavailable: Boolean(result.dataUnavailable), error: result.error || '', nextDayAvailable: result.nextDayAvailable !== false, nextDayReason: result.nextDayReason || '' })
       getApp().globalData.lastPredictionRefresh = result.quoteUpdatedAt || null
     }).catch(() => {
       this.setData({ refreshing: false, error: '刷新失败，请稍后重试' })
