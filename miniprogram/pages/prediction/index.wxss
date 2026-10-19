@@ -118,14 +118,15 @@
 .prediction-page .prediction-deviation-tag,
 .prediction-page .prediction-rule-tag,
 .prediction-page .prediction-triggered-badge { border-color: #9CA3AF !important; background: #F2F3F5 !important; color: #1C1C1E !important; }
-.prediction-page .prediction-row-triggered { border-color: #D93025 !important; background: #F2F3F5 !important; }
+.prediction-page .prediction-row-triggered { border-color: #D93025 !important; background: #FFFFFF !important; }
 .prediction-page .refresh-button { border-color: #9CA3AF !important; background: #FFFFFF !important; color: #1C1C1E !important; box-shadow: none !important; }
 .prediction-page .refresh-button.loading { border-color: #D1D5DB !important; background: #F2F3F5 !important; color: #6B7280 !important; }
 .prediction-page .error-state { color: #4B5563 !important; }
 .prediction-page .snapshot-summary { width: 100%; }
 .prediction-page .snapshot-updated { margin-left: 0; text-align: left; }
 .prediction-page .prediction-deviation-tag,
-.prediction-page .prediction-rule-tag { border-color: #D93025 !important; background: #FFF5F5 !important; color: #D93025 !important; }
+.prediction-page .prediction-rule-tag,
+.prediction-page .prediction-triggered-badge { border-color: #D93025 !important; background: #FFF5F5 !important; color: #D93025 !important; }
 
 
 @media (max-width: 390px) {
