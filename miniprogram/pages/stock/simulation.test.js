@@ -23,10 +23,11 @@ assert.strictEqual(buildNextDayForecast({ ...forecastBase, rules: [
   { ruleKey: 'severe_10d' }
 ] }).text, '次日预测规则说明暂不可用')
 assert.strictEqual(buildNextDayForecast({}).text, '预测数据版本未同步')
-assert.deepStrictEqual(summaryStatus({ status: '正常', monitoring: { monitorType: '严重异动' } }), { text: '暂无异动风险', tone: 'safe' })
-assert.deepStrictEqual(summaryStatus({ status: '正常', monitoringStatus: 'active' }), { text: '暂无异动风险', tone: 'safe' })
+assert.deepStrictEqual(summaryStatus({ status: '正常', monitoring: { monitorType: '严重异动' } }), { text: '存在异动风险', tone: 'risk' })
+assert.deepStrictEqual(summaryStatus({ status: '正常', monitoringStatus: 'active' }), { text: '存在异动风险', tone: 'risk' })
 assert.deepStrictEqual(summaryStatus({ status: '触及', monitoring: null }), { text: '存在异动风险', tone: 'risk' })
 assert.deepStrictEqual(summaryStatus({ status: '正常', nextDayForecast: { available: true, rules: [{ ruleKey: 'severe_30d' }] } }), { text: '存在异动风险', tone: 'risk' })
+assert.deepStrictEqual(summaryStatus({ status: '正常', monitoringStatus: 'active', nextDayForecast: { available: true, rules: [] } }), { text: '存在异动风险', tone: 'risk' })
 assert.deepStrictEqual(summaryStatus({ status: '正常', nextDayForecast: { available: true, rules: [] } }), { text: '暂无异动风险', tone: 'safe' })
 assert.strictEqual(formatMonthDay('2026-10-19'), '10/19')
 assert.strictEqual(monitoringRuleLabel({ riskTone: 'severe-30d', monitorType: '30日严重异动', symbol: '600825' }), '连续30个交易日内收盘价涨幅偏离值累计达到 +200%')
@@ -115,6 +116,16 @@ assert.strictEqual(downsideNextDayRisk.currentText, '-65.40%')
 assert.strictEqual(downsideNextDayRisk.target, '阈值 -70%')
 assert.strictEqual(downsideNextDayRisk.remainingText, '还差 4.60%')
 assert.strictEqual(downsideNextDayRisk.labelTone, 'severe')
+
+const mixedDirectionNextDayRisk = presentWarnings([{
+  title: '30 日偏离', value: '+7.64%', downValue: '-65.40%',
+  target: '阈值 +200% / -70%'
+}], { nextDayRules: [
+  { ruleKey: 'severe_30d', direction: 'up' },
+  { ruleKey: 'severe_30d', direction: 'down' }
+] })[0]
+assert.strictEqual(mixedDirectionNextDayRisk.currentText, '+7.64%')
+assert.strictEqual(mixedDirectionNextDayRisk.target, '阈值 +200%')
 
 const ordinaryOnlyDetail = {
   simulationBase: { stock: Array(29).fill(0), index: Array(29).fill(0) },

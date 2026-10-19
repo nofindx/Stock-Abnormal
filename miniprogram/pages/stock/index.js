@@ -186,10 +186,15 @@ function buildNextDayForecast(forecast = {}) {
 
 function summaryStatus(detail) {
   const marketStatus = detail.marketStatus || detail.status || '正常'
+  const monitored = Boolean(
+    (detail.monitoring && detail.monitoring.active !== false)
+      || detail.monitoringStatus === 'active'
+      || detail.monitoringStatusDisplay === '监管中'
+  )
   const forecastRules = detail.nextDayForecast && Array.isArray(detail.nextDayForecast.rules)
     ? detail.nextDayForecast.rules
     : []
-  if (marketStatus !== '正常' || forecastRules.length > 0) return { text: '存在异动风险', tone: 'risk' }
+  if (monitored || marketStatus !== '正常' || forecastRules.length > 0) return { text: '存在异动风险', tone: 'risk' }
   return { text: '暂无异动风险', tone: 'safe' }
 }
 
@@ -292,10 +297,17 @@ function presentAlerts(alerts = []) {
 
 function presentWarnings(warnings = [], options = {}) {
   const colors = { base: '#B9D6F2', warning: '#F5C542', severe: '#D94A45', unknown: '#DCEBFA' }
-  const nextDayRuleKeys = new Set((options.nextDayRules || []).map(item => String(item && item.ruleKey || '').trim()).filter(Boolean))
-  const nextDayDirections = new Map((options.nextDayRules || [])
-    .map(item => [String(item && item.ruleKey || '').trim(), String(item && item.direction || '').trim()])
-    .filter(([key, direction]) => key && (direction === 'up' || direction === 'down')))
+  const forecastRules = options.nextDayRules || []
+  const nextDayRuleKeys = new Set(forecastRules.map(item => String(item && item.ruleKey || '').trim()).filter(Boolean))
+  const nextDayDirections = new Map()
+  forecastRules.forEach(item => {
+    const key = String(item && item.ruleKey || '').trim()
+    const direction = String(item && item.direction || '').trim()
+    if (!key || (direction !== 'up' && direction !== 'down')) return
+    const directions = nextDayDirections.get(key) || new Set()
+    directions.add(direction)
+    nextDayDirections.set(key, directions)
+  })
   const order = { '3 日偏离': 0, '10 日同向': 1, '10 日偏离': 2, '30 日偏离': 3 }
   const ruleKeyForTitle = title => ({
     '3 日偏离': 'ordinary_3d',
@@ -345,7 +357,10 @@ function presentWarnings(warnings = [], options = {}) {
     // still be directional. Select that side's value/threshold so a downside
     // candidate is not rendered as an upside safety gap (for example
     // +192.36% alongside a red ring for a -70% rule).
-    const forecastDirection = nextDayDirections.get(ruleKeyForTitle(item.title))
+    const forecastDirectionSet = nextDayDirections.get(ruleKeyForTitle(item.title))
+    const forecastDirection = forecastDirectionSet && forecastDirectionSet.size === 1
+      ? Array.from(forecastDirectionSet)[0]
+      : ''
     const useUp = item.upTriggered
       ? true
       : (item.downTriggered
