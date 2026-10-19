@@ -672,6 +672,15 @@ class MarketVectorTests(unittest.TestCase):
         metrics = MarketService._vector_metrics(stock, index, BOARD_RULES[Board.MAIN])
         self.assertEqual(metrics["up"], 2)
 
+    def test_same_direction_count_is_not_reset_by_severe_window_reset(self):
+        """10 日同向按最近共同交易日滚动统计，不随偏离窗口重置。"""
+        dates = [f"2026-08-{index:02d}" for index in range(1, 11)]
+        stock = [{"date": day, "return": 10.0} for day in dates]
+        index = [{"date": day, "return": 0.0} for day in dates]
+        metrics = MarketService._vector_metrics(stock, index, BOARD_RULES[Board.MAIN], "20260806", False)
+        self.assertEqual(metrics["up"], 3)
+        self.assertEqual(metrics["down"], 0)
+
     def test_single_stock_metrics_keep_downside_extremes_and_same_direction_count(self):
         dates = [f"2026-08-{index:02d}" for index in range(1, 11)]
         stock = [{"date": day, "return": -10.0} for day in dates]
@@ -886,6 +895,27 @@ class MarketVectorTests(unittest.TestCase):
         self.assertIn("ordinary_3d", keys)
         self.assertNotIn("same_direction_10d", keys)
 
+    def test_independent_risk_prompt_does_not_duplicate_ordinary_prediction_card(self):
+        """已有独立风险提示事实的严重监管股票不重复生成普通预测卡。"""
+        service = self.service
+        service.set_clock(lambda: datetime(2026, 10, 19))
+        dates = [f"2026-08-{index:02d}" for index in range(1, 11)]
+        stock_vector = [{"date": day, "return": 8.0 if index >= 8 else 0.0} for index, day in enumerate(dates, 1)]
+        index_vector = [{"date": day, "return": 0.0} for day in dates]
+        service._calc_repository = SimpleNamespace(
+            available=True,
+            all_calculations=lambda: {"600825.SH": {"ts_code": "600825.SH", "latest_close": 10.0, "as_of_trade_date": "20260810", "stock_return_vector": stock_vector}},
+            all_indexes=lambda: {"000001.SH": {"index_code": "000001.SH", "latest_close": 10.0, "as_of_trade_date": "20260810", "index_return_vector": index_vector}},
+        )
+        service._stock_rows = lambda: [{"ts_code": "600825.SH", "symbol": "600825", "name": "新华传媒", "market": "SSE", "board": "主板", "isST": False}]
+        service._realtime = SimpleNamespace(fetch_many=lambda _codes: {})
+        service.set_monitor_provider(lambda: {"items": [
+            {"symbol": "600825", "riskTone": "severe-10d", "monitorDates": ["2026-10-19"], "monitorEndDate": "2026-10-23"},
+            {"symbol": "600825", "riskTone": "ordinary", "sourceRelation": "ordinary-independent", "monitorDates": ["2026-10-19"], "monitorEndDate": "2026-10-29"},
+        ]})
+        keys = {item["ruleKey"] for item in service._compute_prediction_from_repository("today")}
+        self.assertNotIn("ordinary_3d", keys)
+
     def test_same_dataset_merge_deduplicates_by_rule_and_target_date(self):
         merged = MarketService._merge_prediction_items(
             [{"predictionKey": "688137.SH-severe_10d-20261008", "triggered": True}],
@@ -1018,8 +1048,8 @@ class MarketVectorTests(unittest.TestCase):
         self.assertTrue(severe[0]["triggered"])
         self.assertTrue(severe[0]["deviation"].startswith("7日 "))
 
-    def test_suspension_reset_discards_pre_resume_returns(self):
-        """复牌后只从首个有效交易日重新累计，不能把停牌前涨幅带入。"""
+    def test_suspension_gap_keeps_pre_resume_returns_for_rolling_rules(self):
+        """停牌缺口不补 0，滚动规则仍保留停牌前的有效交易日。"""
         index = [{"date": day, "return": 0.0} for day in ("2026-09-21", "2026-09-22", "2026-09-23", "2026-09-24", "2026-09-25")]
         stock = [
             {"date": "2026-09-21", "return": 80.0},
@@ -1027,8 +1057,8 @@ class MarketVectorTests(unittest.TestCase):
             {"date": "2026-09-25", "return": 5.0},
         ]
         trimmed_stock, trimmed_index, meta = MarketService._trim_vectors_after_suspension(stock, index)
-        self.assertEqual([item["date"] for item in trimmed_stock], ["2026-09-25"])
-        self.assertEqual([item["date"] for item in trimmed_index], ["2026-09-25"])
+        self.assertEqual([item["date"] for item in trimmed_stock], ["2026-09-21", "2026-09-22", "2026-09-25"])
+        self.assertEqual([item["date"] for item in trimmed_index], ["2026-09-21", "2026-09-22", "2026-09-23", "2026-09-24", "2026-09-25"])
         self.assertEqual(meta["resetDate"], "20260925")
         self.assertFalse(meta["suspended"])
 
@@ -1094,8 +1124,8 @@ class MarketVectorTests(unittest.TestCase):
         self.assertAlmostEqual(metrics["deviations"][30], 142.32581068, places=6)
         self.assertEqual(metrics["window_lengths"][10], 6)
 
-    def test_xinhua_resume_counts_one_valid_return_after_three_day_suspension(self):
-        """新华传媒 10/13-10/15 停牌、10/16 复牌，不能把停牌日算成四个行情日。"""
+    def test_xinhua_resume_keeps_pre_suspension_valid_days_for_rolling_rules(self):
+        """新华传媒停牌日不补 0，复牌后滚动规则保留停牌前的有效交易日。"""
         service = self.service
         service._clock = lambda: datetime(2026, 10, 16)
         service.set_monitor_provider(lambda: {"items": [{
@@ -1111,8 +1141,8 @@ class MarketVectorTests(unittest.TestCase):
         ]
         index_vector = [{"date": day, "return": 0.0} for day in ("2026-10-12", "2026-10-13", "2026-10-14", "2026-10-15", "2026-10-16")]
         trimmed_stock, trimmed_index, meta, monitoring = service._rule_vectors_for_stock(stock, stock_vector, index_vector)
-        self.assertEqual([item["date"] for item in trimmed_stock], ["2026-10-16"])
-        self.assertEqual([item["date"] for item in trimmed_index], ["2026-10-16"])
+        self.assertEqual([item["date"] for item in trimmed_stock], ["2026-10-12", "2026-10-16"])
+        self.assertEqual([item["date"] for item in trimmed_index], ["2026-10-12", "2026-10-13", "2026-10-14", "2026-10-15", "2026-10-16"])
         self.assertEqual(meta["resetDate"], "20261016")
         self.assertEqual(meta["ruleResetDate"], "20261013")
         self.assertEqual(monitoring["monitorType"], "10日严重异动")

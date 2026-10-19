@@ -293,6 +293,9 @@ function presentAlerts(alerts = []) {
 function presentWarnings(warnings = [], options = {}) {
   const colors = { base: '#B9D6F2', warning: '#F5C542', severe: '#D94A45', unknown: '#DCEBFA' }
   const nextDayRuleKeys = new Set((options.nextDayRules || []).map(item => String(item && item.ruleKey || '').trim()).filter(Boolean))
+  const nextDayDirections = new Map((options.nextDayRules || [])
+    .map(item => [String(item && item.ruleKey || '').trim(), String(item && item.direction || '').trim()])
+    .filter(([key, direction]) => key && (direction === 'up' || direction === 'down')))
   const order = { '3 日偏离': 0, '10 日同向': 1, '10 日偏离': 2, '30 日偏离': 3 }
   const ruleKeyForTitle = title => ({
     '3 日偏离': 'ordinary_3d',
@@ -338,7 +341,18 @@ function presentWarnings(warnings = [], options = {}) {
     const tone = item.title === '3 日偏离'
       ? (triggered ? 'triggered' : progress >= 66.6667 ? 'warning' : 'safe')
       : (triggered ? 'triggered' : 'safe')
-    const useUp = item.upTriggered ? true : (item.downTriggered ? false : (Number.isFinite(value) && value > 0))
+    // When the current snapshot is not triggered, a next-day candidate can
+    // still be directional. Select that side's value/threshold so a downside
+    // candidate is not rendered as an upside safety gap (for example
+    // +192.36% alongside a red ring for a -70% rule).
+    const forecastDirection = nextDayDirections.get(ruleKeyForTitle(item.title))
+    const useUp = item.upTriggered
+      ? true
+      : (item.downTriggered
+          ? false
+          : (forecastDirection === 'down'
+              ? false
+              : (forecastDirection === 'up' ? true : (Number.isFinite(value) && value > 0))))
     const actual = useUp ? value : (Number.isFinite(downValue) && downValue < 0 ? downValue : (Number.isFinite(value) ? value : downValue))
     const positive = Number.isFinite(actual) && actual >= 0
     const selectedThreshold = positive ? up : downThreshold

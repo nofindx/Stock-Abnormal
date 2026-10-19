@@ -107,6 +107,15 @@ const isolatedNextDayRisk = presentWarnings([
 ], { nextDayRules: [{ ruleKey: 'severe_30d' }] })
 assert.deepStrictEqual(isolatedNextDayRisk.map(item => item.labelTone), ['base', 'severe'])
 
+const downsideNextDayRisk = presentWarnings([{
+  title: '30 日偏离', value: '+7.64%', downValue: '-65.40%',
+  target: '阈值 +200% / -70%'
+}], { nextDayRules: [{ ruleKey: 'severe_30d', direction: 'down' }] })[0]
+assert.strictEqual(downsideNextDayRisk.currentText, '-65.40%')
+assert.strictEqual(downsideNextDayRisk.target, '阈值 -70%')
+assert.strictEqual(downsideNextDayRisk.remainingText, '还差 4.60%')
+assert.strictEqual(downsideNextDayRisk.labelTone, 'severe')
+
 const ordinaryOnlyDetail = {
   simulationBase: { stock: Array(29).fill(0), index: Array(29).fill(0) },
   simulationThresholds: { '3': { up: 20 }, '10': { up: 100 }, '30': { up: 200 } }

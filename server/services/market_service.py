@@ -29,7 +29,7 @@ BOARD_BY_MARKET = {"主板": Board.MAIN, "创业板": Board.CHINEXT, "科创板"
 SHANGHAI_TZ = ZoneInfo("Asia/Shanghai") if ZoneInfo else timezone(timedelta(hours=8))
 # 停牌/复牌重置、上涨同向计数和预测阶段切换属于同一套规则口径。
 # 版本变化会触发服务启动时从已确认收盘行情重建计算基础数据与预测集。
-PREDICTION_RULE_VERSION = "2026-10-endpoint-window-scoped-reset-v46"
+PREDICTION_RULE_VERSION = "2026-10-endpoint-window-scoped-reset-v48"
 
 
 class CalculationDataUnavailable(RuntimeError):
@@ -188,7 +188,9 @@ class MarketService:
         """返回当前重点监控中各规则对应的股票代码。
 
         `__severe_monitor__` 是产品层资格标记：股票进入 10 日或 30 日
-        严重异动监管期后，预测页才允许额外展示普通/同向短窗口卡。
+        严重异动监管期后，预测页才允许额外展示普通短窗口卡。
+        `__ordinary_monitor__` 标记独立的风险提示事实；这类股票已经
+        有独立监管记录，预测页不再重复生成普通 3 日卡。
         """
         if not self._monitor_provider:
             return {}
@@ -210,6 +212,8 @@ class MarketService:
                 }.get(tone, set())
                 if tone in {"severe-10d", "severe-30d"}:
                     rule_keys = set(rule_keys) | {"__severe_monitor__"}
+                elif tone == "ordinary" and str(item.get("sourceRelation") or "") == "ordinary-independent":
+                    rule_keys = {"__ordinary_monitor__"}
                 for rule_key in rule_keys:
                     symbol = str(item.get("symbol") or item.get("ts_code") or "")
                     result.setdefault(rule_key, set()).update({symbol, symbol.split(".")[0]})
@@ -233,8 +237,13 @@ class MarketService:
             if scope in {"today", "next_day"} and self._prediction_code_tokens(item) & monitored_codes.get(rule_key, set()):
                 return False
             return True
-        if rule_key in {"ordinary_3d", "same_direction_10d"}:
-            return bool(self._prediction_code_tokens(item) & monitored_codes.get("__severe_monitor__", set()))
+        if rule_key == "ordinary_3d":
+            tokens = self._prediction_code_tokens(item)
+            return bool(tokens & monitored_codes.get("__severe_monitor__", set())) and not bool(
+                tokens & monitored_codes.get("__ordinary_monitor__", set())
+            )
+        if rule_key == "same_direction_10d":
+            return False
         return False
 
     def start_scheduler(self) -> None:
@@ -1010,11 +1019,11 @@ class MarketService:
         stock: List[Dict[str, Any]],
         index: List[Dict[str, Any]],
     ) -> tuple[List[Dict[str, Any]], List[Dict[str, Any]], Dict[str, Any]]:
-        """复牌后从新的有效区间重新计算，避免把停牌前涨幅带入规则。
+        """识别停牌尾部，但保留停牌前的有效交易日。
 
-        日线接口通常不会为停牌日返回股票记录，而指数仍会有交易日记录。
-        因此只要股票在指数交易日序列中出现缺口，缺口后的第一条股票数据
-        就是新的计算起点。尾部仍停牌时不伪造结果，调用方会跳过预测。
+        停牌日没有收益区间，不补 0，也不应把此前有效交易日从滚动规则中
+        清除。否则 10 日同向次数会被错误归零，30 日窗口也会退化成复牌
+        后的短窗口。尾部仍停牌时只标记 ``suspended``，由预测资格层排除。
         """
 
         stock_entries = list(stock or [])
@@ -1041,13 +1050,7 @@ class MarketService:
             resumed = [cls._date_key(item.get("date")) for item in ordered_stock if cls._date_key(item.get("date")) > last_gap]
             reset_date = resumed[0] if resumed else ""
 
-        if reset_date:
-            stock_entries = [item for item in ordered_stock if cls._date_key(item.get("date")) >= reset_date]
-            index_entries = [item for item in ordered_index if cls._date_key(item.get("date")) >= reset_date]
-        else:
-            stock_entries = ordered_stock
-            index_entries = ordered_index
-        return stock_entries[-30:], index_entries[-30:], {
+        return ordered_stock[-30:], ordered_index[-30:], {
             "resetDate": reset_date,
             "suspended": bool(stock_latest < index_latest),
         }
@@ -1539,10 +1542,11 @@ class MarketService:
             down_pair = min((item for item in pairs if item[0] < 0), default=(None, None), key=lambda item: item[0])
             up_deviations[window], up_window_lengths[window] = up_pair
             down_deviations[window], down_window_lengths[window] = down_pair
-        same_stock = [item for item in stock if not rule_reset_date or cls._date_key(item.get("date")) >= rule_reset_date]
-        same_index = [item for item in index if not rule_reset_date or cls._date_key(item.get("date")) >= rule_reset_date]
-        stock_map = {item["date"]: item["return"] for item in same_stock if item.get("date")}
-        index_map = {item["date"]: item["return"] for item in same_index if item.get("date")}
+        # 同向次数是独立的最近 10 个共同有效交易日条件。10/30 日偏离
+        # 的公告重置不清空同向事件；停牌日不补 0，停牌前有效交易日仍
+        # 参与最近 10 日滚动统计。
+        stock_map = {item["date"]: item["return"] for item in stock if item.get("date")}
+        index_map = {item["date"]: item["return"] for item in index if item.get("date")}
         common_dates = sorted(set(stock_map) & set(index_map))[-10:]
         # Never pair stock and index returns by array position: missing or
         # mismatched dates are unavailable data, not evidence of no risk.
@@ -2296,7 +2300,10 @@ class MarketService:
                     # the target-day quote or calculation fields. Recompute from
                     # the target day's persisted stock/index vectors, then retain
                     # only the prior-day candidate identities.
-                    source_items = source.get("items") or []
+                    source_items = [
+                        item for item in (source.get("items") or [])
+                        if self._prediction_item_allowed(item, self._monitored_rule_codes(), "today")
+                    ]
                     candidate_keys = {
                         (str(item.get("ts_code") or ""), str(item.get("ruleKey") or ""))
                         for item in source_items
@@ -2573,11 +2580,14 @@ class MarketService:
             same_direction_count = int(metrics.get("same", 0) or 0)
             stock_keys = {str(stock.get("symbol") or ""), ts_code.split(".")[0]}
             severe_monitored = bool(stock_keys & monitored_codes.get("__severe_monitor__", set()))
+            independent_ordinary_monitor = bool(stock_keys & monitored_codes.get("__ordinary_monitor__", set()))
             rules = [
                 ("severe_10d", 10, board_rule.severe_10d_threshold.up, "deviation", board_rule.severe_10d_threshold.up),
                 ("severe_30d", 30, board_rule.severe_30d_threshold.up, "deviation", board_rule.severe_30d_threshold.up),
             ]
-            if severe_monitored or "ordinary_3d" in candidate_rule_keys:
+            if (severe_monitored and not independent_ordinary_monitor) or (
+                "ordinary_3d" in candidate_rule_keys and not independent_ordinary_monitor
+            ):
                 rules.insert(0, ("ordinary_3d", 3, board_rule.ordinary_deviation, "deviation", board_rule.ordinary_deviation))
             if candidate_keys is not None:
                 rules = [option for option in rules if option[0] in candidate_rule_keys]
