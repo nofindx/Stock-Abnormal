@@ -2,12 +2,24 @@
   <view class="rules-updated">更新时间：2026-10-19</view>
   <view class="rules-section">
     <view class="rules-heading">异动规则</view>
-    <view class="threshold-card">
-      <view class="threshold-row"><view><text class="threshold-name">主板（沪 / 深）</text><text class="threshold-values">3交易日上涨 +20% · 10交易日上涨 +100% · 30交易日上涨 +200%</text></view><text class="same-count">同向 4 次</text></view>
-      <view class="threshold-row"><view><text class="threshold-name">创业板</text><text class="threshold-values">3交易日上涨 +30% · 10交易日上涨 +100% · 30交易日上涨 +200%</text></view><text class="same-count">同向 3 次</text></view>
-      <view class="threshold-row"><view><text class="threshold-name">科创板</text><text class="threshold-values">3交易日上涨 +30% · 10交易日上涨 +100% · 30交易日上涨 +200%</text></view><text class="same-count">同向 3 次</text></view>
-      <view class="threshold-row"><view><text class="threshold-name">北交所</text><text class="threshold-values">3日上涨 +40% · 10日上涨 +150% · 30日上涨 +300%</text></view><text class="same-count">同向 3 次</text></view>
+    <view class="threshold-table">
+      <view class="threshold-row threshold-header">
+        <text>板块</text><text>3日</text><text>10日</text><text>30日</text><text>同向</text>
+      </view>
+      <view class="threshold-row">
+        <text class="threshold-name">主板（沪 / 深）</text><text>+20%</text><text>+100%</text><text>+200%</text><text>4次</text>
+      </view>
+      <view class="threshold-row">
+        <text class="threshold-name">创业板</text><text>+30%</text><text>+100%</text><text>+200%</text><text>3次</text>
+      </view>
+      <view class="threshold-row">
+        <text class="threshold-name">科创板</text><text>+30%</text><text>+100%</text><text>+200%</text><text>3次</text>
+      </view>
+      <view class="threshold-row">
+        <text class="threshold-name">北交所</text><text>+40%</text><text>+150%</text><text>+300%</text><text>3次</text>
+      </view>
     </view>
+    <view class="threshold-note">各项数值均为上涨偏离值阈值</view>
     <view class="rules-version">阈值以交易所最新规则为准</view>
   </view>
 

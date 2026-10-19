@@ -11,19 +11,19 @@
 .rules-heading { margin-bottom: 14rpx; color: #1C1C1E; font-size: 25rpx; font-weight: 600; line-height: 34rpx; }
 .formula { color: #1C1C1E; font-size: 22rpx; line-height: 36rpx; text-indent: 0; }
 .rules-copy { margin-top: 12rpx; color: #636366; font-size: 21rpx; line-height: 34rpx; text-indent: 0; }
-.threshold-card { overflow: hidden; border-radius: 12rpx; background: #F8F8FA; }
-.threshold-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 12rpx; padding: 15rpx 14rpx; border-bottom: 1rpx solid #E5E5EA; }
+.threshold-table { overflow: hidden; border: 1rpx solid #E5E5EA; border-radius: 12rpx; background: #F8F8FA; }
+.threshold-row { display: grid; grid-template-columns: 1.55fr .82fr .9fr .9fr .8fr; align-items: center; min-height: 64rpx; padding: 0 12rpx; border-bottom: 1rpx solid #E5E5EA; color: #636366; font-size: 19rpx; line-height: 28rpx; text-align: center; }
 .threshold-row:last-child { border-bottom: 0; }
-.threshold-row > view { min-width: 0; flex: 1; text-align: left; }
-.threshold-name { display: block; color: #1C1C1E; font-size: 22rpx; font-weight: 600; }
-.threshold-values { display: block; margin-top: 5rpx; color: #636366; font-size: 19rpx; line-height: 28rpx; text-align: left; }
-.same-count { flex: 0 0 auto; margin-top: 31rpx; color: #636366; font-size: 19rpx; white-space: nowrap; }
+.threshold-row > text { min-width: 0; }
+.threshold-name { color: #1C1C1E; font-size: 20rpx; font-weight: 600; text-align: left; }
+.threshold-header { min-height: 58rpx; background: #EEF0F3; color: #636366; font-size: 18rpx; font-weight: 600; }
+.threshold-note { margin-top: 10rpx; color: #636366; font-size: 19rpx; line-height: 28rpx; }
 .rules-risk { border-color: #E5E5EA; background: #FFFFFF; }
 .rules-page .free-note { display: none; }
 
 @media (max-width: 390px) {
   .rules-page { padding-right: 22rpx; padding-left: 22rpx; }
-  .threshold-row { padding-right: 10rpx; padding-left: 10rpx; }
-  .threshold-values { font-size: 18rpx; }
-  .same-count { font-size: 18rpx; }
+  .threshold-row { grid-template-columns: 1.5fr .82fr .9fr .9fr .78fr; padding-right: 8rpx; padding-left: 8rpx; font-size: 18rpx; }
+  .threshold-name { font-size: 19rpx; }
+  .threshold-header { font-size: 17rpx; }
 }
