@@ -1,4 +1,5 @@
 <view class="rules-page">
+  <view class="rules-updated">更新时间：2026-10-19</view>
   <view class="rules-section">
     <view class="rules-heading">异动规则</view>
     <view class="threshold-card">
@@ -7,7 +8,7 @@
       <view class="threshold-row"><view><text class="threshold-name">科创板</text><text class="threshold-values">3交易日上涨 +30% · 10交易日上涨 +100% · 30交易日上涨 +200%</text></view><text class="same-count">同向 3 次</text></view>
       <view class="threshold-row"><view><text class="threshold-name">北交所</text><text class="threshold-values">3日上涨 +40% · 10日上涨 +150% · 30日上涨 +300%</text></view><text class="same-count">同向 3 次</text></view>
     </view>
-    <view class="rules-version">阈值以交易所最新规则为准 · 核对日期 2026-09-27</view>
+    <view class="rules-version">阈值以交易所最新规则为准</view>
   </view>
 
   <view class="rules-section">
@@ -19,7 +20,7 @@
   <view class="rules-section">
     <view class="rules-heading">计算口径</view>
     <view class="rules-copy">10 日窗口使用最近 11 条有效交易日 K，30 日窗口使用最近 31 条。停牌、无效价格与缺失指数不做 0 填充。</view>
-    <view class="rules-copy">普通异动按连续 3 个交易日收盘价上涨偏离累计计算；同向次数按最近 10 个交易日滚动统计，只统计上涨方向，连续重叠窗口只计一次。</view>
+    <view class="rules-copy">普通异动按连续 3 个交易日收盘价偏离累计计算；同向次数按最近 10 个交易日滚动统计，分别统计上涨和下跌方向，连续重叠窗口只计一次。</view>
     <view class="rules-copy">重点监控不纳入 3 日普通异动，只纳入交易所风险提示、10 日严重异动和 30 日严重异动。监控期按交易日计算：18.cn 从提示日后的首个交易日开始，巨潮严重异动公告从公告日所在交易日开始。</view>
   </view>
 

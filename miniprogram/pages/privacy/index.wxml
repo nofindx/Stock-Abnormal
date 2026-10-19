@@ -1,24 +1,30 @@
 <view class="legal-page">
-  <view class="legal-updated">更新日期：2026-09-28</view>
+  <view class="legal-updated">更新日期：2026-10-19</view>
   <view class="legal-section">
-    <view class="legal-heading">一、我们如何处理信息</view>
-    <view class="legal-copy">　　本工具是一款个人开发者维护的股票异动计算工具，不要求登录，不收集姓名、手机号、身份证号、位置、通讯录、相册、麦克风或其他与功能无关的个人信息。</view>
+    <view class="legal-heading">服务说明</view>
+    <view class="legal-copy">本程序只提供股票搜索、单股计算、重点监控和异动预测功能，帮助你按照交易所公开规则和公开数据查看股票异动情况。</view>
+    <view class="legal-copy">本工具不要求登录，不提供账户、社交或支付功能。</view>
   </view>
   <view class="legal-section">
-    <view class="legal-heading">二、功能所需数据</view>
-    <view class="legal-copy">　　你主动输入或选择的股票代码仅用于搜索和计算当前页面结果。模拟计算数据只保留在当前页面，不上传到后台。</view>
-    <view class="legal-copy">　　单股计算、重点监控和异动预测使用公开行情及公告数据。服务端保存实现计算所需的股票基础资料和滚动计算数据，不保存你的身份信息。</view>
+    <view class="legal-heading">信息处理</view>
+    <view class="legal-copy">你主动输入或选择的股票名称、代码，仅用于股票搜索和展示对应结果。搜索历史由小程序保存在本地设备，你可以在页面清除。</view>
+    <view class="legal-copy">模拟计算的输入和结果只保留在当前页面，不上传到服务端，不写入生产数据。</view>
+    <view class="legal-copy">本工具不收集姓名、手机号、身份证号、位置、通讯录、相册、麦克风或其他与功能无关的个人信息，也不建立用户画像。</view>
   </view>
   <view class="legal-section">
-    <view class="legal-heading">三、数据安全与第三方服务</view>
-    <view class="legal-copy">　　Tushare、腾讯行情及其他公开网络数据源只在服务端调用，访问凭证不会打包到小程序。公告链接会跳转到来源页面或系统文档查看器。</view>
+    <view class="legal-heading">使用规则</view>
+    <view class="legal-copy">你应当遵守法律法规和平台规则，不得恶意访问、批量抓取、干扰服务，不得利用本工具从事违法活动。</view>
+    <view class="legal-copy">你可以随时停止使用、清除小程序缓存或关闭小程序。</view>
   </view>
   <view class="legal-section">
-    <view class="legal-heading">四、你的权利</view>
-    <view class="legal-copy">　　本工具不建立个人账户和用户画像。你可以随时停止使用、清除小程序缓存或关闭小程序。</view>
+    <view class="legal-heading">免责声明</view>
+    <view class="legal-copy">行情、指数和公告信息来自交易所及公开网络数据源。</view>
+    <view class="legal-copy">计算结果基于交易所规则和公开数据，可能因数据延迟、缺失、源站调整、停牌或规则更新产生偏差。</view>
+    <view class="legal-copy">页面结果是规则辅助信息，不代表交易所最终认定。</view>
+    <view class="legal-copy">本工具仅供信息参考，不构成投资建议、承诺或买卖依据。你应以交易所及上市公司正式公告为准，并自行承担投资决策风险。</view>
   </view>
   <view class="legal-section">
-    <view class="legal-heading">五、政策变更</view>
-    <view class="legal-copy">　　如功能或数据处理方式发生重大变化，我们会在页面更新本政策。继续使用本工具即表示你已阅读更新后的内容。</view>
+    <view class="legal-heading">协议变更与生效</view>
+    <view class="legal-copy">如功能、数据处理方式或合规要求发生变化，我们会在本页面更新本协议并标注更新日期。更新后的内容自页面发布时生效；继续使用本工具即表示你已阅读并接受更新后的内容。</view>
   </view>
 </view>

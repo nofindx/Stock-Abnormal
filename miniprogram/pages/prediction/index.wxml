@@ -20,9 +20,7 @@
   </view></view>
   <view wx:if="{{!items.length && !loading && !refreshing}}" class="card empty">当前范围暂无候选股票</view>
   <view class="legal-footer-links">
-    <navigator class="page-footer-link" url="/pages/privacy/index" hover-class="tap-feedback" hover-stay-time="80">隐私政策</navigator>
-    <text class="footer-separator">·</text>
-    <navigator class="page-footer-link" url="/pages/agreement/index" hover-class="tap-feedback" hover-stay-time="80">用户协议</navigator>
+    <navigator class="page-footer-link" url="/pages/privacy/index" hover-class="tap-feedback" hover-stay-time="80">隐私与用户协议</navigator>
     <text class="footer-separator">·</text>
     <navigator class="page-footer-link" url="/pages/rules/index" hover-class="tap-feedback" hover-stay-time="80">规则说明</navigator>
   </view>
