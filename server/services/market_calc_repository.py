@@ -797,7 +797,16 @@ class MarketCalcRepository:
                     item_count=VALUES(item_count), exclusion_stats=VALUES(exclusion_stats), status=VALUES(status),
                     last_error='', rule_version=VALUES(rule_version)
                 """, (scope, target_trade_date, base_trade_date, updated_at.strftime("%Y-%m-%d %H:%M:%S"), json.dumps(item_list, ensure_ascii=False), data_stage, data_quality, dataset_quote_updated_at or None, dataset_quote_as_of or "", dataset_quote_source or "", int(dataset_quote_complete), len(item_list), json.dumps(exclusion_stats or {}, ensure_ascii=False), status, str(rule_version or "")))
-                cursor.execute("UPDATE prediction_job SET status='succeeded', lease_until=0, finished_at=NOW(), output_dataset_key=%s, last_error='' WHERE job_name=%s", (f"{scope}:{target_trade_date}", scope))
+                cursor.execute(
+                    """
+                    UPDATE prediction_job
+                    SET target_trade_date=%s, data_stage=%s, status='succeeded',
+                        lease_until=0, finished_at=NOW(), output_dataset_key=%s,
+                        last_error=''
+                    WHERE job_name=%s
+                    """,
+                    (target_trade_date, data_stage, f"{scope}:{target_trade_date}", scope),
+                )
             db.commit()
 
     def fail_prediction(self, scope: str, error: str) -> None:
