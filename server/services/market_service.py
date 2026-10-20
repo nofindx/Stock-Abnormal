@@ -28,9 +28,9 @@ INDEX_BY_MARKET = {"SSE": "000001.SH", "SZSE": "399107.SZ", "BSE": "899050.BJ"}
 INDEX_BY_BOARD = {"创业板": "399102.SZ", "科创板": "000688.SH", "北交所": "899050.BJ"}
 BOARD_BY_MARKET = {"主板": Board.MAIN, "创业板": Board.CHINEXT, "科创板": Board.STAR, "北交所": Board.BSE}
 SHANGHAI_TZ = ZoneInfo("Asia/Shanghai") if ZoneInfo else timezone(timedelta(hours=8))
-# 停牌/复牌重置、上涨同向计数和预测阶段切换属于同一套规则口径。
+# 停牌/复牌重置、独立规则候选、上涨同向计数和预测阶段切换属于同一套规则口径。
 # 版本变化会触发服务启动时从已确认收盘行情重建计算基础数据与预测集。
-PREDICTION_RULE_VERSION = "2026-10-official-reset-all-windows-rolling-same-direction-v50"
+PREDICTION_RULE_VERSION = "2026-10-official-reset-independent-candidates-rolling-same-direction-v51"
 RESET_AUTHORIZED_SOURCE_TYPES = {"issuer-disclosure", "exchange-disclosure"}
 RESET_EVIDENCE_CODE = "official_severe_abnormality_body"
 
