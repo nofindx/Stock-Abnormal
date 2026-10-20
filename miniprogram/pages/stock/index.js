@@ -169,33 +169,98 @@ function normalizeTradeDate(value) {
   return String(value || '').replace(/[^\d]/g, '').slice(0, 8)
 }
 
-function buildNextDayForecast(forecast = {}) {
-  if (typeof forecast.available !== 'boolean') return { line: '', text: '预测数据版本未同步' }
+const WARNING_RULE_KEYS = {
+  '3 日偏离': 'ordinary_3d',
+  '10 日同向': 'same_direction_10d',
+  '10 日偏离': 'severe_10d',
+  '30 日偏离': 'severe_30d'
+}
+
+function riskForRules(ruleKeys = []) {
+  const keys = new Set(ruleKeys)
+  if (keys.has('severe_10d') || keys.has('severe_30d')) return { text: '存在异动风险', tone: 'risk' }
+  if (keys.has('ordinary_3d') || keys.has('same_direction_10d')) return { text: '存在警告风险', tone: 'warning' }
+  return { text: '暂无异动风险', tone: 'safe' }
+}
+
+function currentTriggeredRules(warnings = []) {
+  return warnings.filter((item) => {
+    if (!item) return false
+    if (item.title === '10 日同向') {
+      const up = Number(item.up)
+      const down = Number(item.down)
+      const upThreshold = Number(item.upThreshold)
+      const downThreshold = Math.abs(Number(item.downThreshold))
+      const targetMatch = String(item.target || '').match(/(\d+(?:\.\d+)?)\s*次/)
+      const threshold = Number.isFinite(upThreshold) && upThreshold > 0
+        ? upThreshold
+        : (targetMatch ? Number(targetMatch[1]) : downThreshold)
+      return threshold > 0 && ((Number.isFinite(up) && up >= threshold) || (Number.isFinite(down) && down >= threshold))
+    }
+    const truthy = value => value === true || value === 1 || value === '1' || String(value).toLowerCase() === 'true'
+    return truthy(item.upTriggered) || truthy(item.downTriggered)
+  })
+}
+
+function warningRuleKeys(warnings = []) {
+  return warnings
+    .filter(item => item && item.labelTone === 'warning')
+    .map(item => WARNING_RULE_KEYS[item.title])
+    .filter(Boolean)
+}
+
+function buildNextDayForecast(forecast = {}, warnings = []) {
+  const currentRules = currentTriggeredRules(warnings)
+  const unavailable = (text, forecastRules = []) => {
+    const risk = riskForRules([
+      ...currentRules.map(item => WARNING_RULE_KEYS[item.title]),
+      ...warningRuleKeys(warnings),
+      ...forecastRules.map(item => String(item.ruleKey || ''))
+    ])
+    return {
+      line: '',
+      text: risk.tone === 'safe'
+        ? `${risk.text}：四项预警均安全；${text}`
+        : `${risk.text}：${currentRules.map(item => `${item.title}当前已触发`).join('、') || (forecastRules.length ? '次日存在候选规则' : '四项预警有临近规则')}；${text}`,
+      summaryStatus: risk.text,
+      summaryTone: risk.tone
+    }
+  }
+  if (typeof forecast.available !== 'boolean') return unavailable('预测数据版本未同步')
   const tradeDate = normalizeTradeDate(forecast.baseTradeDate)
   const nextTradeDate = normalizeTradeDate(forecast.targetTradeDate)
-  if (!tradeDate || !nextTradeDate || !forecast.available) return { line: '', text: '次日预测暂不可用' }
+  if (!forecast.available) return unavailable('次日预测暂不可用')
+  if (!tradeDate || !nextTradeDate) return unavailable('次日预测日期暂不可用', forecast.rules || [])
   const line = `按 ${tradeDate.slice(0, 4)}-${tradeDate.slice(4, 6)}-${tradeDate.slice(6)} 收盘数据预测 ${nextTradeDate.slice(0, 4)}-${nextTradeDate.slice(4, 6)}-${nextTradeDate.slice(6)}`
   const candidates = forecast.rules || []
-  if (candidates.some(item => !String(item.rule || '').trim())) return { line, text: '次日预测规则说明暂不可用' }
+  if (candidates.some(item => !String(item.rule || '').trim())) return { ...unavailable('次日预测规则说明暂不可用', candidates), line }
   const rules = [...new Set(candidates.map(item => String(item.rule).trim()))]
+  const risk = riskForRules([
+    ...currentRules.map(item => WARNING_RULE_KEYS[item.title]),
+    ...warningRuleKeys(warnings),
+    ...candidates.map(item => String(item.ruleKey || ''))
+  ])
+  const currentText = currentRules.map(item => `${item.title}当前已触发`).join('、')
+  const nearRules = warningRuleKeys(warnings)
+    .filter(key => !currentRules.some(item => WARNING_RULE_KEYS[item.title] === key) && !candidates.some(item => item.ruleKey === key))
+    .map(key => Object.keys(WARNING_RULE_KEYS).find(title => WARNING_RULE_KEYS[title] === key))
+  const nearText = nearRules.length ? `当前接近阈值：${nearRules.join('、')}` : ''
+  const candidateText = rules.length ? `次日可能触发：${rules.join('；')}` : '未发现下一交易日可触发的规则'
+  const text = risk.tone === 'safe'
+    ? '四项预警均安全；未发现下一交易日可触发的规则'
+    : [currentText, nearText, rules.length ? candidateText : '次日未发现新增可触发规则'].filter(Boolean).join('；')
   return {
     line,
-    text: rules.length ? `次日可能触发：${rules.join('；')}` : '未发现下一交易日可触发的严重异动条件'
+    text: `${risk.text}：${text}`,
+    summaryStatus: risk.text,
+    summaryTone: risk.tone
   }
 }
 
 function summaryStatus(detail) {
-  const marketStatus = detail.marketStatus || detail.status || '正常'
-  const monitored = Boolean(
-    (detail.monitoring && detail.monitoring.active !== false)
-      || detail.monitoringStatus === 'active'
-      || detail.monitoringStatusDisplay === '监管中'
-  )
-  const forecastRules = detail.nextDayForecast && Array.isArray(detail.nextDayForecast.rules)
-    ? detail.nextDayForecast.rules
-    : []
-  if (monitored || marketStatus !== '正常' || forecastRules.length > 0) return { text: '存在异动风险', tone: 'risk' }
-  return { text: '暂无异动风险', tone: 'safe' }
+  const warnings = Array.isArray(detail && detail.warnings) ? detail.warnings : []
+  const assessment = buildNextDayForecast(detail && detail.nextDayForecast || {}, warnings)
+  return { text: assessment.summaryStatus, tone: assessment.summaryTone }
 }
 
 function cumulativeReturn(values) {
@@ -481,15 +546,14 @@ Page({
           symbol: monitoring.symbol || detailWithMonitoring.symbol || stock.symbol
         })
       }
-      const statusSummary = summaryStatus(displayDetail)
+      const forecast = buildNextDayForecast(detailWithMonitoring.nextDayForecast || {}, displayDetail.warnings)
+      const statusSummary = { text: forecast.summaryStatus, tone: forecast.summaryTone }
       displayDetail.summaryStatus = statusSummary.text
       displayDetail.summaryTone = statusSummary.tone
       const dataUpdatedAt = formatUpdatedAt((detailWithMonitoring.dataQuality || {}).quoteUpdatedAt || detailWithMonitoring.tradeDate)
       const recentStocks = [{ ts_code: detailWithMonitoring.ts_code || stock.ts_code, symbol: detailWithMonitoring.symbol || stock.symbol || stock.ts_code.split('.')[0], name: detailWithMonitoring.name || stock.name || stock.ts_code }, ...(this.data.recentStocks || []).filter(item => item.ts_code !== (detailWithMonitoring.ts_code || stock.ts_code))].slice(0, 5)
       wx.setStorageSync(STOCK_HISTORY_KEY, recentStocks)
-      this.setData({ selected: { ...stock, ...detailWithMonitoring }, detail: displayDetail, detailLoading: false, detailError: '', dataUpdatedAt, recentStocks, futureTradeDates, inputRows: rows, matrixGroups: buildMatrixGroups(rows), query: `${detailWithMonitoring.name} ${detailWithMonitoring.symbol}` })
-      const forecast = buildNextDayForecast(detailWithMonitoring.nextDayForecast || {})
-      this.setData({ nextDayForecastLine: forecast.line, nextDayForecastText: forecast.text })
+      this.setData({ selected: { ...stock, ...detailWithMonitoring }, detail: displayDetail, detailLoading: false, detailError: '', dataUpdatedAt, recentStocks, futureTradeDates, inputRows: rows, matrixGroups: buildMatrixGroups(rows), query: `${detailWithMonitoring.name} ${detailWithMonitoring.symbol}`, nextDayForecastLine: forecast.line, nextDayForecastText: forecast.text })
     }).catch((error) => {
       if (requestId !== this.detailRequestId) return
       const message = error && error.message ? String(error.message) : ''
