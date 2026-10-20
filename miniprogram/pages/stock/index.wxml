@@ -16,9 +16,9 @@
   <view class="history-row">
     <view class="history-title-wrap"><view class="history-clock"><view class="clock-hand clock-hand-hour"></view><view class="clock-hand clock-hand-minute"></view></view><text class="history-label">历史:</text></view>
     <scroll-view class="history-scroll" scroll-x="true" enable-flex="true" show-scrollbar="false">
-      <view class="history-items"><view wx:if="{{!recentStocks.length}}" class="history-empty">暂无搜索记录</view><view wx:for="{{recentStocks}}" wx:key="ts_code" class="history-chip" hover-class="tap-feedback" data-index="{{index}}" bindtap="chooseRecent" aria-role="button" aria-label="打开{{item.name}}">{{item.name}}</view></view>
+      <view class="history-items"><view wx:if="{{!recentStocks.length}}" class="history-empty">暂无搜索记录</view><view wx:for="{{recentStocks}}" wx:key="ts_code" class="history-chip" hover-class="tap-feedback" data-index="{{index}}" bindtap="chooseRecent" aria-role="button" aria-label="打开{{item.name}}"><text class="history-chip-name">{{item.name}}</text><text class="history-chip-arrow" aria-hidden="true">›</text></view></view>
     </scroll-view>
-    <view class="history-clear" hover-class="history-clear-pressed" aria-role="button" aria-label="清空搜索历史" bindtap="clearHistory"><view class="history-trash" aria-hidden="true"></view></view>
+    <view class="history-clear" hover-class="history-clear-pressed" aria-role="button" aria-label="清空搜索历史" bindtap="clearHistory"><image class="history-trash" src="/assets/clear-history.svg" mode="aspectFit" aria-hidden="true"></image></view>
   </view>
   <block wx:if="{{!detail && !detailError && !detailLoading}}">
     <view class="guide-card card">

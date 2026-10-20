@@ -2,15 +2,14 @@
 .next-day-notice { position: fixed; z-index: 100; top: 50%; left: 50%; display: flex; width: 400rpx; max-width: calc(100vw - 80rpx); box-sizing: border-box; flex-direction: column; align-items: center; justify-content: center; padding: 24rpx 28rpx; border-radius: 14rpx; background: #59595B; color: #FFFFFF; font-size: 28rpx; line-height: 46rpx; text-align: center; transform: translate(-50%, -50%); }
 .prediction-page .page-header { display: none; }
 .prediction-page .segmented { height: 60rpx; align-items: center; margin-top: 12rpx; }
-.prediction-snapshot-row { position: relative; display: flex; width: 100%; height: 48rpx; min-height: 48rpx; align-items: center; justify-content: space-between; gap: 12rpx; margin-top: 12rpx; padding-right: 0; box-sizing: border-box; }
+.prediction-snapshot-row { position: relative; display: flex; width: 100%; height: 48rpx; min-height: 48rpx; align-items: center; justify-content: space-between; gap: 12rpx; margin-top: 22rpx; padding-right: 0; box-sizing: border-box; }
 .prediction-snapshot-row .snapshot-summary { display: flex; min-width: 0; width: auto; max-width: none; flex: 1; align-items: baseline; gap: 10rpx; color: #6B7280; font-size: 22rpx; line-height: 30rpx; white-space: nowrap; overflow: hidden; }
 .prediction-snapshot-row .snapshot-count { color: #1A1A1A; font-size: 28rpx; font-weight: 700; font-variant-numeric: tabular-nums; }
 .prediction-snapshot-row .snapshot-dot { color: #636366; }
 .prediction-snapshot-row .snapshot-pending { color: #636366; }
-.prediction-page .snapshot-refresh { display: flex; width: 48rpx; height: 48rpx; flex: 0 0 48rpx; align-items: center; justify-content: center; margin-left: auto; border: 1rpx solid #D1D5DB; border-radius: 10rpx; background: #F2F3F5; color: #4B5158; box-sizing: border-box; }
-.prediction-page .snapshot-refresh-pressed { background: #E5E7EB; }
-.prediction-page .snapshot-refresh-icon { position: relative; width: 22rpx; height: 22rpx; border: 3rpx solid currentColor; border-top-color: transparent; border-radius: 50%; transform: rotate(-45deg); }
-.prediction-page .snapshot-refresh-icon::after { position: absolute; top: -4rpx; right: -5rpx; width: 0; height: 0; border-top: 4rpx solid transparent; border-bottom: 4rpx solid transparent; border-left: 6rpx solid currentColor; content: ''; transform: rotate(35deg); }
+.prediction-page .snapshot-refresh { display: flex; width: 48rpx; height: 48rpx; flex: 0 0 48rpx; align-items: center; justify-content: center; margin-left: auto; border: 1rpx solid #B9D6F2; border-radius: 9rpx; background: #EAF3FC; color: #185A96; box-sizing: border-box; }
+.prediction-page .snapshot-refresh-pressed { border-color: #8DBBE8; background: #D8EAF9; }
+.prediction-page .snapshot-refresh-icon { display: block; width: 28rpx; height: 28rpx; opacity: .85; }
 .prediction-page .snapshot-refreshing .snapshot-refresh-icon { animation: snapshot-refresh-spin 0.8s linear infinite; }
 @keyframes snapshot-refresh-spin { to { transform: rotate(315deg); } }
 .refresh-panel { display: none; }
