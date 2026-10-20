@@ -30,7 +30,7 @@
   <view class="rules-section">
     <view class="rules-heading">计算口径</view>
     <view class="rules-copy">10 日窗口使用最近 11 条有效交易日 K，30 日窗口使用最近 31 条。停牌、无效价格与缺失指数不做 0 填充。</view>
-    <view class="rules-copy">普通异动按连续 3 个交易日收盘价偏离累计计算；同向次数按最近 10 个交易日滚动统计，分别统计上涨和下跌方向，连续重叠窗口只计一次。</view>
+    <view class="rules-copy">普通异动按连续 3 个交易日收盘价偏离累计计算；同向次数按最近 10 个交易日滚动统计，分别统计上涨和下跌方向，每个滚动 3 日窗口独立计数。</view>
   </view>
 
   <view class="rules-section rules-risk">

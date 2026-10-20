@@ -44,6 +44,13 @@ const monitoredWarning = buildNextDayForecast({ ...forecastBase, rules: [
 ] }, true)
 assert.strictEqual(monitoredWarning.summaryTone, 'risk')
 assert.strictEqual(monitoredWarning.text, '次日可能触发：连续3个交易日内收盘价涨幅偏离值累计达到 +20%；10个交易日内出现3次上涨同向普通异动')
+const monitoredWithSevere = buildNextDayForecast({ ...forecastBase, rules: [
+  { ruleKey: 'ordinary_3d', rule: '连续3个交易日内收盘价涨幅偏离值累计达到 +20%' },
+  { ruleKey: 'same_direction_10d', rule: '10个交易日内出现3次上涨同向普通异动' },
+  { ruleKey: 'severe_30d', rule: '连续30个交易日内收盘价涨幅偏离值累计达到 +200%' }
+] }, true)
+assert.strictEqual(monitoredWithSevere.summaryTone, 'risk')
+assert.strictEqual(monitoredWithSevere.text, '次日可能触发：连续30个交易日内收盘价涨幅偏离值累计达到 +200%')
 const monitoredAndSafe = buildNextDayForecast({ ...forecastBase, rules: [] }, true)
 assert.strictEqual(monitoredAndSafe.summaryTone, 'safe')
 assert.strictEqual(monitoredAndSafe.text, '未发现下一交易日可触发的异动规则')

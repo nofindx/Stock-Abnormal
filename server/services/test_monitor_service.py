@@ -209,6 +209,24 @@ class MonitorWindowTests(unittest.TestCase):
             "delisting-independent",
         )
 
+    def test_reset_requires_official_body_evidence_and_authorized_source(self):
+        body = "公司股票连续10个交易日内涨幅偏离值累计达到100%，构成严重异常波动。"
+        evidence = self.service._reset_evidence(
+            "股票交易严重异常波动公告", body, "600825", "severe-10d", "issuer-disclosure",
+            "https://static.cninfo.com.cn/x.PDF",
+        )
+        self.assertEqual(evidence["code"], "official_severe_abnormality_body")
+        self.assertIsNone(self.service._reset_evidence(
+            "股票交易严重异常波动公告", body, "600825", "severe-10d", "broker-risk-alert"
+        ))
+        self.assertIsNone(self.service._reset_evidence(
+            "股票交易严重异常波动公告", body, "600825", "severe-10d", "issuer-disclosure",
+            "https://example.com/not-an-official-disclosure.pdf",
+        ))
+        self.assertIsNone(self.service._reset_evidence(
+            "股票交易严重异常波动公告", "连续10个交易日涨幅偏离值累计达到100%", "600825", "severe-10d", "issuer-disclosure"
+        ))
+
     def test_delisting_period_description_survives_snapshot_collapse(self):
         event = self.event("2026-09-23", "2026-10-27", "delisting-warning")
         event.update({
@@ -567,6 +585,32 @@ class MonitorWindowTests(unittest.TestCase):
             self.assertEqual(item["sourceRole"], "issuer_disclosure_backup")
             self.assertEqual(item["confirmationStatus"], "issuer-disclosure-confirmed")
             self.assertEqual(item["riskTone"], "severe-10d")
+        finally:
+            service.close()
+
+    def test_issuer_severe_body_publishes_reset_evidence(self):
+        announcements = Mock()
+        announcements.query_broker_risk_alerts.return_value = {"available": False, "items": []}
+        announcements.query_market.return_value = {
+            "available": True, "partial": False, "items": [{
+                "title": "股票交易严重异常波动公告", "date": "2026-10-09", "stockCode": "600825",
+                "stockName": "新华传媒", "url": "https://static.cninfo.com.cn/x.PDF",
+                "source": "巨潮资讯",
+            }],
+        }
+        announcements.extract_pdf_text.return_value = (
+            "公司股票连续10个交易日内涨幅偏离值累计达到100%，构成严重异常波动。"
+        )
+        service = OfficialMonitorService(client=object(), announcements=announcements)
+        try:
+            result = service.refresh()
+            self.assertTrue(result["started"])
+            item = service.read("current", "all")["items"][0]
+            self.assertTrue(item["ruleResetConfirmed"])
+            self.assertEqual(item["resetEvidence"]["code"], "official_severe_abnormality_body")
+            self.assertEqual(item["resetEvidence"]["sourceType"], "issuer-disclosure")
+            quality = service.repository.active_snapshot()["dataQuality"]
+            self.assertEqual(quality["issuerBodyVerification"]["resetEvidenceVerified"], 1)
         finally:
             service.close()
 

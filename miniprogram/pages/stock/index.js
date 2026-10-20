@@ -183,10 +183,13 @@ function assessNextDayRules(rules = [], monitoringActive = false) {
 
   const severeKeys = new Set(['severe_10d', 'severe_30d'])
   const warningKeys = new Set(['ordinary_3d', 'same_direction_10d'])
-  if (monitoringActive) return { text: '存在异动风险', tone: 'risk', rules: candidates }
+  // 监管事实本身不把短周期候选升级成严重规则。只要次日存在
+  // 10/30 日严重候选，顶部说明只列严重规则；没有严重候选时，
+  // 才列 3 日偏离和 10 日同向警告规则。
   if (Array.from(ruleKeys).some(key => severeKeys.has(key))) {
     return { text: '存在异动风险', tone: 'risk', rules: candidates.filter(item => severeKeys.has(String(item.ruleKey))) }
   }
+  if (monitoringActive) return { text: '存在异动风险', tone: 'risk', rules: candidates.filter(item => warningKeys.has(String(item.ruleKey))) }
   return { text: '存在警告风险', tone: 'warning', rules: candidates.filter(item => warningKeys.has(String(item.ruleKey))) }
 }
 

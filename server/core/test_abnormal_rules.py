@@ -99,7 +99,7 @@ class AbnormalRulesTest(unittest.TestCase):
 
         stock, index = make_bars([100.0 * (1.1 ** day) for day in range(7)], [100.0] * 7)
         result = detect_severe_abnormal(stock, index, Board.MAIN)
-        self.assertEqual(result.same_direction_count, 2)
+        self.assertEqual(result.same_direction_count, 4)
 
     def test_negative_ordinary_deviation_is_a_downside_abnormal_record(self):
         """单股完整规则保留达到普通阈值的下跌异动记录。"""

@@ -15,6 +15,7 @@ import re
 import sqlite3
 from threading import Event, Lock, Thread
 from typing import Any, Dict, List, Optional
+from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
 from .announcement_service import AnnouncementService
@@ -40,7 +41,12 @@ MONITOR_PERIOD_TRADING_DAYS = {
 MONITOR_WINDOW_TRADING_DAYS = MONITOR_PERIOD_TRADING_DAYS
 # 公告分类口径变化时，启动任务主动重采一次当前快照；避免必须等到次日
 # 00:00 才让修复后的北交所严重异动进入重点监控。
-MONITOR_RULE_VERSION = "2026-10-monitor-zts-effective-date-event-direction-source-relation-v16"
+MONITOR_RULE_VERSION = "2026-10-monitor-zts-effective-date-reset-evidence-all-windows-v17"
+
+# 只有官方披露平台上的发行人/交易所正文，才有资格改变行情累计基线。
+# 18.cn、中泰等风险提示可以作为监管事实或佐证，但不能单独触发重置。
+RESET_AUTHORIZED_SOURCE_TYPES = {"issuer-disclosure", "exchange-disclosure"}
+RESET_EVIDENCE_CODE = "official_severe_abnormality_body"
 
 
 class MonitorRepository:
@@ -413,6 +419,51 @@ class OfficialMonitorService:
         return "severe-supporting" if severe_reference else "ordinary-independent"
 
     @staticmethod
+    def _reset_evidence(
+        title: str,
+        body: str,
+        symbol: str,
+        risk_tone: str,
+        source_type: str,
+        source_url: str = "",
+    ) -> Optional[Dict[str, Any]]:
+        """Return auditable evidence for a rule-window reset.
+
+        A title or a broker summary is never enough.  The body must be fetched
+        from an authorized official disclosure source and independently pass the
+        same severe-abnormality classifier used for the monitoring fact.
+        """
+
+        if risk_tone not in {"severe-10d", "severe-30d"}:
+            return None
+        if source_type not in RESET_AUTHORIZED_SOURCE_TYPES:
+            return None
+        host = (urlparse(str(source_url or "")).hostname or "").lower()
+        official_host = any(
+            host == domain or host.endswith(f".{domain}")
+            for domain in ("cninfo.com.cn", "sse.com.cn", "szse.cn", "bse.cn")
+        )
+        if not official_host:
+            return None
+        normalized = re.sub(r"\s+", "", str(body or "")).replace("％", "%")
+        if not normalized or "严重异常波动" not in normalized:
+            return None
+        classified = OfficialMonitorService._classify_monitor_text(title, body, symbol)[1]
+        if classified != risk_tone:
+            return None
+        # Keep only compact, deterministic evidence in the snapshot.  The full
+        # announcement body is intentionally not persisted.
+        return {
+            "code": RESET_EVIDENCE_CODE,
+            "sourceType": source_type,
+            "authority": "巨潮资讯发行人/交易所正式披露正文",
+            "sourceUrl": str(source_url),
+            "bodyHash": hashlib.sha256(normalized.encode("utf-8")).hexdigest(),
+            "verifiedRiskTone": risk_tone,
+            "signals": ["严重异常波动", "板块阈值或同向次数条件"],
+        }
+
+    @staticmethod
     def _delisting_dates_from_body(body: str) -> tuple[str, str]:
         """Extract the announced start and last trading date of a delisting period."""
 
@@ -668,6 +719,8 @@ class OfficialMonitorService:
                     if item.get("ruleResetConfirmed"):
                         same_date["ruleResetConfirmed"] = True
                         same_date["ruleResetDate"] = item.get("ruleResetDate") or same_date.get("ruleResetDate", "")
+                        if item.get("resetEvidence"):
+                            same_date["resetEvidence"] = item["resetEvidence"]
                     if item.get("eventDirection"):
                         # Prefer the direction parsed from the issuer/exchange
                         # notice when the primary feed only provides a summary.
@@ -782,9 +835,15 @@ class OfficialMonitorService:
                 raise RuntimeError("18.cn、巨潮资讯与中泰证券公告源均不可用")
             parsed_events: List[Dict[str, Any]] = []
             raw_announcements: List[Dict[str, Any]] = []
+            issuer_body_checked = 0
+            issuer_body_available = 0
+            issuer_reset_verified = 0
             for announcement in result.get("items", []) if issuer_available else []:
                 title = announcement["title"]
                 body = self.announcements.extract_pdf_text(announcement["url"])
+                issuer_body_checked += 1
+                if str(body or "").strip():
+                    issuer_body_available += 1
                 monitor_type, risk_tone = self._issuer_monitor_type(title, body, announcement.get("stockCode", ""))
                 # 巨潮资讯是备源：必须按同一正文语义规则确认风险类型，普通公司风险公告丢弃。
                 if not risk_tone:
@@ -809,8 +868,12 @@ class OfficialMonitorService:
                     "monitorEnd": monitor_end[5:] if monitor_end else "待核实",
                     "monitorEndDate": monitor_end, "days": None, "daysTotal": MONITOR_PERIOD_TRADING_DAYS.get(risk_tone, 10),
                     "monitorDates": monitor_dates,
+                    # A severe classification is a monitoring fact, not proof
+                    # that the source is an official reset notice.  The reset
+                    # flag is set only after explicit body evidence is present.
                     "ruleResetDate": monitor_dates[0].replace("-", "") if event_end_date and monitor_dates else "",
-                    "ruleResetConfirmed": bool(risk_tone.startswith("severe-")),
+                    "ruleResetConfirmed": False,
+                    "resetEvidence": None,
                     "eventDirection": self._severe_event_direction(body) if risk_tone.startswith("severe-") else "",
                     "monitorType": monitor_type, "riskTone": risk_tone,
                     "sourceRelation": self._risk_prompt_relation(title, body, risk_tone),
@@ -822,6 +885,14 @@ class OfficialMonitorService:
                     "contentHash": hashlib.sha256(f"{title}\n{body}".encode("utf-8")).hexdigest(),
                     "monitorPeriod": f"起始日起共 {MONITOR_PERIOD_TRADING_DAYS.get(risk_tone, 10)} 个交易日（起点计第1日）",
                 })
+                reset_evidence = self._reset_evidence(
+                    title, body, announcement.get("stockCode", ""), risk_tone,
+                    "issuer-disclosure", announcement.get("url", ""),
+                )
+                if reset_evidence:
+                    parsed_events[-1]["ruleResetConfirmed"] = True
+                    parsed_events[-1]["resetEvidence"] = reset_evidence
+                    issuer_reset_verified += 1
             for alert in broker_result.get("items", []) if broker_available else []:
                 # 18.cn 是主源；只有正文满足风险提示或 10/30 日阈值语义才进入重点监控。
                 if not self._is_accepted_broker_alert(alert["title"], alert.get("body", ""), alert.get("stockCode", "")):
@@ -852,6 +923,9 @@ class OfficialMonitorService:
                     "sourceType": alert["sourceType"], "sourceRole": alert["sourceRole"],
                     "sourcePriority": alert["sourcePriority"], "sourceLabel": alert["sourceLabel"],
                     "confirmationStatus": "broker-notice-quotes-exchange-status",
+                    "ruleResetConfirmed": False,
+                    "ruleResetDate": "",
+                    "resetEvidence": None,
                     "contentHash": hashlib.sha256(alert["body"].encode("utf-8")).hexdigest(),
                     "monitorPeriod": f"起始日起共 {MONITOR_PERIOD_TRADING_DAYS.get(risk_tone, 10)} 个交易日（起点计第1日）",
                 })
@@ -896,6 +970,9 @@ class OfficialMonitorService:
                     "sourceType": "zts-risk-alert", "sourceRole": "zts_primary",
                     "sourcePriority": alert["sourcePriority"], "sourceLabel": alert["sourceLabel"],
                     "confirmationStatus": "broker-disclosure-confirmed",
+                    "ruleResetConfirmed": False,
+                    "ruleResetDate": "",
+                    "resetEvidence": None,
                     "contentHash": hashlib.sha256(f"{alert['title']}\n{alert.get('body', '')}".encode("utf-8")).hexdigest(),
                     "monitorPeriod": (
                         f"退市整理期至 {monitor_end}"
@@ -940,6 +1017,20 @@ class OfficialMonitorService:
                         "ztsSource": "degraded" if zts_partial or not zts_available else "available",
                         "zts": "degraded" if zts_partial or not zts_available else "available",
                         "ztsError": str(zts_result.get("error") or "") if zts_partial or not zts_available else "",
+                    },
+                    "resetPolicy": {
+                        "authorizedSourceTypes": sorted(RESET_AUTHORIZED_SOURCE_TYPES),
+                        "evidenceCode": RESET_EVIDENCE_CODE,
+                        "requiresBodyPhrase": "严重异常波动",
+                        "requiresBoardThresholdOrSameDirectionEvidence": True,
+                        "resetScope": ["3d", "10d", "30d", "same_direction_10d"],
+                        "ordinaryRiskAlertsReset": False,
+                    },
+                    "issuerBodyVerification": {
+                        "checked": issuer_body_checked,
+                        "bodyAvailable": issuer_body_available,
+                        "bodyUnavailable": max(0, issuer_body_checked - issuer_body_available),
+                        "resetEvidenceVerified": issuer_reset_verified,
                     },
                     "activeSource": active_source,
                     "isOfficialMonitorPeriod": False,

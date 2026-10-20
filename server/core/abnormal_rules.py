@@ -346,10 +346,12 @@ def _turnover_abnormal(
 
 
 def _count_same_direction(records: Iterable[OrdinaryAbnormal]) -> Tuple[int, Direction, int, int]:
-    """分别统计窗口内上涨/下跌普通异动段，同方向重叠窗口只计一次。
+    """分别统计最近窗口内上涨/下跌方向的独立 3 日滚动事件。
 
-    交易所的 3 日异动是滚动窗口。连续上涨会让相邻窗口重复覆盖同一段
-    行情；只有新的窗口不再与上一段重叠时，才算新的同向异动次数。
+    交易所的“10 个交易日内出现多次同向异常波动”以每个连续 3 日
+    普通异动窗口为一个事件。相邻窗口即使共享收益区间，也分别计数；
+    否则连续涨停会被错误压成一次。换手率触发的无方向记录已在上游
+    通过 ``counts_for_same_direction=False`` 排除。
     """
 
     directional_records = sorted(
@@ -357,17 +359,7 @@ def _count_same_direction(records: Iterable[OrdinaryAbnormal]) -> Tuple[int, Dir
         key=lambda item: (item.end_date, item.start_date),
     )
     def count(direction: Direction) -> int:
-        direction_records = [item for item in directional_records if item.direction is direction]
-        found = 0
-        previous = None
-        for item in direction_records:
-            # Adjacent events may share only the boundary close; that does not
-            # mean they share a daily return interval.
-            if previous is not None and item.start_date < previous.end_date:
-                continue
-            found += 1
-            previous = item
-        return found
+        return sum(1 for item in directional_records if item.direction is direction)
 
     up_count = count(Direction.UP)
     down_count = count(Direction.DOWN)
