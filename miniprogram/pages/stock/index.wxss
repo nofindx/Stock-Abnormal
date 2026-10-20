@@ -178,9 +178,11 @@
 .metric-ring-value { max-width: 100rpx; overflow: hidden; color: #4B5563; font-size: 20rpx; font-weight: 650; line-height: 26rpx; font-variant-numeric: tabular-nums; text-align: center; text-overflow: ellipsis; white-space: nowrap; }
 .metric-ring-value-percent { max-width: none; overflow: visible; font-size: 20rpx; line-height: 26rpx; text-overflow: clip; }
 .metric-ring-value-count { font-size: 20rpx; line-height: 26rpx; }
-.metric-current { display: block; min-height: 36rpx; margin: 0; align-self: center; transform: translateY(9rpx); overflow: hidden; color: #1C1C1E; font-size: 36rpx; line-height: 40rpx; font-weight: 650; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; text-overflow: ellipsis; white-space: nowrap; }
-.metric-current-compact { font-size: 32rpx; line-height: 36rpx; letter-spacing: 0; }
-.metric-current-count { font-size: 20rpx; line-height: 28rpx; }
+.metric-current { display: flex; width: 100%; min-width: 0; min-height: 40rpx; align-items: baseline; margin: 0; align-self: center; transform: translateY(9rpx); overflow: visible; color: #1C1C1E; line-height: 40rpx; font-weight: 650; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.metric-current-number { min-width: 0; flex: 0 1 auto; color: inherit; font-size: 30rpx; line-height: 40rpx; font-weight: inherit; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.metric-current-unit { flex: 0 0 auto; margin-left: 1rpx; color: inherit; font-size: 20rpx; line-height: 28rpx; font-weight: inherit; white-space: nowrap; }
+.metric-current-count .metric-current-number,
+.metric-current-count .metric-current-unit { font-size: 20rpx; line-height: 28rpx; }
 .metric-target { display: block; min-height: 28rpx; margin-top: 2rpx; color: #4B5563; font-size: 20rpx; line-height: 28rpx; overflow-wrap: anywhere; }
 
 .alert-panel {
@@ -293,8 +295,8 @@
   .metric-ring { width: 140rpx; height: 140rpx; flex-basis: 140rpx; margin-right: 4rpx; }
   .metric-ring-inner { width: 104rpx; height: 104rpx; }
   .metric-ring-value { max-width: 92rpx; font-size: 20rpx; line-height: 26rpx; }
-  .metric-current { font-size: 21rpx; line-height: 29rpx; }
-  .metric-current-compact { font-size: 24rpx; line-height: 30rpx; }
+  .metric-current { min-height: 36rpx; line-height: 36rpx; }
+  .metric-current-number { line-height: 36rpx; }
   .metric-target { font-size: 20rpx; line-height: 28rpx; }
   .status-stock-line { align-items: flex-start; }
   .summary-top .stock-identity { flex-wrap: nowrap; }
@@ -306,7 +308,7 @@
   .metric-ring-inner { width: 104rpx; height: 104rpx; }
   .metric-ring-value { max-width: 92rpx; font-size: 20rpx; line-height: 26rpx; }
   .metric-ring-value-percent { max-width: none; font-size: 20rpx; line-height: 26rpx; }
-  .metric-current { font-size: 27rpx; }
+  .metric-current { min-height: 36rpx; }
   .metric-remaining { font-size: 17rpx; }
   .alert-row { gap: 8rpx; font-size: 18rpx; }
   .alert-caption { font-size: 17rpx; }

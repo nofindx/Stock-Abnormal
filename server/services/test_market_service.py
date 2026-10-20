@@ -204,6 +204,7 @@ class MarketVectorTests(unittest.TestCase):
         self.assertEqual(result["nextDayForecast"]["baseTradeDate"], "20261015")
         self.assertEqual(result["nextDayForecast"]["targetTradeDate"], "2026-10-16")
         self.assertTrue(result["nextDayForecast"]["available"])
+        self.assertEqual(result["nextDayForecast"]["unavailableReason"], "")
 
     def test_single_stock_detail_accepts_stock_index_asof_mismatch_when_common_history_exists(self):
         """停牌导致股票只到旧日期时，详情仍按共同日期返回有效窗口。"""
@@ -538,7 +539,7 @@ class MarketVectorTests(unittest.TestCase):
     def test_detail_keeps_monitoring_fact_and_market_trigger_visible_together(self):
         service = self.service
         dates = [f"202610{day:02d}" for day in range(1, 16)]
-        stock_vector = [{"date": day, "return": 150.0 if day == dates[-1] else 0.0} for day in dates]
+        stock_vector = [{"date": day, "return": 10.0} for day in dates]
         index_vector = [{"date": day, "return": 0.0} for day in dates]
         service._calc_repository = SimpleNamespace(get_index=lambda _code: {
             "index_code": "000001.SH", "latest_close": 10.0, "as_of_trade_date": dates[-1],
@@ -565,6 +566,9 @@ class MarketVectorTests(unittest.TestCase):
         self.assertIn("已触发", result["marketStatusDisplay"])
         self.assertIn("10 日严重异动", result["statusReason"])
         self.assertIn("3 日普通异动", result["statusReason"])
+        self.assertEqual([item["title"] for item in result["warnings"]], ["3 日偏离", "10 日同向", "10 日偏离", "30 日偏离"])
+        self.assertTrue(all(item["upTriggered"] for item in (result["warnings"][0], result["warnings"][2], result["warnings"][3])))
+        self.assertGreaterEqual(int(result["warnings"][1]["up"]), result["warnings"][1]["upThreshold"])
         self.assertTrue(all("上涨阈值" not in item["target"] for item in result["warnings"]))
 
     def test_detail_keeps_monitoring_fact_on_weekend_between_monitor_dates(self):
@@ -1299,7 +1303,7 @@ class MarketVectorTests(unittest.TestCase):
         _, thirty_window = MarketService._best_vector_deviation(thirty_day_stock, thirty_day_index, 30)
         self.assertEqual(thirty_window, 22)
 
-    def test_next_day_excludes_stock_already_triggered_on_any_severe_rule(self):
+    def test_next_day_keeps_each_already_triggered_severe_rule_independently(self):
         service = self.service
         dates = [f"2026-08-{index:02d}" for index in range(1, 31)]
         stock_vector = [{"date": day, "return": 10.0} for day in dates]
@@ -1320,7 +1324,41 @@ class MarketVectorTests(unittest.TestCase):
             "market": "SZSE", "board": "创业板", "isST": False,
         }]
         service._realtime = SimpleNamespace(fetch_many=lambda _codes: {})
-        self.assertEqual(service._compute_prediction_from_repository("next_day"), [])
+        items = service._compute_prediction_from_repository("next_day")
+        by_rule = {item["ruleKey"]: item for item in items}
+        self.assertEqual(set(by_rule), {"severe_10d", "severe_30d"})
+        self.assertTrue(by_rule["severe_10d"]["triggered"])
+        self.assertTrue(by_rule["severe_30d"]["triggered"])
+
+    def test_same_direction_trigger_does_not_suppress_ten_day_deviation_candidate(self):
+        service = self.service
+        dates = [f"2026-08-{index:02d}" for index in range(1, 11)]
+        stock_vector = [{"date": day, "return": 6.5 if index < 8 else 0.0} for index, day in enumerate(dates)]
+        index_vector = [{"date": day, "return": 0.0} for day in dates]
+        service._calc_repository = SimpleNamespace(
+            available=True,
+            all_calculations=lambda: {"000001.SZ": {
+                "ts_code": "000001.SZ", "latest_close": 10.0,
+                "as_of_trade_date": "20260810", "stock_return_vector": stock_vector,
+            }},
+            all_indexes=lambda: {"399107.SZ": {
+                "index_code": "399107.SZ", "latest_close": 1000.0,
+                "as_of_trade_date": "20260810", "index_return_vector": index_vector,
+            }},
+        )
+        service._stock_rows = lambda: [{
+            "ts_code": "000001.SZ", "symbol": "000001", "name": "平安银行",
+            "market": "SZSE", "board": "主板", "isST": False,
+        }]
+        service._realtime = SimpleNamespace(fetch_many=lambda _codes: {})
+        service._required_up_percent = lambda *_args, **_kwargs: 5.0
+        metrics = service._vector_metrics(stock_vector, index_vector, BOARD_RULES[Board.MAIN])
+        self.assertGreaterEqual(metrics["up"], BOARD_RULES[Board.MAIN].severe_same_direction_count)
+        self.assertLess(metrics["deviations"][10], BOARD_RULES[Board.MAIN].severe_10d_threshold.up)
+
+        items = service._compute_prediction_from_repository("next_day")
+
+        self.assertIn("severe_10d", {item["ruleKey"] for item in items})
 
     def test_prediction_sort_prioritizes_window_then_trigger_distance(self):
         items = [

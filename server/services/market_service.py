@@ -1828,6 +1828,22 @@ class MarketService:
             forecast_metrics, suspension.get("ruleResetDate", ""),
             suspension.get("ruleResetWindow"), forecast_limit,
         )
+        forecast_stock_date = self._vector_latest_date(forecast_stock_vector)
+        forecast_index_date = self._vector_latest_date(forecast_index_vector)
+        forecast_available = bool(
+            forecast_base_date and forecast_target_date
+            and forecast_stock_date == forecast_base_date
+            and forecast_index_date == forecast_base_date
+        )
+        forecast_unavailable_reason = ""
+        if not forecast_available:
+            if not forecast_base_date or not forecast_target_date:
+                forecast_unavailable_reason = "缺少有效的收盘基准日或下一交易日"
+            elif forecast_stock_date != forecast_base_date or forecast_index_date != forecast_base_date:
+                forecast_unavailable_reason = (
+                    f"股票与所属指数的有效行情基准未对齐（股票 {forecast_stock_date or '缺失'}，"
+                    f"指数 {forecast_index_date or '缺失'}，要求 {forecast_base_date}）"
+                )
         common_days = len(common_dates)
         warnings = [
             self._single_warning(3, metrics["up_deviations"][3], down_deviations[3], metrics["up_window_lengths"][3], metrics["down_window_lengths"][3], rule.ordinary_deviation, -rule.ordinary_deviation),
@@ -1855,7 +1871,8 @@ class MarketService:
             "nextDayForecast": {
                 "baseTradeDate": forecast_base_date,
                 "targetTradeDate": forecast_target_date,
-                "available": bool(forecast_base_date and forecast_target_date and self._vector_latest_date(forecast_stock_vector) == forecast_base_date and self._vector_latest_date(forecast_index_vector) == forecast_base_date),
+                "available": forecast_available,
+                "unavailableReason": forecast_unavailable_reason,
                 "rules": next_day_rules,
             },
             "warnings": warnings,
@@ -2610,25 +2627,10 @@ class MarketService:
                 suspension.get("ruleResetScope") == "all",
             )
             limit = float(board_rule.limit_price_ratio or 10.0)
-            # 次日预测只面向“尚未进入当日严重异动”的股票。若任一严重规则
-            # 已在当前快照触发，后续监管由重点监控承接，不再为同一股票生成
-            # 另一严重窗口的次日候选（例如善水的 10 日已触发时不再展示 30 日卡）。
-            already_triggered = bool(
-                (
-                    metrics["deviations"].get(10) is not None
-                    and board_rule.severe_10d_threshold.triggered(metrics["deviations"][10])
-                )
-                or (
-                    metrics["deviations"].get(30) is not None
-                    and board_rule.severe_30d_threshold.triggered(metrics["deviations"][30])
-                )
-                or int(metrics.get("same", 0) or 0) >= board_rule.severe_same_direction_count
-            )
-            if scope == "next_day" and already_triggered:
-                stats["excludedByTriggered"] += 1
-                continue
-            # 普通/同向短窗口卡只对已进入 10 日或 30 日监管期的股票开放。
-            same_direction_count = int(metrics.get("same", 0) or 0)
+            # 规则逐项判定。10 日同向、10 日偏离和 30 日偏离是独立条件；
+            # 任一条件触发不能屏蔽同股的其他规则卡。公告监管事实只通过
+            # _rule_vectors_for_stock 的正式重置证据改变计算基线。
+            # 普通短窗口卡只对已进入 10 日或 30 日监管期的股票开放。
             stock_keys = {str(stock.get("symbol") or ""), ts_code.split(".")[0]}
             severe_monitored = bool(stock_keys & monitored_codes.get("__severe_monitor__", set()))
             independent_ordinary_monitor = bool(stock_keys & monitored_codes.get("__ordinary_monitor__", set()))
@@ -2665,10 +2667,7 @@ class MarketService:
                 if distance is None:
                     stats["excludedByDataQuality"] += 1
                     continue
-                triggered = (same_direction_count >= board_rule.severe_same_direction_count) if kind == "same_direction" else deviation >= threshold
-                if scope == "next_day" and triggered:
-                    stats["excludedByTriggered"] += 1
-                    continue
+                triggered = deviation >= threshold
                 if not triggered and distance > limit and candidate_keys is None:
                     stats["excludedByLimit"] += 1
                     continue

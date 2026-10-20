@@ -22,19 +22,22 @@ assert.deepStrictEqual(buildNextDayForecast({ ...forecastBase, rules: [
   summaryTone: 'risk'
 })
 assert.deepStrictEqual(buildNextDayForecast({ ...forecastBase, available: false, rules: [] }), {
-  line: '', text: '暂无异动风险：四项预警均安全；次日预测暂不可用',
-  summaryStatus: '暂无异动风险', summaryTone: 'safe'
+  line: '', text: '次日预测暂不可用',
+  summaryStatus: '次日预测暂不可用', summaryTone: 'unknown'
 })
+assert.strictEqual(buildNextDayForecast({ ...forecastBase, available: false, unavailableReason: '股票与所属指数行情基准未对齐', rules: [] }).text, '次日预测暂不可用：股票与所属指数行情基准未对齐')
 assert.strictEqual(buildNextDayForecast({ ...forecastBase, rules: [
   { ruleKey: 'severe_10d' }
 ] }).text, '次日可能触发：次日预测规则说明暂不可用')
-assert.strictEqual(buildNextDayForecast({}).text, '暂无异动风险：四项预警均安全；预测数据版本未同步')
-assert.deepStrictEqual(summaryStatus({ status: '正常', monitoring: { monitorType: '严重异动' } }), { text: '暂无异动风险', tone: 'safe' })
-assert.deepStrictEqual(summaryStatus({ status: '正常', monitoringStatus: 'active' }), { text: '暂无异动风险', tone: 'safe' })
-assert.deepStrictEqual(summaryStatus({ status: '触及', monitoring: null }), { text: '暂无异动风险', tone: 'safe' })
-assert.deepStrictEqual(summaryStatus({ status: '正常', nextDayForecast: { available: true, rules: [{ ruleKey: 'severe_30d' }] } }), { text: '存在异动风险', tone: 'risk' })
-assert.deepStrictEqual(summaryStatus({ status: '正常', monitoringStatus: 'active', nextDayForecast: { available: true, rules: [] } }), { text: '暂无异动风险', tone: 'safe' })
-assert.deepStrictEqual(summaryStatus({ status: '正常', nextDayForecast: { available: true, rules: [] } }), { text: '暂无异动风险', tone: 'safe' })
+assert.strictEqual(buildNextDayForecast({}).text, '预测数据版本未同步')
+assert.deepStrictEqual(summaryStatus({ nextDayForecast: { available: false, rules: [] } }), { text: '次日预测暂不可用', tone: 'unknown' })
+const safeForecast = { ...forecastBase, available: true, rules: [] }
+assert.deepStrictEqual(summaryStatus({ status: '正常', monitoring: { monitorType: '严重异动' }, nextDayForecast: safeForecast }), { text: '暂无异动风险', tone: 'safe' })
+assert.deepStrictEqual(summaryStatus({ status: '正常', monitoringStatus: 'active', nextDayForecast: safeForecast }), { text: '暂无异动风险', tone: 'safe' })
+assert.deepStrictEqual(summaryStatus({ status: '触及', monitoring: null, nextDayForecast: safeForecast }), { text: '暂无异动风险', tone: 'safe' })
+assert.deepStrictEqual(summaryStatus({ status: '正常', nextDayForecast: { ...forecastBase, rules: [{ ruleKey: 'severe_30d' }] } }), { text: '存在异动风险', tone: 'risk' })
+assert.deepStrictEqual(summaryStatus({ status: '正常', monitoringStatus: 'active', nextDayForecast: { ...forecastBase, rules: [] } }), { text: '暂无异动风险', tone: 'safe' })
+assert.deepStrictEqual(summaryStatus({ status: '正常', nextDayForecast: { ...forecastBase, rules: [] } }), { text: '暂无异动风险', tone: 'safe' })
 const alignedWarning = buildNextDayForecast({ ...forecastBase, rules: [{ ruleKey: 'same_direction_10d', rule: '10个交易日内出现3次上涨同向普通异动' }] })
 assert.strictEqual(alignedWarning.summaryTone, 'warning')
 assert.strictEqual(alignedWarning.text, '次日可能触发：10个交易日内出现3次上涨同向普通异动')
@@ -58,15 +61,15 @@ const allRuleKeys = ['ordinary_3d', 'same_direction_10d', 'severe_10d', 'severe_
 allRuleKeys.forEach(ruleKey => {
   assert.deepStrictEqual(summaryStatus({
     monitoring: { active: true },
-    nextDayForecast: { available: true, rules: [{ ruleKey }] }
+    nextDayForecast: { ...forecastBase, rules: [{ ruleKey }] }
   }), { text: '存在异动风险', tone: 'risk' })
 })
 assert.deepStrictEqual(summaryStatus({
   monitoring: { active: true },
   warnings: allRuleKeys.map(title => ({ title, tone: 'safe' })),
-  nextDayForecast: { available: true, rules: [] }
+  nextDayForecast: { ...forecastBase, rules: [] }
 }), { text: '暂无异动风险', tone: 'safe' })
-assert.deepStrictEqual(summaryStatus({ nextDayForecast: { available: true, rules: [{ ruleKey: 'ordinary_3d' }] } }), { text: '存在警告风险', tone: 'warning' })
+assert.deepStrictEqual(summaryStatus({ nextDayForecast: { ...forecastBase, rules: [{ ruleKey: 'ordinary_3d' }] } }), { text: '存在警告风险', tone: 'warning' })
 assert.strictEqual(formatMonthDay('2026-10-19'), '10/19')
 assert.strictEqual(monitoringRuleLabel({ riskTone: 'severe-30d', monitorType: '30日严重异动', symbol: '600825' }), '连续30个交易日内收盘价涨幅偏离值累计达到 +200%')
 assert.strictEqual(monitoringRuleLabel({ riskTone: 'severe-10d', monitorType: '10日严重异动', symbol: '920229' }), '连续10个交易日内收盘价涨幅偏离值累计达到 +150%')
@@ -124,6 +127,9 @@ const downsideWarning = presentWarnings([{
   target: '阈值 +100% / -50%', downTriggered: true, downWindow: 10
 }])[0]
 assert.strictEqual(downsideWarning.currentText, '-55.00%')
+assert.strictEqual(downsideWarning.currentNumber, '-55.00')
+assert.strictEqual(downsideWarning.currentUnit, '%')
+assert.strictEqual(downsideWarning.currentFontSize, 27)
 assert.strictEqual(downsideWarning.target, '阈值 -50%')
 assert.strictEqual(downsideWarning.tone, 'triggered')
 const orderedWarnings = presentWarnings([
@@ -140,6 +146,8 @@ const orderedWarnings = presentWarnings([
 assert.deepStrictEqual(orderedWarnings.map(item => item.title), ['3 日偏离', '10 日同向', '10 日偏离', '30 日偏离'])
 assert.deepStrictEqual(orderedWarnings.map(item => item.labelTone), ['warning', 'warning', 'severe', 'severe'])
 assert.strictEqual(orderedWarnings[1].currentText, '+1次')
+assert.strictEqual(orderedWarnings[1].currentNumber, '+1')
+assert.strictEqual(orderedWarnings[1].currentUnit, '次')
 const isolatedNextDayRisk = presentWarnings([
   { title: '30 日偏离', value: '+20.00%', downValue: '-5.00%', target: '阈值 +200% / -70%' },
   { title: '10 日偏离', value: '+30.00%', downValue: '-5.00%', target: '阈值 +100% / -50%' }
@@ -151,6 +159,8 @@ const downsideNextDayRisk = presentWarnings([{
   target: '阈值 +200% / -70%'
 }], { nextDayRules: [{ ruleKey: 'severe_30d', direction: 'down' }] })[0]
 assert.strictEqual(downsideNextDayRisk.currentText, '-65.40%')
+assert.strictEqual(downsideNextDayRisk.currentNumber, '-65.40')
+assert.strictEqual(downsideNextDayRisk.currentUnit, '%')
 assert.strictEqual(downsideNextDayRisk.target, '阈值 -70%')
 assert.strictEqual(downsideNextDayRisk.remainingText, '还差 4.60%')
 assert.strictEqual(downsideNextDayRisk.labelTone, 'severe')

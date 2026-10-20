@@ -202,19 +202,18 @@ function buildNextDayForecast(forecast = {}, monitoringActive = false) {
   const unavailable = (text, forecastRules = []) => {
     const unavailableAssessment = assessNextDayRules(forecastRules, monitoringActive)
     const unavailableRuleText = [...new Set(unavailableAssessment.rules.map(item => String(item.rule || '').trim()).filter(Boolean))].join('；')
+    const hasKnownRisk = unavailableAssessment.tone !== 'safe'
     return {
       line: '',
-      text: unavailableAssessment.tone === 'safe'
-        ? `暂无异动风险：四项预警均安全；${text}`
-        : `次日可能触发：${unavailableRuleText || text}`,
-      summaryStatus: unavailableAssessment.text,
-      summaryTone: unavailableAssessment.tone
+      text: hasKnownRisk ? `次日可能触发：${unavailableRuleText || text}` : text,
+      summaryStatus: hasKnownRisk ? unavailableAssessment.text : text,
+      summaryTone: hasKnownRisk ? unavailableAssessment.tone : 'unknown'
     }
   }
   if (typeof forecast.available !== 'boolean') return unavailable('预测数据版本未同步')
   const tradeDate = normalizeTradeDate(forecast.baseTradeDate)
   const nextTradeDate = normalizeTradeDate(forecast.targetTradeDate)
-  if (!forecast.available) return unavailable('次日预测暂不可用')
+  if (!forecast.available) return unavailable(forecast.unavailableReason ? `次日预测暂不可用：${forecast.unavailableReason}` : '次日预测暂不可用')
   if (!tradeDate || !nextTradeDate) return unavailable('次日预测日期暂不可用', forecast.rules || [])
   const line = `按 ${tradeDate.slice(0, 4)}-${tradeDate.slice(4, 6)}-${tradeDate.slice(6)} 收盘数据预测 ${nextTradeDate.slice(0, 4)}-${nextTradeDate.slice(4, 6)}-${nextTradeDate.slice(6)}`
   if (candidates.some(item => !String(item.rule || '').trim())) return { ...unavailable('次日预测规则说明暂不可用', candidates), line }
@@ -362,14 +361,14 @@ function presentWarnings(warnings = [], options = {}) {
       const labelTone = displayTone(item.title, currentRisk, limit > 0)
       const sign = isUp ? '+' : '-'
       const ringTone = labelTone === 'warning' || labelTone === 'severe' ? labelTone : tone === 'unknown' ? 'unknown' : 'base'
-      return { ...item, currentText: `${sign}${count}次`, target: `阈值 ${isUp ? '+' : '-'}${limit}次`, remainingText: tone === 'triggered' ? '已触及' : `还差 ${Math.max(0, limit - count)} 次`, ringText: tone === 'triggered' ? '已触及' : tone === 'unknown' ? '--' : `${Math.max(0, limit - count)}次`, ringValueClass: 'metric-ring-value-count', progress: Number(progress.toFixed(2)), tone, labelTone: ringTone, toneColor: colors[ringTone], valueClass: 'metric-current-count' }
+      return { ...item, currentText: `${sign}${count}次`, currentNumber: `${sign}${count}`, currentUnit: '次', currentFontSize: 20, target: `阈值 ${isUp ? '+' : '-'}${limit}次`, remainingText: tone === 'triggered' ? '已触及' : `还差 ${Math.max(0, limit - count)} 次`, ringText: tone === 'triggered' ? '已触及' : tone === 'unknown' ? '--' : `${Math.max(0, limit - count)}次`, ringValueClass: 'metric-ring-value-count', progress: Number(progress.toFixed(2)), tone, labelTone: ringTone, toneColor: colors[ringTone], valueClass: 'metric-current-count' }
     }
     const rawValue = String(item.value || '').replace('%', '')
     const value = Number.parseFloat(rawValue)
     const downValue = Number.parseFloat(String(item.downValue || '').replace('%', ''))
     if (!Number.isFinite(value) && !Number.isFinite(downValue)) {
       const labelTone = displayTone(item.title, false, false)
-      return { ...item, currentText: '数据不足', remainingText: '暂不可判定', ringText: '--', ringValueClass: '', progress: 0, tone: 'unknown', labelTone, toneColor: colors[labelTone], valueClass: '' }
+      return { ...item, currentText: '数据不足', currentNumber: '数据不足', currentUnit: '', currentFontSize: 22, remainingText: '暂不可判定', ringText: '--', ringValueClass: '', progress: 0, tone: 'unknown', labelTone, toneColor: colors[labelTone], valueClass: '' }
     }
     const thresholds = String(item.target || '').match(/[+-]?\d+(?:\.\d+)?/g) || []
     const up = Number.isFinite(Number(item.upThreshold)) ? Math.abs(Number(item.upThreshold)) : Math.abs(Number(thresholds[0] || 0))
@@ -395,7 +394,9 @@ function presentWarnings(warnings = [], options = {}) {
     const currentRisk = tone === 'triggered' || tone === 'warning'
     const labelTone = displayTone(item.title, currentRisk, Number.isFinite(actual))
     const ringTone = labelTone === 'warning' || labelTone === 'severe' ? labelTone : 'base'
-    return { ...item, currentText: actualText, target: `阈值 ${positive ? '+' : '-'}${selectedThreshold}%`, remainingText: tone === 'triggered' ? '已触及' : `还差 ${remaining.toFixed(2)}%`, ringText: tone === 'triggered' ? '已触及' : `${remaining.toFixed(2)}%`, ringValueClass: 'metric-ring-value-percent', progress: Number(progress.toFixed(2)), tone, labelTone: ringTone, toneColor: colors[ringTone], valueClass: actualText.length >= 8 ? 'metric-current-compact' : '' }
+    const numberText = actualText.endsWith('%') ? actualText.slice(0, -1) : actualText
+    const currentFontSize = numberText.length >= 8 ? 21 : numberText.length >= 7 ? 24 : numberText.length >= 6 ? 27 : 30
+    return { ...item, currentText: actualText, currentNumber: numberText, currentUnit: '%', currentFontSize, target: `阈值 ${positive ? '+' : '-'}${selectedThreshold}%`, remainingText: tone === 'triggered' ? '已触及' : `还差 ${remaining.toFixed(2)}%`, ringText: tone === 'triggered' ? '已触及' : `${remaining.toFixed(2)}%`, ringValueClass: 'metric-ring-value-percent', progress: Number(progress.toFixed(2)), tone, labelTone: ringTone, toneColor: colors[ringTone], valueClass: '' }
   }).sort((left, right) => (order[left.title] ?? 99) - (order[right.title] ?? 99))
 }
 
