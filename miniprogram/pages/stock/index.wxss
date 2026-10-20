@@ -67,17 +67,14 @@
 .clock-hand { position: absolute; left: 9rpx; bottom: 9rpx; width: 2rpx; border-radius: 2rpx; background: #636366; transform-origin: bottom center; }
 .clock-hand-hour { height: 6rpx; }
 .clock-hand-minute { height: 8rpx; transform: rotate(125deg); }
-.history-clear { display: flex; width: 82rpx; height: 48rpx; flex: 0 0 82rpx; align-items: center; justify-content: center; gap: 6rpx; margin-left: 2rpx; border: 1rpx solid #E1E4E8; border-radius: 8rpx; background: #F7F8FA; color: #62666D; font-size: 18rpx; }
-.history-clear-pressed { background: #E9ECF0; }
+.history-clear { display: flex; width: 48rpx; height: 48rpx; flex: 0 0 48rpx; align-items: center; justify-content: center; margin-left: 10rpx; border: 1rpx solid #B9D6F2; border-radius: 9rpx; background: #EAF3FC; color: #185A96; }
+.history-clear-pressed { border-color: #8DBBE8; background: #D8EAF9; }
 .history-scroll { min-width: 0; height: 52rpx; flex: 1; white-space: nowrap; }
 .history-items { display: flex; width: 100%; height: 52rpx; align-items: center; gap: 8rpx; white-space: nowrap; }
 .history-empty { color: #636366; font-size: 19rpx; }
 .history-chip { display: inline-flex; max-width: 200rpx; height: 42rpx; flex: 0 0 auto; align-items: center; overflow: hidden; padding: 0 13rpx; border-radius: 7rpx; background: #F3F4F6; color: #55585D; font-size: 20rpx; text-overflow: ellipsis; white-space: nowrap; }
-.history-trash { position: relative; display: flex; width: 20rpx; height: 24rpx; align-items: center; justify-content: center; }
-.trash-lid { position: absolute; top: 2rpx; width: 15rpx; height: 2rpx; border-radius: 2rpx; background: #737982; }
-.trash-lid::before { position: absolute; top: -4rpx; left: 5rpx; width: 5rpx; height: 2rpx; border-radius: 2rpx 2rpx 0 0; background: #737982; content: ''; }
-.trash-can { display: flex; width: 12rpx; height: 15rpx; justify-content: space-evenly; margin-top: 7rpx; padding-top: 3rpx; box-sizing: border-box; border: 1.5rpx solid #737982; border-top: 0; border-radius: 0 0 3rpx 3rpx; }
-.trash-can view { width: 1.5rpx; height: 8rpx; border-radius: 1rpx; background: #737982; }
+.history-trash { position: relative; width: 24rpx; height: 24rpx; flex: 0 0 24rpx; color: #185A96; background: linear-gradient(currentColor, currentColor) center 6rpx / 18rpx 2rpx no-repeat, linear-gradient(currentColor, currentColor) center 2rpx / 7rpx 2rpx no-repeat; }
+.history-trash::before { position: absolute; top: 8rpx; left: 6rpx; width: 12rpx; height: 13rpx; box-sizing: border-box; border: 2rpx solid currentColor; border-top: 0; border-radius: 0 0 4rpx 4rpx; content: ''; }
 .recent-head { margin-top: 30rpx; }
 .clear-link, .text-button { padding: 0; border: 0; background: transparent; color: #007AFF; font-size: 22rpx; }
 .recent-list { overflow: hidden; }

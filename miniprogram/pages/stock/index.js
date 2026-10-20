@@ -176,54 +176,36 @@ const WARNING_RULE_KEYS = {
   '30 日偏离': 'severe_30d'
 }
 
-function riskForRules(ruleKeys = []) {
-  const keys = new Set(ruleKeys)
-  if (keys.has('severe_10d') || keys.has('severe_30d')) return { text: '存在异动风险', tone: 'risk' }
-  if (keys.has('ordinary_3d') || keys.has('same_direction_10d')) return { text: '存在警告风险', tone: 'warning' }
-  return { text: '暂无异动风险', tone: 'safe' }
+function assessNextDayRules(rules = [], monitoringActive = false) {
+  const candidates = rules.filter(item => item && WARNING_RULE_KEYS_BY_KEY.has(String(item.ruleKey || '')))
+  const ruleKeys = new Set(candidates.map(item => String(item.ruleKey)))
+  if (!ruleKeys.size) return { text: '暂无异动风险', tone: 'safe', rules: [] }
+
+  const severeKeys = new Set(['severe_10d', 'severe_30d'])
+  const warningKeys = new Set(['ordinary_3d', 'same_direction_10d'])
+  if (monitoringActive) return { text: '存在异动风险', tone: 'risk', rules: candidates }
+  if (Array.from(ruleKeys).some(key => severeKeys.has(key))) {
+    return { text: '存在异动风险', tone: 'risk', rules: candidates.filter(item => severeKeys.has(String(item.ruleKey))) }
+  }
+  return { text: '存在警告风险', tone: 'warning', rules: candidates.filter(item => warningKeys.has(String(item.ruleKey))) }
 }
 
-function currentTriggeredRules(warnings = []) {
-  return warnings.filter((item) => {
-    if (!item) return false
-    if (item.title === '10 日同向') {
-      const up = Number(item.up)
-      const down = Number(item.down)
-      const upThreshold = Number(item.upThreshold)
-      const downThreshold = Math.abs(Number(item.downThreshold))
-      const targetMatch = String(item.target || '').match(/(\d+(?:\.\d+)?)\s*次/)
-      const threshold = Number.isFinite(upThreshold) && upThreshold > 0
-        ? upThreshold
-        : (targetMatch ? Number(targetMatch[1]) : downThreshold)
-      return threshold > 0 && ((Number.isFinite(up) && up >= threshold) || (Number.isFinite(down) && down >= threshold))
-    }
-    const truthy = value => value === true || value === 1 || value === '1' || String(value).toLowerCase() === 'true'
-    return truthy(item.upTriggered) || truthy(item.downTriggered)
-  })
-}
+const WARNING_RULE_KEYS_BY_KEY = new Set(Object.values(WARNING_RULE_KEYS))
 
-function warningRuleKeys(warnings = []) {
-  return warnings
-    .filter(item => item && item.labelTone === 'warning')
-    .map(item => WARNING_RULE_KEYS[item.title])
-    .filter(Boolean)
-}
-
-function buildNextDayForecast(forecast = {}, warnings = []) {
-  const currentRules = currentTriggeredRules(warnings)
+function buildNextDayForecast(forecast = {}, monitoringActive = false) {
+  const candidates = Array.isArray(forecast.rules) ? forecast.rules : []
+  const assessment = assessNextDayRules(candidates, monitoringActive)
+  const ruleText = [...new Set(assessment.rules.map(item => String(item.rule || '').trim()).filter(Boolean))].join('；')
   const unavailable = (text, forecastRules = []) => {
-    const risk = riskForRules([
-      ...currentRules.map(item => WARNING_RULE_KEYS[item.title]),
-      ...warningRuleKeys(warnings),
-      ...forecastRules.map(item => String(item.ruleKey || ''))
-    ])
+    const unavailableAssessment = assessNextDayRules(forecastRules, monitoringActive)
+    const unavailableRuleText = [...new Set(unavailableAssessment.rules.map(item => String(item.rule || '').trim()).filter(Boolean))].join('；')
     return {
       line: '',
-      text: risk.tone === 'safe'
-        ? `${risk.text}：四项预警均安全；${text}`
-        : `${risk.text}：${currentRules.map(item => `${item.title}当前已触发`).join('、') || (forecastRules.length ? '次日存在候选规则' : '四项预警有临近规则')}；${text}`,
-      summaryStatus: risk.text,
-      summaryTone: risk.tone
+      text: unavailableAssessment.tone === 'safe'
+        ? `暂无异动风险：四项预警均安全；${text}`
+        : `次日可能触发：${unavailableRuleText || text}`,
+      summaryStatus: unavailableAssessment.text,
+      summaryTone: unavailableAssessment.tone
     }
   }
   if (typeof forecast.available !== 'boolean') return unavailable('预测数据版本未同步')
@@ -232,34 +214,21 @@ function buildNextDayForecast(forecast = {}, warnings = []) {
   if (!forecast.available) return unavailable('次日预测暂不可用')
   if (!tradeDate || !nextTradeDate) return unavailable('次日预测日期暂不可用', forecast.rules || [])
   const line = `按 ${tradeDate.slice(0, 4)}-${tradeDate.slice(4, 6)}-${tradeDate.slice(6)} 收盘数据预测 ${nextTradeDate.slice(0, 4)}-${nextTradeDate.slice(4, 6)}-${nextTradeDate.slice(6)}`
-  const candidates = forecast.rules || []
   if (candidates.some(item => !String(item.rule || '').trim())) return { ...unavailable('次日预测规则说明暂不可用', candidates), line }
-  const rules = [...new Set(candidates.map(item => String(item.rule).trim()))]
-  const risk = riskForRules([
-    ...currentRules.map(item => WARNING_RULE_KEYS[item.title]),
-    ...warningRuleKeys(warnings),
-    ...candidates.map(item => String(item.ruleKey || ''))
-  ])
-  const currentText = currentRules.map(item => `${item.title}当前已触发`).join('、')
-  const nearRules = warningRuleKeys(warnings)
-    .filter(key => !currentRules.some(item => WARNING_RULE_KEYS[item.title] === key) && !candidates.some(item => item.ruleKey === key))
-    .map(key => Object.keys(WARNING_RULE_KEYS).find(title => WARNING_RULE_KEYS[title] === key))
-  const nearText = nearRules.length ? `当前接近阈值：${nearRules.join('、')}` : ''
-  const candidateText = rules.length ? `次日可能触发：${rules.join('；')}` : '未发现下一交易日可触发的规则'
-  const text = risk.tone === 'safe'
-    ? '四项预警均安全；未发现下一交易日可触发的规则'
-    : [currentText, nearText, rules.length ? candidateText : '次日未发现新增可触发规则'].filter(Boolean).join('；')
+  const text = assessment.tone === 'safe'
+    ? '未发现下一交易日可触发的异动规则'
+    : (ruleText ? `次日可能触发：${ruleText}` : '次日可能触发：规则说明暂不可用')
   return {
     line,
-    text: `${risk.text}：${text}`,
-    summaryStatus: risk.text,
-    summaryTone: risk.tone
+    text,
+    summaryStatus: assessment.text,
+    summaryTone: assessment.tone
   }
 }
 
 function summaryStatus(detail) {
-  const warnings = Array.isArray(detail && detail.warnings) ? detail.warnings : []
-  const assessment = buildNextDayForecast(detail && detail.nextDayForecast || {}, warnings)
+  const monitoringActive = Boolean(detail && detail.monitoring && detail.monitoring.active !== false)
+  const assessment = buildNextDayForecast(detail && detail.nextDayForecast || {}, monitoringActive)
   return { text: assessment.summaryStatus, tone: assessment.summaryTone }
 }
 
@@ -364,15 +333,6 @@ function presentWarnings(warnings = [], options = {}) {
   const colors = { base: '#B9D6F2', warning: '#F5C542', severe: '#D94A45', unknown: '#DCEBFA' }
   const forecastRules = options.nextDayRules || []
   const nextDayRuleKeys = new Set(forecastRules.map(item => String(item && item.ruleKey || '').trim()).filter(Boolean))
-  const nextDayDirections = new Map()
-  forecastRules.forEach(item => {
-    const key = String(item && item.ruleKey || '').trim()
-    const direction = String(item && item.direction || '').trim()
-    if (!key || (direction !== 'up' && direction !== 'down')) return
-    const directions = nextDayDirections.get(key) || new Set()
-    directions.add(direction)
-    nextDayDirections.set(key, directions)
-  })
   const order = { '3 日偏离': 0, '10 日同向': 1, '10 日偏离': 2, '30 日偏离': 3 }
   const ruleKeyForTitle = title => ({
     '3 日偏离': 'ordinary_3d',
@@ -418,22 +378,13 @@ function presentWarnings(warnings = [], options = {}) {
     const tone = item.title === '3 日偏离'
       ? (triggered ? 'triggered' : progress >= 66.6667 ? 'warning' : 'safe')
       : (triggered ? 'triggered' : 'safe')
-    // When the current snapshot is not triggered, a next-day candidate can
-    // still be directional. Select that side's value/threshold so a downside
-    // candidate is not rendered as an upside safety gap (for example
-    // +192.36% alongside a red ring for a -70% rule).
-    const forecastDirectionSet = nextDayDirections.get(ruleKeyForTitle(item.title))
-    const forecastDirection = forecastDirectionSet && forecastDirectionSet.size === 1
-      ? Array.from(forecastDirectionSet)[0]
-      : ''
-    const useUp = item.upTriggered
-      ? true
-      : (item.downTriggered
-          ? false
-          : (forecastDirection === 'down'
-              ? false
-              : (forecastDirection === 'up' ? true : (Number.isFinite(value) && value > 0))))
-    const actual = useUp ? value : (Number.isFinite(downValue) && downValue < 0 ? downValue : (Number.isFinite(value) ? value : downValue))
+    // The current displayed deviation is selected from current market data,
+    // never from the direction of a next-day forecast candidate. Match the
+    // ring's progress rule so the value, threshold, and ring describe the same side.
+    const useUp = upProgress >= downProgress
+    const actual = useUp
+      ? (Number.isFinite(value) ? value : downValue)
+      : (Number.isFinite(downValue) ? downValue : value)
     const positive = Number.isFinite(actual) && actual >= 0
     const selectedThreshold = positive ? up : downThreshold
     const actualText = Number.isFinite(actual) ? `${actual >= 0 ? '+' : ''}${actual.toFixed(2)}%` : '--'
@@ -454,7 +405,7 @@ Page({
     inputRows: createInputRows(2), matrixGroups: buildMatrixGroups(createInputRows(2))
   },
   onLoad(options) {
-    this.setData({ recentStocks: wx.getStorageSync(STOCK_HISTORY_KEY) || [] })
+    this.setData({ recentStocks: (wx.getStorageSync(STOCK_HISTORY_KEY) || []).slice(0, 8) })
     if (options.ts_code) this.loadStockByCode(options.ts_code)
   },
   onShow() {
@@ -508,7 +459,7 @@ Page({
       : eventOrStock
     if (!stock || !stock.ts_code) return
     getApp().globalData.lastStock = stock
-    const recentStocks = [{ ts_code: stock.ts_code, symbol: stock.symbol || stock.ts_code.split('.')[0], name: stock.name || stock.ts_code }, ...(this.data.recentStocks || []).filter(item => item.ts_code !== stock.ts_code)].slice(0, 5)
+    const recentStocks = [{ ts_code: stock.ts_code, symbol: stock.symbol || stock.ts_code.split('.')[0], name: stock.name || stock.ts_code }, ...(this.data.recentStocks || []).filter(item => item.ts_code !== stock.ts_code)].slice(0, 8)
     wx.setStorageSync(STOCK_HISTORY_KEY, recentStocks)
     this.setData({ recentStocks })
     const inputRows = createInputRows(2, this.data.futureTradeDates)
@@ -546,12 +497,12 @@ Page({
           symbol: monitoring.symbol || detailWithMonitoring.symbol || stock.symbol
         })
       }
-      const forecast = buildNextDayForecast(detailWithMonitoring.nextDayForecast || {}, displayDetail.warnings)
+      const forecast = buildNextDayForecast(detailWithMonitoring.nextDayForecast || {}, Boolean(displayDetail.monitoringSummary))
       const statusSummary = { text: forecast.summaryStatus, tone: forecast.summaryTone }
       displayDetail.summaryStatus = statusSummary.text
       displayDetail.summaryTone = statusSummary.tone
       const dataUpdatedAt = formatUpdatedAt((detailWithMonitoring.dataQuality || {}).quoteUpdatedAt || detailWithMonitoring.tradeDate)
-      const recentStocks = [{ ts_code: detailWithMonitoring.ts_code || stock.ts_code, symbol: detailWithMonitoring.symbol || stock.symbol || stock.ts_code.split('.')[0], name: detailWithMonitoring.name || stock.name || stock.ts_code }, ...(this.data.recentStocks || []).filter(item => item.ts_code !== (detailWithMonitoring.ts_code || stock.ts_code))].slice(0, 5)
+      const recentStocks = [{ ts_code: detailWithMonitoring.ts_code || stock.ts_code, symbol: detailWithMonitoring.symbol || stock.symbol || stock.ts_code.split('.')[0], name: detailWithMonitoring.name || stock.name || stock.ts_code }, ...(this.data.recentStocks || []).filter(item => item.ts_code !== (detailWithMonitoring.ts_code || stock.ts_code))].slice(0, 8)
       wx.setStorageSync(STOCK_HISTORY_KEY, recentStocks)
       this.setData({ selected: { ...stock, ...detailWithMonitoring }, detail: displayDetail, detailLoading: false, detailError: '', dataUpdatedAt, recentStocks, futureTradeDates, inputRows: rows, matrixGroups: buildMatrixGroups(rows), query: `${detailWithMonitoring.name} ${detailWithMonitoring.symbol}`, nextDayForecastLine: forecast.line, nextDayForecastText: forecast.text })
     }).catch((error) => {
