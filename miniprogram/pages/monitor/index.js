@@ -10,6 +10,10 @@ Page({
     if (tabBar) tabBar.setData({ selected: 1 })
   },
   onPullDownRefresh() { this.loadData().finally(() => wx.stopPullDownRefresh()) },
+  refreshNow() {
+    if (this.data.loading || this.data.refreshing) return
+    this.loadData()
+  },
   selectType(event) {
     this.requestSeq = (this.requestSeq || 0) + 1
     if (this.pollTimer) clearTimeout(this.pollTimer)
