@@ -16,7 +16,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date
 from enum import Enum
-from typing import Iterable, List, Optional, Sequence, Tuple
+from typing import Any, Iterable, List, Optional, Sequence, Tuple
 
 
 class Board(str, Enum):
@@ -348,19 +348,43 @@ def _turnover_abnormal(
     )
 
 
-def _count_same_direction(records: Iterable[OrdinaryAbnormal]) -> Tuple[int, Direction, int, int]:
-    """分别统计最近窗口内上涨/下跌方向的独立 3 日滚动事件。
+def _record_field(item: object, name: str, default: object = None) -> object:
+    """Read a rule record from either the dataclass or the JSON-compatible dict form."""
 
-    交易所的“10 个交易日内出现多次同向异常波动”以每个连续 3 日
-    普通异动窗口为一个事件。相邻窗口即使共享收益区间，也分别计数；
-    否则连续涨停会被错误压成一次。换手率触发的无方向记录已在上游
-    通过 ``counts_for_same_direction=False`` 排除。
+    if isinstance(item, dict):
+        return item.get(name, default)
+    return getattr(item, name, default)
+
+
+def select_same_direction_events(
+    records: Iterable[Any],
+    session_dates: Optional[Sequence[Any]] = None,
+) -> Tuple[Any, ...]:
+    """Keep every qualifying directional window as an independent occurrence.
+
+    The product counting policy counts each market-data-confirmed three-session
+    window separately. Overlap with another qualifying window is not a reason
+    to merge or discard it. Directionless conditions do not enter this counter.
     """
 
-    directional_records = sorted(
-        (item for item in records if item.counts_for_same_direction and item.direction is not Direction.NONE),
-        key=lambda item: (item.end_date, item.start_date),
-    )
+    del session_dates  # Kept for call compatibility; occurrence identity is the window.
+    selected = [
+        item for item in records
+        if bool(_record_field(item, "counts_for_same_direction", True))
+        and _record_field(item, "direction") not in (Direction.NONE, "", "none", "无方向", None)
+    ]
+    return tuple(sorted(
+        selected,
+        key=lambda item: (_record_field(item, "end_date"), _record_field(item, "start_date")),
+    ))
+
+
+def _count_same_direction(
+    records: Iterable[OrdinaryAbnormal],
+) -> Tuple[int, Direction, int, int]:
+    """分别统计独立上涨/下跌方向普通异动事件。"""
+
+    directional_records = tuple(records)
     def count(direction: Direction) -> int:
         return sum(1 for item in directional_records if item.direction is direction)
 
@@ -431,21 +455,15 @@ def detect_severe_abnormal(
     # 触发偏离值和换手率两条普通异常记录。
     recent_start = stock_bars[-10].trade_date if len(stock_bars) >= 10 else stock_bars[0].trade_date
     recent_end = stock_bars[-1].trade_date
-    recent_records = [
-        item
-        for item in ordinary_records
-        if recent_start <= item.end_date <= recent_end
-    ]
-    same_count, same_direction, up_count, down_count = _count_same_direction(recent_records)
-    same_direction_events = tuple(
-        sorted(
-            (
-                item for item in recent_records
-                if item.counts_for_same_direction and item.direction is not Direction.NONE
-            ),
-            key=lambda item: (item.end_date, item.start_date),
-        )
+    same_direction_events = select_same_direction_events(
+        ordinary_records,
+        [item.trade_date for item in stock_bars],
     )
+    same_direction_events = tuple(
+        item for item in same_direction_events
+        if recent_start <= item.end_date <= recent_end
+    )
+    same_count, same_direction, up_count, down_count = _count_same_direction(same_direction_events)
     return SevereAbnormalResult(
         severe_10d=severe_10d,
         severe_30d=severe_30d,

@@ -1,5 +1,5 @@
 <view class="rules-page">
-  <view class="rules-updated">更新时间：2026-10-19</view>
+  <view class="rules-updated">更新时间：2026-10-22</view>
   <view class="rules-section">
     <view class="rules-heading">异动规则</view>
     <view class="threshold-table">
@@ -30,7 +30,8 @@
   <view class="rules-section">
     <view class="rules-heading">计算口径</view>
     <view class="rules-copy">10 日窗口使用最近 11 条有效交易日 K，30 日窗口使用最近 31 条。停牌、无效价格与缺失指数不做 0 填充。</view>
-    <view class="rules-copy">普通异动按连续 3 个交易日收盘价偏离累计计算；同向次数按最近 10 个交易日滚动统计，分别统计上涨和下跌方向，每个滚动 3 日窗口独立计数。</view>
+    <view class="rules-copy">普通异动按连续 3 个交易日收盘价偏离累计计算；10 日同向按收盘行情和板块阈值逐个判断每个三日窗口，重叠窗口分别计次，公告数量不作为计次数量。该窗口计次方式是本工具依据规则结构及公开案例制定的产品口径，交易所规则未明文解释重叠窗口如何计数。</view>
+    <view class="rules-copy">普通异常公告重置三日普通异动基线，不清除 10 日同向次数；严重异常公告重置 10 日同向及 10/30 日严重指标。两类重置范围是本工具按指标类别作出的推断，最终认定以交易所规则及公告为准。</view>
   </view>
 
   <view class="rules-section rules-risk">

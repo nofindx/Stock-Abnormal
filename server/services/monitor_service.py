@@ -41,7 +41,7 @@ MONITOR_PERIOD_TRADING_DAYS = {
 MONITOR_WINDOW_TRADING_DAYS = MONITOR_PERIOD_TRADING_DAYS
 # 公告分类口径变化时，启动任务主动重采一次当前快照；避免必须等到次日
 # 00:00 才让修复后的北交所严重异动进入重点监控。
-MONITOR_RULE_VERSION = "2026-10-monitor-zts-effective-date-reset-evidence-all-windows-reset-facts-v19"
+MONITOR_RULE_VERSION = "2026-10-monitor-zts-effective-date-separate-reset-scopes-retained-reset-facts-v21"
 
 # 只有官方披露平台上的发行人/交易所正文，才有资格改变行情累计基线。
 # 18.cn、中泰等风险提示可以作为监管事实或佐证，但不能单独触发重置。
@@ -1091,23 +1091,17 @@ class OfficialMonitorService:
                 })
             # 18.cn 页面只展示滚动的最近条目；仅在 18.cn 成功时保留旧窗口，避免主源滚动造成记录消失。
             previous_snapshot = self.repository.active_snapshot() or {}
-            # 每只股票只需保留最新生效基线；同一生效日的不同正式公告均保留，
-            # 避免事实相同日期时丢失来源证据，也避免快照随历史公告无限增长。
+            # 保留近期按类型确认的重置事实，才能重建普通基线分段及严重计次账本；
+            # 10 日滚动统计在长假时也需要覆盖超过一个月的事实边界。
             reset_by_id = {
                 str(item.get("sourceId") or ""): item
                 for item in [*(previous_snapshot.get("resetFacts") or []), *parsed_reset_facts]
                 if item.get("sourceId")
             }
-            latest_reset_date_by_symbol: Dict[str, str] = {}
-            for item in reset_by_id.values():
-                symbol = str(item.get("symbol") or "")
-                reset_date = str(item.get("ruleResetDate") or "").replace("-", "")
-                if symbol and reset_date > latest_reset_date_by_symbol.get(symbol, ""):
-                    latest_reset_date_by_symbol[symbol] = reset_date
+            reset_cutoff = (now - timedelta(days=60)).strftime("%Y%m%d")
             reset_facts = [
                 item for item in reset_by_id.values()
-                if str(item.get("ruleResetDate") or "").replace("-", "")
-                == latest_reset_date_by_symbol.get(str(item.get("symbol") or ""))
+                if str(item.get("ruleResetDate") or "").replace("-", "") >= reset_cutoff
             ]
             reset_facts = sorted(
                 reset_facts,
@@ -1159,7 +1153,9 @@ class OfficialMonitorService:
                         "requiresOfficialBody": True,
                         "ordinaryRequiresThreeDayThresholdOrTurnoverCondition": True,
                         "severeRequiresBoardThresholdOrSameDirectionEvidence": True,
-                        "resetScope": ["3d", "10d", "30d", "same_direction_10d"],
+                        "ordinaryResetScope": ["3d_baseline"],
+                        "severeResetScope": ["10d", "30d", "same_direction_10d"],
+                        "overlappingThreeDayWindowsCountSeparately": True,
                         "ordinaryRiskAlertsReset": False,
                     },
                     "issuerBodyVerification": {

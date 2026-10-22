@@ -17,6 +17,7 @@ from .abnormal_rules import (
     calculate_trigger_price,
     detect_ordinary_abnormal,
     detect_severe_abnormal,
+    select_same_direction_events,
     predict_trigger_prices,
 )
 from .models import (
@@ -47,6 +48,7 @@ __all__ = [
     "calculate_trigger_price",
     "detect_ordinary_abnormal",
     "detect_severe_abnormal",
+    "select_same_direction_events",
     "predict_trigger_prices",
     "AbnormalMonitorRecord",
     "DailyMarketBar",

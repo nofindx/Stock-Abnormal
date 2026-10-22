@@ -81,6 +81,8 @@ def main() -> int:
             item.get("returnVector") or [],
             index.get("returnVector") or [],
             BOARD_RULES[board],
+            ordinary_reset_dates=item.get("ordinaryResetDates") or [],
+            severe_reset_date=str(item.get("severeResetDate") or ""),
         )
         stored = item.get("sameDirection") or {}
         expected = {"up": int(metrics.get("up") or 0), "down": int(metrics.get("down") or 0)}

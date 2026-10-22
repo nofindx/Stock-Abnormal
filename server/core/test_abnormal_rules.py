@@ -4,6 +4,7 @@ from datetime import date, timedelta
 import unittest
 
 from .abnormal_rules import (
+    BOARD_RULES,
     Board,
     Direction,
     PriceBar,
@@ -43,6 +44,12 @@ class AbnormalRulesTest(unittest.TestCase):
         result = calculate_trigger_price(100, 5, 100, 150, 10)
         self.assertAlmostEqual(result.trigger_price, 205.0)
         self.assertAlmostEqual(result.remaining_percent, 36.666667, places=5)
+
+    def test_same_direction_thresholds_match_configured_board_rules(self):
+        self.assertEqual(
+            {board: BOARD_RULES[board].severe_same_direction_count for board in Board},
+            {Board.MAIN: 4, Board.CHINEXT: 3, Board.STAR: 3, Board.BSE: 3},
+        )
 
     def test_main_board_10_day_severe_threshold(self):
         """主板最近 10 个交易日偏离达到 100% 时应触发严重异常。"""
@@ -94,12 +101,23 @@ class AbnormalRulesTest(unittest.TestCase):
         self.assertIsNone(result.severe_10d)
         self.assertEqual(result.down_count, 1)
 
-    def test_adjacent_three_day_events_sharing_only_boundary_close_count_twice(self):
-        """相邻且只共用边界收盘价的 3 日区间是两次独立异动。"""
+    def test_continuous_ordinary_windows_count_separately(self):
+        """每个达标的重叠三日窗口分别计次。"""
 
         stock, index = make_bars([100.0 * (1.1 ** day) for day in range(7)], [100.0] * 7)
         result = detect_severe_abnormal(stock, index, Board.MAIN)
         self.assertEqual(result.same_direction_count, 4)
+
+    def test_each_qualifying_window_uses_its_confirmation_date_in_rolling_ten_days(self):
+        """同向次数按各达标窗口确认日落入最近十个交易日统计。"""
+
+        stock, index = make_bars([100.0 * (1.08 ** day) for day in range(16)], [100.0] * 16)
+        result = detect_severe_abnormal(stock, index, Board.MAIN)
+
+        self.assertEqual(result.same_direction_count, 10)
+        self.assertEqual(len(result.same_direction_events), 10)
+        self.assertEqual(result.same_direction_events[0].start_date, date(2026, 1, 5))
+        self.assertEqual(result.same_direction_events[-1].end_date, date(2026, 1, 16))
 
     def test_same_direction_result_exposes_auditable_events(self):
         """同向次数必须能由起止日期、方向和偏离明细复核。"""

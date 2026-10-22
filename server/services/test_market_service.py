@@ -1,10 +1,10 @@
 import unittest
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from types import SimpleNamespace
 
 from server.services.market_calc_repository import MarketCalcRepository
 from server.services.market_service import CalculationDataUnavailable, MarketService, _index_code_for_stock
-from server.core.abnormal_rules import BOARD_RULES, Board
+from server.core.abnormal_rules import BOARD_RULES, Board, PriceBar, detect_severe_abnormal
 
 
 def reset_evidence(risk_tone="severe-10d"):
@@ -366,6 +366,9 @@ class MarketVectorTests(unittest.TestCase):
         self.assertEqual(result["items"][0]["indexCode"], "399107.SZ")
         self.assertEqual(result["indexes"][0]["returnVector"][0]["return"], 0.5)
         self.assertEqual(result["indexes"][0]["indexName"], "深证A股指数")
+        self.assertEqual(result["items"][0]["sameDirection"], {"up": 0, "down": 0})
+        self.assertEqual(result["items"][0]["sameDirectionEvents"], [])
+        self.assertAlmostEqual(result["items"][0]["deviations"]["3"], 0.7)
         self.assertFalse(result["containsRawDaily"])
         self.assertFalse(result["containsIntradaySnapshot"])
 
@@ -586,6 +589,10 @@ class MarketVectorTests(unittest.TestCase):
         self.assertIn("3 日普通异动", result["statusReason"])
         self.assertEqual([item["title"] for item in result["warnings"]], ["3 日偏离", "10 日同向", "10 日偏离", "30 日偏离"])
         self.assertTrue(all(item["upTriggered"] for item in (result["warnings"][0], result["warnings"][2], result["warnings"][3])))
+        self.assertEqual(
+            int(result["warnings"][1]["up"]),
+            len(result["warnings"][1]["upEvents"]),
+        )
         self.assertGreaterEqual(int(result["warnings"][1]["up"]), result["warnings"][1]["upThreshold"])
         self.assertTrue(all("上涨阈值" not in item["target"] for item in result["warnings"]))
 
@@ -687,8 +694,8 @@ class MarketVectorTests(unittest.TestCase):
         self.service._append_daily_rows(calculations, {"20260930": Frame()}, ["20260930"])
         self.assertEqual(calculations["000001.SZ"]["stock_return_vector"][-1]["return"], 20.0)
 
-    def test_same_direction_counts_each_rolling_three_day_event(self):
-        """每个滚动 3 日窗口独立计数，重叠窗口不能被合并。"""
+    def test_same_direction_counts_each_qualifying_window(self):
+        """满足条件的重叠滚动窗口分别计次。"""
         dates = [f"2026-08-{index:02d}" for index in range(1, 11)]
         stock = [{"date": day, "return": 10.0 if 3 <= index <= 5 else 0.0} for index, day in enumerate(dates, 1)]
         index = [{"date": day, "return": 0.0} for day in dates]
@@ -696,13 +703,64 @@ class MarketVectorTests(unittest.TestCase):
         self.assertEqual(metrics["up"], 3)
         self.assertEqual(metrics["down"], 0)
 
-    def test_same_direction_counts_all_rolling_three_day_events(self):
-        """连续上涨的每个滚动 3 日窗口都属于独立同向事件。"""
+    def test_same_direction_sustained_limit_up_counts_each_daily_window(self):
+        """连续上涨期间每个达标的三日窗口都进入计次。"""
         dates = [f"2026-08-{index:02d}" for index in range(1, 8)]
-        stock = [{"date": day, "return": 10.0} for day in dates]
+        stock = [{"date": day, "return": 8.0} for day in dates]
         index = [{"date": day, "return": 0.0} for day in dates]
         metrics = MarketService._vector_metrics(stock, index, BOARD_RULES[Board.MAIN])
         self.assertEqual(metrics["up"], 5)
+
+    def test_each_qualifying_window_is_counted_by_confirmation_date(self):
+        """按各达标窗口的确认日判断是否落在最近十个交易日内。"""
+        dates = [f"2026-08-{index:02d}" for index in range(1, 17)]
+        stock = [{"date": day, "return": 8.0} for day in dates]
+        index = [{"date": day, "return": 0.0} for day in dates]
+
+        metrics = MarketService._vector_metrics(stock, index, BOARD_RULES[Board.MAIN])
+
+        self.assertEqual(metrics["up"], 10)
+        self.assertEqual(len(metrics["same_direction_events"]), 10)
+        self.assertEqual(metrics["same_direction_events"][0]["startDate"], "20260805")
+        self.assertEqual(metrics["same_direction_events"][-1]["endDate"], "20260816")
+
+    def test_same_direction_counts_a_new_episode_after_threshold_cools(self):
+        dates = [f"2026-08-{index:02d}" for index in range(1, 11)]
+        values = [10.0, 10.0, 10.0, 0.0, 0.0, 10.0, 10.0, 10.0, 0.0, 0.0]
+        stock = [{"date": day, "return": value} for day, value in zip(dates, values)]
+        index = [{"date": day, "return": 0.0} for day in dates]
+
+        metrics = MarketService._vector_metrics(stock, index, BOARD_RULES[Board.MAIN])
+
+        self.assertEqual(metrics["up"], 5)
+        self.assertEqual([item["endDate"] for item in metrics["same_direction_events"]], ["20260803", "20260804", "20260807", "20260808", "20260809"])
+
+    def test_price_bar_and_vector_paths_emit_the_same_same_direction_events(self):
+        daily_returns = [10.0, 10.0, 10.0, 0.0, 0.0, 10.0, 10.0, 10.0, 0.0, 0.0, 10.0, 10.0, 10.0]
+        vector_dates = [date(2026, 8, 1) + timedelta(days=index) for index in range(len(daily_returns))]
+        stock_vector = [{"date": day.isoformat(), "return": value} for day, value in zip(vector_dates, daily_returns)]
+        index_vector = [{"date": day.isoformat(), "return": 0.0} for day in vector_dates]
+        close = 100.0
+        stock_bars = [PriceBar(vector_dates[0] - timedelta(days=1), close)]
+        for day, value in zip(vector_dates, daily_returns):
+            close *= 1.0 + value / 100.0
+            stock_bars.append(PriceBar(day, close))
+        index_bars = [PriceBar(vector_dates[0] - timedelta(days=1), 100.0)] + [
+            PriceBar(day, 100.0) for day in vector_dates
+        ]
+
+        vector_metrics = MarketService._vector_metrics(stock_vector, index_vector, BOARD_RULES[Board.MAIN])
+        bar_metrics = detect_severe_abnormal(stock_bars, index_bars, Board.MAIN)
+
+        vector_events = [
+            (item["startDate"], item["endDate"], item["direction"])
+            for item in vector_metrics["same_direction_events"]
+        ]
+        bar_events = [
+            (item.start_date.strftime("%Y%m%d"), item.end_date.strftime("%Y%m%d"), "up" if item.direction.value == "上涨" else "down")
+            for item in bar_metrics.same_direction_events
+        ]
+        self.assertEqual(vector_events, bar_events)
 
     def test_same_direction_includes_event_ending_on_first_day_of_ten_day_window(self):
         """10日计数按事件结束日；统计窗首日的三日事件可跨越窗前两日。"""
@@ -727,13 +785,69 @@ class MarketVectorTests(unittest.TestCase):
         self.assertEqual(metrics["same_direction_events"][0]["endDate"], "20260803")
 
     def test_same_direction_count_is_not_reset_by_severe_window_reset(self):
-        """10 日同向按最近共同交易日滚动统计，不随偏离窗口重置。"""
+        """普通公告重置只切三日基线，不清除十日内已有同向事件。"""
+        dates = [f"2026-08-{index:02d}" for index in range(1, 11)]
+        stock = [{"date": day, "return": 8.0} for day in dates]
+        index = [{"date": day, "return": 0.0} for day in dates]
+        metrics = MarketService._vector_metrics(stock, index, BOARD_RULES[Board.MAIN], ordinary_reset_dates=["20260806"])
+        self.assertEqual(metrics["up"], 6)
+        self.assertEqual(metrics["down"], 0)
+
+    def test_severe_reset_restarts_same_direction_ledger_at_reset_date(self):
         dates = [f"2026-08-{index:02d}" for index in range(1, 11)]
         stock = [{"date": day, "return": 10.0} for day in dates]
         index = [{"date": day, "return": 0.0} for day in dates]
-        metrics = MarketService._vector_metrics(stock, index, BOARD_RULES[Board.MAIN], "20260806", False)
-        self.assertEqual(metrics["up"], 8)
-        self.assertEqual(metrics["down"], 0)
+
+        metrics = MarketService._vector_metrics(
+            stock, index, BOARD_RULES[Board.MAIN], severe_reset_date="20260806"
+        )
+
+        self.assertEqual(metrics["up"], 3)
+        self.assertEqual([event["startDate"] for event in metrics["same_direction_events"]], [
+            "20260806", "20260807", "20260808",
+        ])
+        self.assertEqual(metrics["window_lengths"][10], 5)
+
+    def test_severe_reset_does_not_reset_ordinary_three_day_metric(self):
+        dates = [f"2026-08-{index:02d}" for index in range(1, 11)]
+        stock = [{"date": day, "return": 8.0} for day in dates]
+        index = [{"date": day, "return": 0.0} for day in dates]
+
+        metrics = MarketService._vector_metrics(
+            stock, index, BOARD_RULES[Board.MAIN], severe_reset_date="20260810"
+        )
+
+        self.assertEqual(metrics["window_lengths"][3], 3)
+        self.assertAlmostEqual(metrics["deviations"][3], 25.9712, places=3)
+        self.assertEqual(metrics["window_lengths"][10], 1)
+
+    def test_ordinary_reset_does_not_reset_severe_deviation_windows(self):
+        dates = [f"2026-08-{index:02d}" for index in range(1, 11)]
+        stock = [{"date": day, "return": 8.0} for day in dates]
+        index = [{"date": day, "return": 0.0} for day in dates]
+
+        metrics = MarketService._vector_metrics(
+            stock, index, BOARD_RULES[Board.MAIN], ordinary_reset_dates=["20260810"]
+        )
+
+        self.assertEqual(metrics["window_lengths"][3], 1)
+        self.assertEqual(metrics["window_lengths"][10], 10)
+        self.assertAlmostEqual(metrics["deviations"][10], 115.8925, places=3)
+
+    def test_three_day_same_direction_uses_each_boards_ordinary_threshold(self):
+        dates = [f"2026-08-{index:02d}" for index in range(1, 5)]
+        stock = [{"date": day, "return": 8.0} for day in dates]
+        index = [{"date": day, "return": 0.0} for day in dates]
+
+        main = MarketService._vector_metrics(stock, index, BOARD_RULES[Board.MAIN])
+        chinext = MarketService._vector_metrics(stock, index, BOARD_RULES[Board.CHINEXT])
+        star = MarketService._vector_metrics(stock, index, BOARD_RULES[Board.STAR])
+        bse = MarketService._vector_metrics(stock, index, BOARD_RULES[Board.BSE])
+
+        self.assertEqual(main["up"], 2)
+        self.assertEqual(chinext["up"], 0)
+        self.assertEqual(star["up"], 0)
+        self.assertEqual(bse["up"], 0)
 
     def test_single_stock_metrics_keep_downside_extremes_and_same_direction_count(self):
         dates = [f"2026-08-{index:02d}" for index in range(1, 11)]
@@ -812,7 +926,7 @@ class MarketVectorTests(unittest.TestCase):
         self.assertIn(("ordinary_3d", "up"), {(item["ruleKey"], item["direction"]) for item in upside})
         self.assertIn(("ordinary_3d", "down"), {(item["ruleKey"], item["direction"]) for item in downside})
 
-    def test_single_stock_next_day_candidates_include_same_direction_rule(self):
+    def test_single_stock_next_day_counts_projected_overlapping_window(self):
         stock = [{"date": f"2026-09-{day:02d}", "return": value} for day, value in enumerate((12.0, 12.0, 12.0, 0.0, 0.0, 12.0, 12.0, 12.0), 1)]
         index = [{"date": item["date"], "return": 0.0} for item in stock]
         rule = BOARD_RULES[Board.CHINEXT]
@@ -825,12 +939,12 @@ class MarketVectorTests(unittest.TestCase):
         self.assertEqual(metrics["up"], 2)
         self.assertIn(("same_direction_10d", "up"), {(item["ruleKey"], item["direction"]) for item in candidates})
 
-    def test_four_consecutive_limit_up_days_form_two_same_direction_events(self):
-        """四连板对应第 1-3 日和第 2-4 日两个滚动 3 日事件。"""
+    def test_four_consecutive_limit_up_days_count_each_qualifying_window(self):
+        """四连板中两个达标的三日滚动窗口分别计次。"""
         dates = [f"2026-10-{day:02d}" for day in range(1, 5)]
         stock = [{"date": day, "return": 10.0} for day in dates]
         index = [{"date": day, "return": 0.0} for day in dates]
-        metrics = MarketService._vector_metrics(stock, index, BOARD_RULES[Board.CHINEXT])
+        metrics = MarketService._vector_metrics(stock, index, BOARD_RULES[Board.MAIN])
         self.assertEqual(metrics["up"], 2)
         self.assertEqual([event["endDate"] for event in metrics["same_direction_events"]], ["20261003", "20261004"])
 
@@ -949,7 +1063,7 @@ class MarketVectorTests(unittest.TestCase):
         )
         service._stock_rows = lambda: [{"ts_code": "000001.SZ", "symbol": "000001", "name": "测试股票", "market": "SZSE", "board": "主板", "isST": False}]
         service._realtime = SimpleNamespace(fetch_many=lambda _codes: {})
-        service._vector_metrics = lambda *_args: {"deviations": {3: None, 10: 0.0, 30: None}, "window_lengths": {3: None, 10: 10, 30: None}, "up": 4, "down": 0}
+        service._vector_metrics = lambda *_args, **_kwargs: {"deviations": {3: None, 10: 0.0, 30: None}, "window_lengths": {3: None, 10: 10, 30: None}, "up": 4, "down": 0}
         items = service._compute_prediction_from_repository("today")
         self.assertFalse(any(item["ruleKey"] == "same_direction_10d" for item in items))
 
@@ -1162,8 +1276,8 @@ class MarketVectorTests(unittest.TestCase):
         self.assertEqual(meta["ruleResetDate"], "20261010")
         self.assertEqual([item["date"] for item in trimmed_stock], ["2026-10-08", "2026-10-09", "2026-10-10"])
         self.assertEqual(monitoring["riskTone"], "severe-30d")
-        self.assertEqual(meta["ruleResetScope"], "all")
-        metrics = service._vector_metrics(trimmed_stock, trimmed_index, BOARD_RULES[Board.CHINEXT], meta["ruleResetDate"], True)
+        self.assertEqual(meta["ruleResetScope"], "severe")
+        metrics = service._vector_metrics(trimmed_stock, trimmed_index, BOARD_RULES[Board.CHINEXT], severe_reset_date=meta["severeResetDate"])
         self.assertEqual(metrics["window_lengths"][30], 1)
         self.assertAlmostEqual(metrics["deviations"][30], 20.0)
 
@@ -1189,7 +1303,7 @@ class MarketVectorTests(unittest.TestCase):
         self.assertEqual(meta["ruleResetDate"], "20261009")
         self.assertEqual([item["date"] for item in trimmed_stock], dates)
         self.assertEqual([item["date"] for item in trimmed_index], dates)
-        metrics = service._vector_metrics(trimmed_stock, trimmed_index, BOARD_RULES[Board.CHINEXT], meta["ruleResetDate"], meta["ruleResetScope"] == "all")
+        metrics = service._vector_metrics(trimmed_stock, trimmed_index, BOARD_RULES[Board.CHINEXT], severe_reset_date=meta["severeResetDate"])
         self.assertAlmostEqual(metrics["deviations"][3], 6.1208, places=3)
         self.assertEqual(metrics["window_lengths"][30], 3)
 
@@ -1208,8 +1322,37 @@ class MarketVectorTests(unittest.TestCase):
         _stock, _index, meta, monitoring = service._rule_vectors_for_stock(stock, stock_vector, index_vector)
 
         self.assertEqual(meta["ruleResetDate"], "20261009")
-        self.assertEqual(meta["ruleResetScope"], "all")
+        self.assertEqual(meta["ruleResetScope"], "ordinary")
+        self.assertEqual(meta["ordinaryResetDates"], ["20261009"])
         self.assertIsNone(monitoring)
+
+    def test_latest_reset_summary_scope_matches_latest_fact(self):
+        service = self.service
+        service.set_monitor_provider(lambda: {"items": [
+            {
+                "symbol": "600825", "riskTone": "severe-30d",
+                "ruleResetConfirmed": True, "ruleResetDate": "20261009",
+                "resetEvidence": reset_evidence("severe-30d"),
+                "announcementDate": "20261008",
+            },
+        ], "resetFacts": [{
+            "symbol": "600825", "riskTone": "ordinary-abnormality",
+            "ruleResetConfirmed": True, "ruleResetDate": "20261012",
+            "resetEvidence": reset_evidence("ordinary-abnormality"),
+            "announcementDate": "20261011", "monitorDates": [],
+        }]})
+        stock = {"ts_code": "600825.SH", "symbol": "600825"}
+        vector = [{"date": day, "return": 1.0} for day in ("20261009", "20261012")]
+
+        _, _, meta, _ = service._rule_vectors_for_stock(
+            stock, vector, [{"date": item["date"], "return": 0.0} for item in vector]
+        )
+
+        self.assertEqual(meta["severeResetDate"], "20261009")
+        self.assertEqual(meta["ordinaryResetDates"], ["20261012"])
+        self.assertEqual(meta["ruleResetDate"], "20261012")
+        self.assertEqual(meta["ruleResetScope"], "ordinary")
+        self.assertEqual(meta["ruleResetWindow"], 3)
 
     def test_risk_prompt_cannot_be_used_as_ordinary_reset_even_with_reset_fields(self):
         service = self.service
@@ -1232,11 +1375,11 @@ class MarketVectorTests(unittest.TestCase):
         stock = [{"date": f"2026-09-{day:02d}", "return": daily_return} for day in range(1, 24)]
         index = [{"date": item["date"], "return": 0.0} for item in stock]
         metrics = MarketService._vector_metrics(
-            stock, index, BOARD_RULES[Board.CHINEXT], "20260918", False
+            stock, index, BOARD_RULES[Board.CHINEXT], ordinary_reset_dates=["20260918"]
         )
         self.assertEqual(metrics["window_lengths"][30], 23)
         self.assertAlmostEqual(metrics["deviations"][30], 142.32581068, places=6)
-        self.assertEqual(metrics["window_lengths"][10], 6)
+        self.assertEqual(metrics["window_lengths"][10], 10)
 
     def test_xinhua_resume_keeps_pre_suspension_valid_days_for_rolling_rules(self):
         """新华传媒停牌日不补 0，复牌后滚动规则保留停牌前的有效交易日。"""
@@ -1288,7 +1431,7 @@ class MarketVectorTests(unittest.TestCase):
         ]
         index = [{"date": item["date"], "return": 0.0} for item in stock]
         metrics = MarketService._vector_metrics(
-            stock, index, BOARD_RULES[Board.MAIN], "20261010", True
+            stock, index, BOARD_RULES[Board.MAIN], severe_reset_date="20261010"
         )
         self.assertEqual(metrics["window_lengths"][3], 3)
         self.assertEqual(metrics["up"], 1)
@@ -1428,7 +1571,7 @@ class MarketVectorTests(unittest.TestCase):
         service._realtime = SimpleNamespace(fetch_many=lambda _codes: {})
         service._required_up_percent = lambda *_args, **_kwargs: 5.0
         metrics = service._vector_metrics(stock_vector, index_vector, BOARD_RULES[Board.MAIN])
-        self.assertGreaterEqual(metrics["up"], BOARD_RULES[Board.MAIN].severe_same_direction_count)
+        self.assertEqual(metrics["up"], 6)
         self.assertLess(metrics["deviations"][10], BOARD_RULES[Board.MAIN].severe_10d_threshold.up)
 
         items = service._compute_prediction_from_repository("next_day")
