@@ -8,12 +8,13 @@ from server.core.abnormal_rules import BOARD_RULES, Board
 
 
 def reset_evidence(risk_tone="severe-10d"):
+    is_ordinary = risk_tone == "ordinary-abnormality"
     return {
-        "code": "official_severe_abnormality_body",
+        "code": "official_ordinary_abnormality_body" if is_ordinary else "official_severe_abnormality_body",
         "sourceType": "issuer-disclosure",
         "sourceUrl": "https://static.cninfo.com.cn/test.PDF",
         "bodyHash": "0" * 64,
-        "verifiedRiskTone": risk_tone,
+        "verifiedRiskTone": "ordinary-abnormality" if is_ordinary else risk_tone,
     }
 
 
@@ -274,6 +275,22 @@ class MarketVectorTests(unittest.TestCase):
         self.assertFalse(result["hasMore"])
         self.assertEqual([item["name"] for item in result["items"]], ["中国银河", "中国银行"])
 
+    def test_shanghai_main_board_uses_shanghai_a_share_index(self):
+        self.assertEqual("000002.SH", _index_code_for_stock({"market": "SSE", "board": "主板"}))
+
+    def test_board_index_names_follow_exchange_classification_names(self):
+        service = self.service
+        service._calc_repository = SimpleNamespace(
+            available=True,
+            calculation_bases=lambda **_kwargs: {
+                "activeStockCount": 1,
+                "stocks": [{"ts_code": "000001.SZ", "symbol": "000001", "name": "测试", "market": "SZSE", "board": "主板"}],
+                "indexes": [{"index_code": "399107.SZ", "index_name": "旧名称", "as_of_trade_date": "20261016", "index_return_vector": []}],
+            },
+        )
+        result = service.calculation_bases(ts_codes=["000001.SZ"], limit=1)
+        self.assertEqual(result["indexes"][0]["indexName"], "深证A股指数")
+
     def test_history_coverage_classifies_missing_recent_listing_and_unresolved_gaps(self):
         service = self.service
         dates = [f"202608{day:02d}" for day in range(1, 31)]
@@ -296,7 +313,7 @@ class MarketVectorTests(unittest.TestCase):
             history_coverage_snapshot=lambda: (
                 stocks,
                 calculations,
-                {"000001.SH": {"as_of_trade_date": dates[-1], "index_return_vector": vector}},
+                {"000002.SH": {"as_of_trade_date": dates[-1], "index_return_vector": vector}},
             ),
         )
         service.client.suspend_d = lambda *_args: SimpleNamespace(to_dict=lambda *_args, **_kwargs: [
@@ -348,6 +365,7 @@ class MarketVectorTests(unittest.TestCase):
         self.assertEqual(result["returnedStockCount"], 1)
         self.assertEqual(result["items"][0]["indexCode"], "399107.SZ")
         self.assertEqual(result["indexes"][0]["returnVector"][0]["return"], 0.5)
+        self.assertEqual(result["indexes"][0]["indexName"], "深证A股指数")
         self.assertFalse(result["containsRawDaily"])
         self.assertFalse(result["containsIntradaySnapshot"])
 
@@ -542,7 +560,7 @@ class MarketVectorTests(unittest.TestCase):
         stock_vector = [{"date": day, "return": 10.0} for day in dates]
         index_vector = [{"date": day, "return": 0.0} for day in dates]
         service._calc_repository = SimpleNamespace(get_index=lambda _code: {
-            "index_code": "000001.SH", "latest_close": 10.0, "as_of_trade_date": dates[-1],
+            "index_code": "000002.SH", "latest_close": 10.0, "as_of_trade_date": dates[-1],
             "index_return_vector": index_vector,
         })
         service._realtime = SimpleNamespace(fetch_many=lambda _codes: {})
@@ -686,6 +704,28 @@ class MarketVectorTests(unittest.TestCase):
         metrics = MarketService._vector_metrics(stock, index, BOARD_RULES[Board.MAIN])
         self.assertEqual(metrics["up"], 5)
 
+    def test_same_direction_includes_event_ending_on_first_day_of_ten_day_window(self):
+        """10日计数按事件结束日；统计窗首日的三日事件可跨越窗前两日。"""
+        dates = [f"2026-08-{index:02d}" for index in range(1, 13)]
+        stock = [{"date": day, "return": 10.0 if index <= 3 else 0.0} for index, day in enumerate(dates, 1)]
+        index = [{"date": day, "return": 0.0} for day in dates]
+
+        metrics = MarketService._vector_metrics(stock, index, BOARD_RULES[Board.MAIN])
+
+        self.assertEqual(metrics["same_direction_events"][0]["startDate"], "20260801")
+        self.assertEqual(metrics["same_direction_events"][0]["endDate"], "20260803")
+        self.assertEqual(metrics["up"], 2)
+
+    def test_vector_dates_are_normalized_before_common_session_alignment(self):
+        stock = [{"date": f"2026-08-{index:02d}", "return": 10.0} for index in range(1, 5)]
+        index = [{"date": f"202608{index:02d}", "return": 0.0} for index in range(1, 5)]
+
+        metrics = MarketService._vector_metrics(stock, index, BOARD_RULES[Board.CHINEXT])
+
+        self.assertEqual(metrics["up"], 2)
+        self.assertEqual(metrics["same_direction_events"][0]["startDate"], "20260801")
+        self.assertEqual(metrics["same_direction_events"][0]["endDate"], "20260803")
+
     def test_same_direction_count_is_not_reset_by_severe_window_reset(self):
         """10 日同向按最近共同交易日滚动统计，不随偏离窗口重置。"""
         dates = [f"2026-08-{index:02d}" for index in range(1, 11)]
@@ -792,6 +832,7 @@ class MarketVectorTests(unittest.TestCase):
         index = [{"date": day, "return": 0.0} for day in dates]
         metrics = MarketService._vector_metrics(stock, index, BOARD_RULES[Board.CHINEXT])
         self.assertEqual(metrics["up"], 2)
+        self.assertEqual([event["endDate"] for event in metrics["same_direction_events"]], ["20261003", "20261004"])
 
     def test_ten_day_reset_does_not_suppress_single_stock_thirty_day_candidate(self):
         dates = [f"2026-09-{day:02d}" for day in range(1, 21)]
@@ -824,8 +865,8 @@ class MarketVectorTests(unittest.TestCase):
                 "ts_code": "001216.SZ", "latest_close": 28.04,
                 "as_of_trade_date": "20260830", "stock_return_vector": stock_vector,
             }},
-            all_indexes=lambda: {"000001.SH": {
-                "index_code": "000001.SH", "latest_close": 11.3, "as_of_trade_date": "20260830",
+            all_indexes=lambda: {"000002.SH": {
+                "index_code": "000002.SH", "latest_close": 11.3, "as_of_trade_date": "20260830",
                 "index_return_vector": index_vector,
             }},
         )
@@ -939,7 +980,7 @@ class MarketVectorTests(unittest.TestCase):
         service._calc_repository = SimpleNamespace(
             available=True,
             all_calculations=lambda: {"600825.SH": {"ts_code": "600825.SH", "latest_close": 10.0, "as_of_trade_date": "20260810", "stock_return_vector": stock_vector}},
-            all_indexes=lambda: {"000001.SH": {"index_code": "000001.SH", "latest_close": 10.0, "as_of_trade_date": "20260810", "index_return_vector": index_vector}},
+            all_indexes=lambda: {"000002.SH": {"index_code": "000002.SH", "latest_close": 10.0, "as_of_trade_date": "20260810", "index_return_vector": index_vector}},
         )
         service._stock_rows = lambda: [{"ts_code": "600825.SH", "symbol": "600825", "name": "新华传媒", "market": "SSE", "board": "主板", "isST": False}]
         service._realtime = SimpleNamespace(fetch_many=lambda _codes: {})
@@ -1066,8 +1107,8 @@ class MarketVectorTests(unittest.TestCase):
                 "ts_code": "600825.SH", "latest_close": 10.0,
                 "as_of_trade_date": "20260907", "stock_return_vector": stock_vector,
             }},
-            all_indexes=lambda: {"000001.SH": {
-                "index_code": "000001.SH", "latest_close": 100.0, "as_of_trade_date": "20260907",
+            all_indexes=lambda: {"000002.SH": {
+                "index_code": "000002.SH", "latest_close": 100.0, "as_of_trade_date": "20260907",
                 "index_return_vector": index_vector,
             }},
         )
@@ -1151,6 +1192,40 @@ class MarketVectorTests(unittest.TestCase):
         metrics = service._vector_metrics(trimmed_stock, trimmed_index, BOARD_RULES[Board.CHINEXT], meta["ruleResetDate"], meta["ruleResetScope"] == "all")
         self.assertAlmostEqual(metrics["deviations"][3], 6.1208, places=3)
         self.assertEqual(metrics["window_lengths"][30], 3)
+
+    def test_official_ordinary_reset_fact_is_independent_of_monitoring_cards(self):
+        service = self.service
+        service.set_monitor_provider(lambda: {"items": [], "resetFacts": [{
+            "symbol": "600825", "riskTone": "ordinary-abnormality",
+            "ruleResetConfirmed": True, "ruleResetDate": "20261009",
+            "resetEvidence": reset_evidence("ordinary-abnormality"),
+            "announcementDate": "20261008", "monitorDates": [],
+        }]})
+        stock = {"ts_code": "600825.SH", "symbol": "600825"}
+        stock_vector = [{"date": "20261008", "return": 30.0}, {"date": "20261009", "return": 1.0}]
+        index_vector = [{"date": "20261008", "return": 0.0}, {"date": "20261009", "return": 0.0}]
+
+        _stock, _index, meta, monitoring = service._rule_vectors_for_stock(stock, stock_vector, index_vector)
+
+        self.assertEqual(meta["ruleResetDate"], "20261009")
+        self.assertEqual(meta["ruleResetScope"], "all")
+        self.assertIsNone(monitoring)
+
+    def test_risk_prompt_cannot_be_used_as_ordinary_reset_even_with_reset_fields(self):
+        service = self.service
+        service.set_monitor_provider(lambda: {"items": [{
+            "symbol": "600825", "riskTone": "ordinary",
+            "ruleResetConfirmed": True, "ruleResetDate": "20261009",
+            "resetEvidence": reset_evidence("ordinary-abnormality"),
+        }], "resetFacts": []})
+        stock = {"ts_code": "600825.SH", "symbol": "600825"}
+        vector = [{"date": "20261008", "return": 30.0}, {"date": "20261009", "return": 1.0}]
+
+        _, _, meta, _ = service._rule_vectors_for_stock(
+            stock, vector, [{"date": item["date"], "return": 0.0} for item in vector]
+        )
+
+        self.assertEqual(meta["ruleResetDate"], "")
 
     def test_ten_day_announcement_reset_does_not_cut_rolling_thirty_day_window(self):
         daily_return = ((1 + 142.32581068 / 100) ** (1 / 23) - 1) * 100

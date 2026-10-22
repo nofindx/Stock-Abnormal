@@ -199,27 +199,22 @@ function buildNextDayForecast(forecast = {}, monitoringActive = false) {
   const candidates = Array.isArray(forecast.rules) ? forecast.rules : []
   const assessment = assessNextDayRules(candidates, monitoringActive)
   const ruleText = [...new Set(assessment.rules.map(item => String(item.rule || '').trim()).filter(Boolean))].join('；')
-  const unavailable = (text, forecastRules = []) => {
-    const unavailableAssessment = assessNextDayRules(forecastRules, monitoringActive)
-    const unavailableRuleText = [...new Set(unavailableAssessment.rules.map(item => String(item.rule || '').trim()).filter(Boolean))].join('；')
-    const hasKnownRisk = unavailableAssessment.tone !== 'safe'
-    return {
-      line: '',
-      text: hasKnownRisk ? `次日可能触发：${unavailableRuleText || text}` : text,
-      summaryStatus: hasKnownRisk ? unavailableAssessment.text : text,
-      summaryTone: hasKnownRisk ? unavailableAssessment.tone : 'unknown'
-    }
-  }
-  if (typeof forecast.available !== 'boolean') return unavailable('预测数据版本未同步')
+  const unavailable = () => ({
+    line: '',
+    text: '次日预测暂不可用',
+    summaryStatus: '未知状态',
+    summaryTone: 'unknown'
+  })
+  if (typeof forecast.available !== 'boolean') return unavailable()
   const tradeDate = normalizeTradeDate(forecast.baseTradeDate)
   const nextTradeDate = normalizeTradeDate(forecast.targetTradeDate)
-  if (!forecast.available) return unavailable(forecast.unavailableReason ? `次日预测暂不可用：${forecast.unavailableReason}` : '次日预测暂不可用')
-  if (!tradeDate || !nextTradeDate) return unavailable('次日预测日期暂不可用', forecast.rules || [])
+  if (!forecast.available) return unavailable()
+  if (!tradeDate || !nextTradeDate) return unavailable()
   const line = `按 ${tradeDate.slice(0, 4)}-${tradeDate.slice(4, 6)}-${tradeDate.slice(6)} 收盘数据预测 ${nextTradeDate.slice(0, 4)}-${nextTradeDate.slice(4, 6)}-${nextTradeDate.slice(6)}`
-  if (candidates.some(item => !String(item.rule || '').trim())) return { ...unavailable('次日预测规则说明暂不可用', candidates), line }
+  if (candidates.some(item => !String(item.rule || '').trim())) return unavailable()
   const text = assessment.tone === 'safe'
     ? '未发现下一交易日可触发的异动规则'
-    : (ruleText ? `次日可能触发：${ruleText}` : '次日可能触发：规则说明暂不可用')
+    : `次日可能触发：${ruleText}`
   return {
     line,
     text,

@@ -23,19 +23,21 @@ assert.deepStrictEqual(buildNextDayForecast({ ...forecastBase, rules: [
 })
 assert.deepStrictEqual(buildNextDayForecast({ ...forecastBase, available: false, rules: [] }), {
   line: '', text: '次日预测暂不可用',
-  summaryStatus: '次日预测暂不可用', summaryTone: 'unknown'
+  summaryStatus: '未知状态', summaryTone: 'unknown'
 })
-assert.strictEqual(buildNextDayForecast({ ...forecastBase, available: false, unavailableReason: '股票与所属指数行情基准未对齐', rules: [] }).text, '次日预测暂不可用：股票与所属指数行情基准未对齐')
-assert.strictEqual(buildNextDayForecast({ ...forecastBase, rules: [
-  { ruleKey: 'severe_10d' }
-] }).text, '次日可能触发：次日预测规则说明暂不可用')
-assert.strictEqual(buildNextDayForecast({}).text, '预测数据版本未同步')
-assert.deepStrictEqual(summaryStatus({ nextDayForecast: { available: false, rules: [] } }), { text: '次日预测暂不可用', tone: 'unknown' })
+assert.deepStrictEqual(buildNextDayForecast({ ...forecastBase, available: false, unavailableReason: '股票与所属指数行情基准未对齐', rules: [{ ruleKey: 'severe_30d', rule: '连续30个交易日偏离达到阈值' }] }), {
+  line: '', text: '次日预测暂不可用', summaryStatus: '未知状态', summaryTone: 'unknown'
+})
+assert.deepStrictEqual(buildNextDayForecast({ ...forecastBase, rules: [{ ruleKey: 'severe_10d' }] }), {
+  line: '', text: '次日预测暂不可用', summaryStatus: '未知状态', summaryTone: 'unknown'
+})
+assert.deepStrictEqual(buildNextDayForecast({}), { line: '', text: '次日预测暂不可用', summaryStatus: '未知状态', summaryTone: 'unknown' })
+assert.deepStrictEqual(summaryStatus({ nextDayForecast: { available: false, rules: [] } }), { text: '未知状态', tone: 'unknown' })
 const safeForecast = { ...forecastBase, available: true, rules: [] }
 assert.deepStrictEqual(summaryStatus({ status: '正常', monitoring: { monitorType: '严重异动' }, nextDayForecast: safeForecast }), { text: '暂无异动风险', tone: 'safe' })
 assert.deepStrictEqual(summaryStatus({ status: '正常', monitoringStatus: 'active', nextDayForecast: safeForecast }), { text: '暂无异动风险', tone: 'safe' })
 assert.deepStrictEqual(summaryStatus({ status: '触及', monitoring: null, nextDayForecast: safeForecast }), { text: '暂无异动风险', tone: 'safe' })
-assert.deepStrictEqual(summaryStatus({ status: '正常', nextDayForecast: { ...forecastBase, rules: [{ ruleKey: 'severe_30d' }] } }), { text: '存在异动风险', tone: 'risk' })
+assert.deepStrictEqual(summaryStatus({ status: '正常', nextDayForecast: { ...forecastBase, rules: [{ ruleKey: 'severe_30d', rule: '连续30个交易日偏离达到阈值' }] } }), { text: '存在异动风险', tone: 'risk' })
 assert.deepStrictEqual(summaryStatus({ status: '正常', monitoringStatus: 'active', nextDayForecast: { ...forecastBase, rules: [] } }), { text: '暂无异动风险', tone: 'safe' })
 assert.deepStrictEqual(summaryStatus({ status: '正常', nextDayForecast: { ...forecastBase, rules: [] } }), { text: '暂无异动风险', tone: 'safe' })
 const alignedWarning = buildNextDayForecast({ ...forecastBase, rules: [{ ruleKey: 'same_direction_10d', rule: '10个交易日内出现3次上涨同向普通异动' }] })
@@ -61,7 +63,7 @@ const allRuleKeys = ['ordinary_3d', 'same_direction_10d', 'severe_10d', 'severe_
 allRuleKeys.forEach(ruleKey => {
   assert.deepStrictEqual(summaryStatus({
     monitoring: { active: true },
-    nextDayForecast: { ...forecastBase, rules: [{ ruleKey }] }
+    nextDayForecast: { ...forecastBase, rules: [{ ruleKey, rule: '对应规则描述' }] }
   }), { text: '存在异动风险', tone: 'risk' })
 })
 assert.deepStrictEqual(summaryStatus({
@@ -69,7 +71,7 @@ assert.deepStrictEqual(summaryStatus({
   warnings: allRuleKeys.map(title => ({ title, tone: 'safe' })),
   nextDayForecast: { ...forecastBase, rules: [] }
 }), { text: '暂无异动风险', tone: 'safe' })
-assert.deepStrictEqual(summaryStatus({ nextDayForecast: { ...forecastBase, rules: [{ ruleKey: 'ordinary_3d' }] } }), { text: '存在警告风险', tone: 'warning' })
+assert.deepStrictEqual(summaryStatus({ nextDayForecast: { ...forecastBase, rules: [{ ruleKey: 'ordinary_3d', rule: '连续3个交易日偏离达到阈值' }] } }), { text: '存在警告风险', tone: 'warning' })
 assert.strictEqual(formatMonthDay('2026-10-19'), '10/19')
 assert.strictEqual(monitoringRuleLabel({ riskTone: 'severe-30d', monitorType: '30日严重异动', symbol: '600825' }), '连续30个交易日内收盘价涨幅偏离值累计达到 +200%')
 assert.strictEqual(monitoringRuleLabel({ riskTone: 'severe-10d', monitorType: '10日严重异动', symbol: '920229' }), '连续10个交易日内收盘价涨幅偏离值累计达到 +150%')

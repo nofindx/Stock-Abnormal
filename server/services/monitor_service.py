@@ -41,12 +41,13 @@ MONITOR_PERIOD_TRADING_DAYS = {
 MONITOR_WINDOW_TRADING_DAYS = MONITOR_PERIOD_TRADING_DAYS
 # 公告分类口径变化时，启动任务主动重采一次当前快照；避免必须等到次日
 # 00:00 才让修复后的北交所严重异动进入重点监控。
-MONITOR_RULE_VERSION = "2026-10-monitor-zts-effective-date-reset-evidence-all-windows-v17"
+MONITOR_RULE_VERSION = "2026-10-monitor-zts-effective-date-reset-evidence-all-windows-reset-facts-v19"
 
 # 只有官方披露平台上的发行人/交易所正文，才有资格改变行情累计基线。
 # 18.cn、中泰等风险提示可以作为监管事实或佐证，但不能单独触发重置。
 RESET_AUTHORIZED_SOURCE_TYPES = {"issuer-disclosure", "exchange-disclosure"}
 RESET_EVIDENCE_CODE = "official_severe_abnormality_body"
+ORDINARY_RESET_EVIDENCE_CODE = "official_ordinary_abnormality_body"
 
 
 class MonitorRepository:
@@ -464,6 +465,76 @@ class OfficialMonitorService:
         }
 
     @staticmethod
+    def _ordinary_reset_evidence(
+        title: str,
+        body: str,
+        symbol: str,
+        source_type: str,
+        source_url: str,
+    ) -> Optional[Dict[str, Any]]:
+        """Confirm an ordinary-abnormality reset from an official disclosure body."""
+        if source_type not in RESET_AUTHORIZED_SOURCE_TYPES:
+            return None
+        host = (urlparse(str(source_url or "")).hostname or "").lower()
+        official_host = any(
+            host == domain or host.endswith(f".{domain}")
+            for domain in ("cninfo.com.cn", "sse.com.cn", "szse.cn", "bse.cn")
+        )
+        text = re.sub(r"\s+", "", str(body or "")).replace("％", "%")
+        title_text = re.sub(r"\s+", "", str(title or ""))
+        if not official_host or "异常波动" not in title_text or "严重异常波动" in text:
+            return None
+        normalized = text.replace("三个", "3").replace("三個", "3")
+        normalized = normalized.replace("五个", "5个").replace("五個", "5个")
+        normalized = normalized.replace("累积换手率", "累计换手率")
+        if "连续3个交易日" not in normalized:
+            return None
+        match = re.search(r"(?:偏离值累计|累计偏离值)(?:达到|为)?([±+-]?\d+(?:\.\d+)?)%", normalized)
+        code_match = re.search(r"\d{6}", str(symbol or ""))
+        code = code_match.group(0) if code_match else ""
+        is_bse = code.startswith(("4", "8", "9"))
+        ordinary_threshold = 40 if is_bse else 30 if code.startswith(("3", "68")) else 20
+        deviation_confirmed = False
+        if match:
+            try:
+                deviation_confirmed = abs(float(match.group(1).replace("±", ""))) >= ordinary_threshold
+            except ValueError:
+                pass
+        turnover_ratio_match = re.search(
+            r"(?:日均)?换手率.{0,100}?(?:大于|达到|超过|高于|为)?([\d.]+)倍",
+            normalized,
+        )
+        turnover_sum_match = re.search(
+            r"累计换手率(?:达到|超过|高于|为)?([\d.]+)%",
+            normalized,
+        )
+        turnover_confirmed = False
+        if (
+            not is_bse and not code.startswith(("3", "68"))
+            and "日均换手率" in normalized
+            and "前5个交易日" in normalized
+            and turnover_ratio_match and turnover_sum_match
+        ):
+            try:
+                turnover_confirmed = (
+                    float(turnover_ratio_match.group(1)) >= 30
+                    and float(turnover_sum_match.group(1)) >= 20
+                )
+            except ValueError:
+                turnover_confirmed = False
+        if not deviation_confirmed and not turnover_confirmed:
+            return None
+        return {
+            "code": ORDINARY_RESET_EVIDENCE_CODE,
+            "sourceType": source_type,
+            "authority": "交易所/发行人正式异常波动公告正文",
+            "sourceUrl": str(source_url),
+            "bodyHash": hashlib.sha256(normalized.encode("utf-8")).hexdigest(),
+            "verifiedRiskTone": "ordinary-abnormality",
+            "signals": ["连续3个交易日异常波动", "板块普通偏离阈值或主板换手率条件"],
+        }
+
+    @staticmethod
     def _delisting_dates_from_body(body: str) -> tuple[str, str]:
         """Extract the announced start and last trading date of a delisting period."""
 
@@ -834,6 +905,7 @@ class OfficialMonitorService:
             if not broker_available and not issuer_available and not zts_available:
                 raise RuntimeError("18.cn、巨潮资讯与中泰证券公告源均不可用")
             parsed_events: List[Dict[str, Any]] = []
+            parsed_reset_facts: List[Dict[str, Any]] = []
             raw_announcements: List[Dict[str, Any]] = []
             issuer_body_checked = 0
             issuer_body_available = 0
@@ -844,6 +916,43 @@ class OfficialMonitorService:
                 issuer_body_checked += 1
                 if str(body or "").strip():
                     issuer_body_available += 1
+                if announcement.get("date"):
+                    ordinary_evidence = self._ordinary_reset_evidence(
+                        title, body, announcement.get("stockCode", ""),
+                        "issuer-disclosure", announcement.get("url", ""),
+                    )
+                    if ordinary_evidence:
+                        event_end_date = self._event_end_date(announcement["date"], body)
+                        if event_end_date:
+                            reset_dates = self._monitor_period_dates(
+                                event_end_date, "issuer-disclosure", "ordinary",
+                                announcement.get("stockCode", ""), event_end_date=event_end_date,
+                            )
+                        else:
+                            reset_dates = self._monitor_period_dates(
+                                announcement["date"], "broker-risk-alert", "ordinary",
+                                announcement.get("stockCode", ""),
+                            )
+                        if reset_dates:
+                            source_key = announcement.get("url") or f"{announcement.get('stockCode')}:{announcement['date']}:{title}"
+                            source_id = hashlib.sha256(f"ordinary-reset:{source_key}".encode("utf-8")).hexdigest()[:24]
+                            parsed_reset_facts.append({
+                                "sourceId": source_id, "symbol": announcement["stockCode"],
+                                "name": announcement["stockName"], "title": title,
+                                "source": announcement.get("source", "巨潮资讯"),
+                                "sourceUrl": announcement.get("url", ""),
+                                "contentHash": hashlib.sha256(f"{title}\n{body}".encode("utf-8")).hexdigest(),
+                                "confirmationStatus": "official-ordinary-abnormality-body-confirmed",
+                                "monitorType": "行情重置事实（非重点监控）",
+                                "sourceRelation": "ordinary-abnormality-reset",
+                                "announcementDate": announcement["date"],
+                                "ruleResetDate": reset_dates[0].replace("-", ""),
+                                "ruleResetConfirmed": True,
+                                "riskTone": "ordinary-abnormality",
+                                "sourceType": "issuer-disclosure",
+                                "resetEvidence": ordinary_evidence,
+                            })
+                            issuer_reset_verified += 1
                 monitor_type, risk_tone = self._issuer_monitor_type(title, body, announcement.get("stockCode", ""))
                 # 巨潮资讯是备源：必须按同一正文语义规则确认风险类型，普通公司风险公告丢弃。
                 if not risk_tone:
@@ -982,6 +1091,32 @@ class OfficialMonitorService:
                 })
             # 18.cn 页面只展示滚动的最近条目；仅在 18.cn 成功时保留旧窗口，避免主源滚动造成记录消失。
             previous_snapshot = self.repository.active_snapshot() or {}
+            # 每只股票只需保留最新生效基线；同一生效日的不同正式公告均保留，
+            # 避免事实相同日期时丢失来源证据，也避免快照随历史公告无限增长。
+            reset_by_id = {
+                str(item.get("sourceId") or ""): item
+                for item in [*(previous_snapshot.get("resetFacts") or []), *parsed_reset_facts]
+                if item.get("sourceId")
+            }
+            latest_reset_date_by_symbol: Dict[str, str] = {}
+            for item in reset_by_id.values():
+                symbol = str(item.get("symbol") or "")
+                reset_date = str(item.get("ruleResetDate") or "").replace("-", "")
+                if symbol and reset_date > latest_reset_date_by_symbol.get(symbol, ""):
+                    latest_reset_date_by_symbol[symbol] = reset_date
+            reset_facts = [
+                item for item in reset_by_id.values()
+                if str(item.get("ruleResetDate") or "").replace("-", "")
+                == latest_reset_date_by_symbol.get(str(item.get("symbol") or ""))
+            ]
+            reset_facts = sorted(
+                reset_facts,
+                key=lambda item: (
+                    str(item.get("symbol") or ""),
+                    str(item.get("ruleResetDate") or ""),
+                    str(item.get("announcementDate") or ""),
+                ),
+            )
             previous_items = [
                 item for item in previous_snapshot.get("items", [])
                 if str(item.get("monitorEndDate") or "") >= (now - timedelta(days=30)).strftime("%Y-%m-%d")
@@ -1020,9 +1155,10 @@ class OfficialMonitorService:
                     },
                     "resetPolicy": {
                         "authorizedSourceTypes": sorted(RESET_AUTHORIZED_SOURCE_TYPES),
-                        "evidenceCode": RESET_EVIDENCE_CODE,
-                        "requiresBodyPhrase": "严重异常波动",
-                        "requiresBoardThresholdOrSameDirectionEvidence": True,
+                        "evidenceCodes": [RESET_EVIDENCE_CODE, ORDINARY_RESET_EVIDENCE_CODE],
+                        "requiresOfficialBody": True,
+                        "ordinaryRequiresThreeDayThresholdOrTurnoverCondition": True,
+                        "severeRequiresBoardThresholdOrSameDirectionEvidence": True,
                         "resetScope": ["3d", "10d", "30d", "same_direction_10d"],
                         "ordinaryRiskAlertsReset": False,
                     },
@@ -1031,14 +1167,17 @@ class OfficialMonitorService:
                         "bodyAvailable": issuer_body_available,
                         "bodyUnavailable": max(0, issuer_body_checked - issuer_body_available),
                         "resetEvidenceVerified": issuer_reset_verified,
+                        "resetFactsCount": len(reset_facts),
                     },
                     "activeSource": active_source,
                     "isOfficialMonitorPeriod": False,
                     "periodCalculation": "监管期按交易日计算并将起点计为第1日；3日普通异动不进入重点监控，10日和30日严重异动触发后均监管10个交易日；30日仅是判定回看窗口",
                     "coverage": "18.cn 与中泰公告独立采集，巨潮资讯为发行人备源；同源记录按股票和风险类型取最新；退市整理风险警示独立保留",
                 },
+                "resetFacts": reset_facts,
             }
             raw_announcements.extend(parsed_events)
+            raw_announcements.extend(parsed_reset_facts)
             self.repository.publish(snapshot, raw_announcements, run_id)
             self.repository.set_state("monitor_rule_version", MONITOR_RULE_VERSION)
             self.last_error = ""

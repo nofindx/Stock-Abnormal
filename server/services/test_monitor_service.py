@@ -227,6 +227,36 @@ class MonitorWindowTests(unittest.TestCase):
             "股票交易严重异常波动公告", "连续10个交易日涨幅偏离值累计达到100%", "600825", "severe-10d", "issuer-disclosure"
         ))
 
+    def test_ordinary_rule_reset_requires_official_three_day_threshold_body(self):
+        evidence = self.service._ordinary_reset_evidence(
+            "股票交易异常波动公告",
+            "截至10月20日连续3个交易日收盘价格涨跌幅偏离值累计达到20%。",
+            "600825", "issuer-disclosure", "https://static.cninfo.com.cn/ordinary.pdf",
+        )
+        self.assertEqual(evidence["code"], "official_ordinary_abnormality_body")
+        self.assertIsNone(self.service._ordinary_reset_evidence(
+            "股票交易风险提示公告", "连续3个交易日累计上涨20%", "600825",
+            "issuer-disclosure", "https://static.cninfo.com.cn/risk.pdf",
+        ))
+        self.assertIsNone(self.service._ordinary_reset_evidence(
+            "股票交易异常波动公告", "连续3个交易日偏离值累计达到20%", "600825",
+            "broker-risk-alert", "https://static.cninfo.com.cn/broker.pdf",
+        ))
+
+    def test_main_board_turnover_rule_accepts_actual_values_above_threshold(self):
+        evidence = self.service._ordinary_reset_evidence(
+            "股票交易异常波动公告",
+            "连续3个交易日内，日均换手率与前5个交易日的日均换手率相比达到31.4倍，累积换手率达到20.6%。",
+            "600825", "issuer-disclosure", "https://static.cninfo.com.cn/turnover.pdf",
+        )
+        self.assertIsNotNone(evidence)
+        below_threshold = self.service._ordinary_reset_evidence(
+            "股票交易异常波动公告",
+            "连续3个交易日内，日均换手率与前5个交易日的日均换手率相比达到31.4倍，累积换手率达到19.9%。",
+            "600825", "issuer-disclosure", "https://static.cninfo.com.cn/turnover-low.pdf",
+        )
+        self.assertIsNone(below_threshold)
+
     def test_delisting_period_description_survives_snapshot_collapse(self):
         event = self.event("2026-09-23", "2026-10-27", "delisting-warning")
         event.update({
@@ -611,6 +641,38 @@ class MonitorWindowTests(unittest.TestCase):
             self.assertEqual(item["resetEvidence"]["sourceType"], "issuer-disclosure")
             quality = service.repository.active_snapshot()["dataQuality"]
             self.assertEqual(quality["issuerBodyVerification"]["resetEvidenceVerified"], 1)
+        finally:
+            service.close()
+
+    def test_issuer_ordinary_body_publishes_reset_fact_without_monitor_card(self):
+        announcements = Mock()
+        announcements.query_broker_risk_alerts.return_value = {"available": False, "items": []}
+        announcements.query_market.return_value = {
+            "available": True, "partial": False, "items": [{
+                "title": "股票交易异常波动公告", "date": "2026-10-21", "stockCode": "600825",
+                "stockName": "新华传媒", "url": "https://static.cninfo.com.cn/ordinary.PDF",
+                "source": "巨潮资讯",
+            }],
+        }
+        announcements.extract_pdf_text.return_value = (
+            "公司股票于2026年10月20日连续3个交易日收盘价格涨跌幅偏离值累计达到20%。"
+        )
+        service = OfficialMonitorService(client=object(), announcements=announcements)
+        service._trade_dates = lambda _source_date, _days: [
+            "2026-10-20", "2026-10-21", "2026-10-22", "2026-10-23", "2026-10-26",
+            "2026-10-27", "2026-10-28", "2026-10-29", "2026-10-30", "2026-11-02", "2026-11-03",
+        ]
+        try:
+            result = service.refresh()
+            self.assertTrue(result["started"])
+            snapshot = service.repository.active_snapshot()
+            self.assertEqual(snapshot["items"], [])
+            self.assertEqual(len(snapshot["resetFacts"]), 1)
+            fact = snapshot["resetFacts"][0]
+            self.assertEqual(fact["ruleResetDate"], "20261021")
+            self.assertTrue(fact["ruleResetConfirmed"])
+            self.assertEqual(fact["resetEvidence"]["code"], "official_ordinary_abnormality_body")
+            self.assertEqual(snapshot["dataQuality"]["issuerBodyVerification"]["resetEvidenceVerified"], 1)
         finally:
             service.close()
 

@@ -101,6 +101,15 @@ class AbnormalRulesTest(unittest.TestCase):
         result = detect_severe_abnormal(stock, index, Board.MAIN)
         self.assertEqual(result.same_direction_count, 4)
 
+    def test_same_direction_result_exposes_auditable_events(self):
+        """同向次数必须能由起止日期、方向和偏离明细复核。"""
+        stock, index = make_bars([100.0 * (1.1 ** day) for day in range(5)], [100.0] * 5)
+        result = detect_severe_abnormal(stock, index, Board.MAIN)
+        self.assertEqual(len(result.same_direction_events), 2)
+        self.assertEqual(result.same_direction_events[0].start_date, date(2026, 1, 2))
+        self.assertIs(result.same_direction_events[0].direction, Direction.UP)
+        self.assertGreaterEqual(result.same_direction_events[0].deviation, 20.0)
+
     def test_negative_ordinary_deviation_is_a_downside_abnormal_record(self):
         """单股完整规则保留达到普通阈值的下跌异动记录。"""
 

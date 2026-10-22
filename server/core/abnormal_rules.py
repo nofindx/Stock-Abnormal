@@ -149,6 +149,7 @@ class SevereAbnormalResult:
     down_count: int = 0  # 最近 10 个交易日内下跌方向普通异动次数。
     severe_10d_down: Optional[DeviationResult] = None
     severe_30d_down: Optional[DeviationResult] = None
+    same_direction_events: Tuple[OrdinaryAbnormal, ...] = ()
 
     @property
     def triggered(self) -> bool:
@@ -289,7 +290,9 @@ def detect_ordinary_abnormal(
         if abs(result.deviation) >= rule.ordinary_deviation:
             records.append(
                 OrdinaryAbnormal(
-                    start_date=result.start_date,
+                    # result.start_date 是 N+1 收盘点中的基准日；异动事件
+                    # 的展示区间应标记实际产生 N 个收益的首个交易日。
+                    start_date=stock_bars[end - rule.ordinary_days + 1].trade_date,
                     end_date=result.end_date,
                     window_days=rule.ordinary_days,
                     deviation=result.deviation,
@@ -434,6 +437,15 @@ def detect_severe_abnormal(
         if recent_start <= item.end_date <= recent_end
     ]
     same_count, same_direction, up_count, down_count = _count_same_direction(recent_records)
+    same_direction_events = tuple(
+        sorted(
+            (
+                item for item in recent_records
+                if item.counts_for_same_direction and item.direction is not Direction.NONE
+            ),
+            key=lambda item: (item.end_date, item.start_date),
+        )
+    )
     return SevereAbnormalResult(
         severe_10d=severe_10d,
         severe_30d=severe_30d,
@@ -444,6 +456,7 @@ def detect_severe_abnormal(
         same_direction=same_direction,
         up_count=up_count,
         down_count=down_count,
+        same_direction_events=same_direction_events,
     )
 
 

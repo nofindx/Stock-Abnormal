@@ -24,15 +24,24 @@ from .market_calc_repository import MarketCalcRepository
 from .tushare_client import TushareClient, TushareUnavailable
 
 
-INDEX_BY_MARKET = {"SSE": "000001.SH", "SZSE": "399107.SZ", "BSE": "899050.BJ"}
+INDEX_BY_MARKET = {"SSE": "000002.SH", "SZSE": "399107.SZ", "BSE": "899050.BJ"}
 INDEX_BY_BOARD = {"创业板": "399102.SZ", "科创板": "000688.SH", "北交所": "899050.BJ"}
+INDEX_NAMES = {
+    "000002.SH": "上证A股指数",
+    "399107.SZ": "深证A股指数",
+    "399102.SZ": "创业板综合指数",
+    "000688.SH": "上证科创板50成份指数",
+    "899050.BJ": "北证50成份指数",
+}
 BOARD_BY_MARKET = {"主板": Board.MAIN, "创业板": Board.CHINEXT, "科创板": Board.STAR, "北交所": Board.BSE}
 SHANGHAI_TZ = ZoneInfo("Asia/Shanghai") if ZoneInfo else timezone(timedelta(hours=8))
 # 停牌/复牌重置、独立规则候选、上涨同向计数和预测阶段切换属于同一套规则口径。
 # 版本变化会触发服务启动时从已确认收盘行情重建计算基础数据与预测集。
-PREDICTION_RULE_VERSION = "2026-10-official-reset-independent-candidates-rolling-same-direction-v51"
+PREDICTION_RULE_VERSION = "2026-10-official-ordinary-and-severe-reset-independent-candidates-rolling-same-direction-v55-shanghai-a-share-index"
 RESET_AUTHORIZED_SOURCE_TYPES = {"issuer-disclosure", "exchange-disclosure"}
 RESET_EVIDENCE_CODE = "official_severe_abnormality_body"
+ORDINARY_RESET_EVIDENCE_CODE = "official_ordinary_abnormality_body"
+RESET_EVIDENCE_CODES = {RESET_EVIDENCE_CODE, ORDINARY_RESET_EVIDENCE_CODE}
 
 
 def _has_auditable_reset_evidence(item: Dict[str, Any]) -> bool:
@@ -46,7 +55,7 @@ def _has_auditable_reset_evidence(item: Dict[str, Any]) -> bool:
     )
     return bool(
         item.get("ruleResetConfirmed")
-        and evidence.get("code") == RESET_EVIDENCE_CODE
+        and evidence.get("code") in RESET_EVIDENCE_CODES
         and evidence.get("sourceType") in RESET_AUTHORIZED_SOURCE_TYPES
         and evidence.get("verifiedRiskTone") == item.get("riskTone")
         and len(body_hash) == 64
@@ -153,7 +162,7 @@ def _index_code_for_stock(stock: Dict[str, Any]) -> str:
     board = str(stock.get("board") or "主板")
     if board in INDEX_BY_BOARD:
         return INDEX_BY_BOARD[board]
-    return INDEX_BY_MARKET.get(str(stock.get("market") or ""), "000001.SH")
+    return INDEX_BY_MARKET.get(str(stock.get("market") or ""), "000002.SH")
 
 
 def _subsequence_positions(query: str, candidate: str) -> Optional[List[int]]:
@@ -760,7 +769,7 @@ class MarketService:
                 continue
             index_items.append({
                 "indexCode": index.get("index_code", ""),
-                "indexName": index.get("index_name", ""),
+                "indexName": INDEX_NAMES.get(str(index.get("index_code") or ""), index.get("index_name", "")),
                 "asOfTradeDate": index.get("as_of_trade_date", ""),
                 "latestClose": scalar(index.get("latest_close")),
                 "returnVector": index.get("index_return_vector") or [],
@@ -1204,19 +1213,29 @@ class MarketService:
 
     @staticmethod
     def _monitor_rule_reset_date(monitoring: Optional[Dict[str, Any]]) -> str:
-        """返回严重异动公告后的规则累计起点。
+        """返回正式普通/严重异动公告后的规则累计起点。
 
         正文明确异常区间截至日时使用经确认的显式起点；否则监管交易日
         序列的第二个有效交易日作为新一轮偏离的首个收益日。普通风险提示
         不改变行情规则累计起点。
         """
 
-        if not monitoring or str(monitoring.get("riskTone") or "") not in {"severe-10d", "severe-30d"}:
+        if not monitoring:
+            return ""
+        risk_tone = str(monitoring.get("riskTone") or "")
+        expected_evidence = (
+            ORDINARY_RESET_EVIDENCE_CODE
+            if risk_tone == "ordinary-abnormality"
+            else RESET_EVIDENCE_CODE
+            if risk_tone in {"severe-10d", "severe-30d"}
+            else ""
+        )
+        if not expected_evidence:
             return ""
         evidence = monitoring.get("resetEvidence") or {}
         if (
             not monitoring.get("ruleResetConfirmed")
-            or evidence.get("code") != RESET_EVIDENCE_CODE
+            or evidence.get("code") != expected_evidence
             or not _has_auditable_reset_evidence(monitoring)
         ):
             return ""
@@ -1227,7 +1246,7 @@ class MarketService:
         return dates[1] if len(dates) >= 2 else ""
 
     def _latest_rule_monitor_for_stock(self, stock: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        """读取该股票最近一条严重异动公告事实（不受当前监管期过滤）。"""
+        """读取该股票最近一条正式异动公告重置事实（不受监管期过滤）。"""
 
         if not self._monitor_provider:
             return None
@@ -1235,16 +1254,16 @@ class MarketService:
         try:
             snapshot = self._monitor_provider() or {}
             matches = []
-            for item in snapshot.get("items", []):
+            for item in [*(snapshot.get("items") or []), *(snapshot.get("resetFacts") or [])]:
                 item_symbol = str(item.get("symbol") or item.get("ts_code") or "").split(".")[0]
-                if item_symbol != symbol or str(item.get("riskTone") or "") not in {"severe-10d", "severe-30d"}:
+                if item_symbol != symbol or str(item.get("riskTone") or "") not in {"severe-10d", "severe-30d", "ordinary-abnormality"}:
                     continue
                 # 来源标签可能因同日去重落在 broker 主记录上；只有公告正文
                 # 单独确认的重置事实可以跨过来源标签，普通券商提示不能重置。
                 evidence = item.get("resetEvidence") or {}
                 if (
                     not item.get("ruleResetConfirmed")
-                    or evidence.get("code") != RESET_EVIDENCE_CODE
+                    or evidence.get("code") not in RESET_EVIDENCE_CODES
                     or not _has_auditable_reset_evidence(item)
                 ):
                     continue
@@ -1252,8 +1271,8 @@ class MarketService:
             if not matches:
                 return None
             item = max(matches, key=lambda value: (
-                str(value.get("announcementDate") or value.get("monitorStartDate") or ""),
-                str(value.get("monitorEndDate") or ""),
+                str(value.get("ruleResetDate") or "").replace("-", ""),
+                str(value.get("announcementDate") or value.get("monitorStartDate") or "").replace("-", ""),
             ))
             return {
                 "riskTone": item.get("riskTone") or "",
@@ -1287,7 +1306,7 @@ class MarketService:
         stock_vector: List[Dict[str, Any]],
         index_vector: List[Dict[str, Any]],
     ) -> tuple[List[Dict[str, Any]], List[Dict[str, Any]], Dict[str, Any], Optional[Dict[str, Any]]]:
-        """统一应用停牌重置和严重异动公告后的规则重置。"""
+        """统一应用停牌重置和正式普通/严重异动公告后的规则重置。"""
 
         stock_vector, index_vector, suspension = self._trim_vectors_after_suspension(stock_vector, index_vector)
         monitoring = self._active_monitor_for_stock(stock)
@@ -1566,6 +1585,17 @@ class MarketService:
         无方向条件不在这里参与计数。
         """
 
+        # 数据库存储、行情源和测试向量可能分别使用 YYYYMMDD 与 YYYY-MM-DD；
+        # 先规范化日期，保证所有窗口都以同一组共同交易日配对。
+        stock = [
+            {**item, "date": cls._date_key(item.get("date"))}
+            for item in stock if cls._date_key(item.get("date")) and item.get("return") is not None
+        ]
+        index = [
+            {**item, "date": cls._date_key(item.get("date"))}
+            for item in index if cls._date_key(item.get("date")) and item.get("return") is not None
+        ]
+
         deviations = {}
         up_deviations = {}
         down_deviations = {}
@@ -1594,24 +1624,38 @@ class MarketService:
             same_index = [item for item in index if cls._date_key(item.get("date")) >= rule_reset_date]
         stock_map = {item["date"]: item["return"] for item in same_stock if item.get("date")}
         index_map = {item["date"]: item["return"] for item in same_index if item.get("date")}
-        common_dates = sorted(set(stock_map) & set(index_map))[-10:]
+        common_dates = sorted(set(stock_map) & set(index_map))
         # Never pair stock and index returns by array position: missing or
         # mismatched dates are unavailable data, not evidence of no risk.
         stock_values = [stock_map[item] for item in common_dates]
         index_values = [index_map[item] for item in common_dates]
-        def count_direction(sign: int) -> int:
-            count = 0
-            for start in range(0, max(0, len(stock_values) - 2)):
-                deviation = (
-                    cls._compound(stock_values[start : start + 3])
-                    - cls._compound(index_values[start : start + 3])
-                )
-                if (deviation >= rule.ordinary_deviation) if sign > 0 else (deviation <= -rule.ordinary_deviation):
-                    count += 1
-            return count
-
-        up_count = count_direction(1)
-        down_count = count_direction(-1)
+        # 统计范围按事件结束日落在最近 10 个共同交易日内确定。为了判断
+        # 统计窗首日结束的三日事件，必须保留首日前的两个收益区间。
+        recent_start = common_dates[max(0, len(common_dates) - 10)] if common_dates else ""
+        same_direction_events = []
+        for start in range(0, max(0, len(common_dates) - 2)):
+            window_dates = common_dates[start : start + 3]
+            if len(window_dates) < 3 or (recent_start and window_dates[-1] < recent_start):
+                continue
+            deviation = (
+                cls._compound(stock_values[start : start + 3])
+                - cls._compound(index_values[start : start + 3])
+            )
+            direction = (
+                "up" if deviation >= rule.ordinary_deviation
+                else "down" if deviation <= -rule.ordinary_deviation
+                else ""
+            )
+            if direction:
+                same_direction_events.append({
+                    "startDate": window_dates[0],
+                    "endDate": window_dates[-1],
+                    "windowDays": 3,
+                    "deviation": round(deviation, 6),
+                    "direction": direction,
+                })
+        up_count = sum(1 for item in same_direction_events if item["direction"] == "up")
+        down_count = sum(1 for item in same_direction_events if item["direction"] == "down")
         return {
             "deviations": deviations,
             "up_deviations": up_deviations,
@@ -1621,6 +1665,7 @@ class MarketService:
             "down_window_lengths": down_window_lengths,
             "up": up_count,
             "down": down_count,
+            "same_direction_events": same_direction_events,
             # Compatibility consumers use ``same`` as the direction-neutral
             # severe trigger. It must represent either direction reaching the
             # board threshold, not only the upside count.
@@ -1847,7 +1892,7 @@ class MarketService:
         common_days = len(common_dates)
         warnings = [
             self._single_warning(3, metrics["up_deviations"][3], down_deviations[3], metrics["up_window_lengths"][3], metrics["down_window_lengths"][3], rule.ordinary_deviation, -rule.ordinary_deviation),
-            {"title": "10 日同向", "value": "", "up": str(metrics["up"]), "down": str(metrics["down"]), "target": f"阈值 {rule.severe_same_direction_count} 次", "upThreshold": rule.severe_same_direction_count, "downThreshold": -rule.severe_same_direction_count, "className": "risk" if max(metrics["up"], metrics["down"]) >= rule.severe_same_direction_count else "safe"},
+            {"title": "10 日同向", "value": "", "up": str(metrics["up"]), "down": str(metrics["down"]), "upEvents": [item for item in metrics["same_direction_events"] if item["direction"] == "up"], "downEvents": [item for item in metrics["same_direction_events"] if item["direction"] == "down"], "target": f"阈值 {rule.severe_same_direction_count} 次", "upThreshold": rule.severe_same_direction_count, "downThreshold": -rule.severe_same_direction_count, "className": "risk" if max(metrics["up"], metrics["down"]) >= rule.severe_same_direction_count else "safe"},
             self._single_warning(10, metrics["up_deviations"][10], down_deviations[10], metrics["up_window_lengths"][10], metrics["down_window_lengths"][10], rule.severe_10d_threshold.up, rule.severe_10d_threshold.down),
             self._single_warning(30, metrics["up_deviations"][30], down_deviations[30], metrics["up_window_lengths"][30], metrics["down_window_lengths"][30], rule.severe_30d_threshold.up, rule.severe_30d_threshold.down),
         ]
@@ -2183,7 +2228,7 @@ class MarketService:
                     frame = self._index_daily(index_code, needed_dates[0], needed_dates[-1]) if needed_dates else None
                     rows = [] if frame is None or frame.empty else sorted(frame.to_dict("records"), key=lambda row: str(row.get("trade_date")))
                     index_latest_flags.append(any(str(row.get("trade_date")) == latest for row in rows))
-                    item = indexes_existing.get(index_code, {"index_code": index_code, "index_name": index_code, "index_return_vector": []})
+                    item = indexes_existing.get(index_code, {"index_code": index_code, "index_name": INDEX_NAMES.get(index_code, index_code), "index_return_vector": []})
                     vector = self._vector_entries(item.get("index_return_vector"))
                     previous_close = item.get("latest_close")
                     if bootstrap:
@@ -2208,7 +2253,8 @@ class MarketService:
                     item["index_return_vector"] = vector[-30:]
                     item["data_stage"] = data_stage
                     item["quote_updated_at"] = f"{str(item.get('as_of_trade_date') or latest)[:4]}-{str(item.get('as_of_trade_date') or latest)[4:6]}-{str(item.get('as_of_trade_date') or latest)[6:]} 15:00:00"
-                    item["indexName"] = item.get("index_name") or index_code
+                    item["index_name"] = INDEX_NAMES.get(index_code, item.get("index_name") or index_code)
+                    item["indexName"] = item["index_name"]
                     indexes.append(item)
                 # 正式数据必须同时拿到目标交易日的股票日线和全部对应指数日线。
                 # 失败时只更新基础资料，保留已有初态/正式计算行，不能伪造成功。
@@ -2294,7 +2340,7 @@ class MarketService:
             quotes = self._realtime.fetch_many([item["ts_code"] for item in stocks] + index_codes)
             indexes: List[Dict[str, Any]] = []
             for code in index_codes:
-                item = dict(indexes_existing.get(code) or {"index_code": code, "index_name": code, "index_return_vector": []})
+                item = dict(indexes_existing.get(code) or {"index_code": code, "index_name": INDEX_NAMES.get(code, code), "index_return_vector": []})
                 quote = quotes.get(code.upper())
                 if not quote or float(quote.get("current") or 0) <= 0:
                     continue
@@ -2302,7 +2348,7 @@ class MarketService:
                 if self._date_key(self._quote_date_string(quote)) != today:
                     continue
                 vector = self._apply_quote_to_vector(self._vector_entries(item.get("index_return_vector")), item.get("latest_close"), quote)
-                item.update({"index_code": code, "index_name": item.get("index_name") or code, "latest_close": float(quote["current"]), "as_of_trade_date": today, "index_return_vector": vector[-30:], "data_stage": "initial", "quote_updated_at": str(quote.get("updatedAt") or "").replace("T", " ")[:19]})
+                item.update({"index_code": code, "index_name": INDEX_NAMES.get(code, item.get("index_name") or code), "latest_close": float(quote["current"]), "as_of_trade_date": today, "index_return_vector": vector[-30:], "data_stage": "initial", "quote_updated_at": str(quote.get("updatedAt") or "").replace("T", " ")[:19]})
                 indexes.append(item)
             index_map = {item["index_code"]: item for item in indexes}
             calculations: List[Dict[str, Any]] = []
