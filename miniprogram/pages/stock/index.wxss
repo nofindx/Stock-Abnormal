@@ -153,6 +153,7 @@
 .next-day-forecast { display: flex; flex-direction: column; gap: 4rpx; margin-top: 28rpx; color: #4B5563; font-size: 20rpx; font-weight: 400; line-height: 28rpx; }
 .next-day-forecast-date,
 .next-day-forecast-result { display: block; color: #4B5563; font-size: 20rpx; font-weight: 400; line-height: 28rpx; overflow-wrap: anywhere; }
+.next-day-forecast-notice { display: block; color: #4B5563; font-size: 20rpx; font-weight: 400; line-height: 28rpx; overflow-wrap: anywhere; }
 .monitoring-summary { margin-top: 16rpx; }
 .monitoring-divider { border-top: 1rpx solid #F2F2F7; }
 .monitoring-badge { display: inline-flex; margin-top: 12rpx; padding: 4rpx 12rpx; border: 1rpx solid #E7A8A2; border-radius: 7rpx; background: #FDF3F2; color: #C0271E; font-size: 19rpx; font-weight: 600; line-height: 28rpx; }
@@ -264,6 +265,7 @@
 .stock-page .status-severe,
 .stock-page .status-monitoring,
 .stock-page .status-neutral { border-color: rgba(209, 213, 219, .84) !important; background: rgba(255, 255, 255, .72) !important; color: #1C1C1E !important; -webkit-backdrop-filter: blur(18rpx); backdrop-filter: blur(18rpx); }
+.stock-page .status-current-triggered { border-color: #D93025 !important; background: #FFF5F5 !important; color: #1C1C1E !important; -webkit-backdrop-filter: blur(18rpx); backdrop-filter: blur(18rpx); }
 .stock-page .status-safe .status-state,
 .stock-page .status-risk .status-state,
 .stock-page .status-severe .status-state,
@@ -271,6 +273,7 @@
 .stock-page .monitoring-meta,
 .stock-page .monitoring-reason { color: #4B5563 !important; }
 .stock-page .monitoring-meta .monitoring-emphasis { color: #C0271E !important; }
+.stock-page .status-current-triggered .next-day-forecast-notice { color: #C0271E !important; font-weight: 700; }
 .stock-page .alert-bar,
 .stock-page .alert-bar.risk,
 .stock-page .alert-bar.severe,

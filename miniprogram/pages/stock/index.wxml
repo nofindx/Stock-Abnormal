@@ -46,6 +46,7 @@
           <view class="next-day-forecast">
             <text wx:if="{{nextDayForecastLine}}" class="next-day-forecast-date">{{nextDayForecastLine}}</text>
             <text class="next-day-forecast-result">{{nextDayForecastText}}</text>
+            <text wx:if="{{nextDayForecastNotice}}" class="next-day-forecast-notice">{{nextDayForecastNotice}}</text>
           </view>
           <view wx:if="{{detail.monitoringSummary}}" class="monitoring-summary">
             <view class="monitoring-divider"></view>

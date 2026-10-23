@@ -195,7 +195,30 @@ function assessNextDayRules(rules = [], monitoringActive = false) {
 
 const WARNING_RULE_KEYS_BY_KEY = new Set(Object.values(WARNING_RULE_KEYS))
 
-function buildNextDayForecast(forecast = {}, monitoringActive = false) {
+function formatRuleThreshold(value) {
+  const number = Number(value)
+  if (!Number.isFinite(number)) return ''
+  return Number.isInteger(number) ? String(number) : number.toFixed(2)
+}
+
+function currentSevereRuleTexts(warnings = []) {
+  const texts = []
+  warnings.forEach(item => {
+    const title = String(item && item.title || '')
+    if (title !== '10 日偏离' && title !== '30 日偏离') return
+    const window = title.startsWith('30') ? 30 : 10
+    const directions = []
+    if (item.upTriggered) directions.push({ label: '涨幅', value: item.upThreshold })
+    if (item.downTriggered) directions.push({ label: '跌幅', value: Math.abs(Number(item.downThreshold)) })
+    directions.forEach(direction => {
+      const threshold = formatRuleThreshold(direction.value)
+      if (threshold) texts.push(`连续${window}个交易日内收盘价${direction.label}偏离值累计达到 ${direction.label === '涨幅' ? '+' : '-'}${threshold}%`)
+    })
+  })
+  return [...new Set(texts)]
+}
+
+function buildNextDayForecast(forecast = {}, monitoringActive = false, currentSevereRules = []) {
   const candidates = Array.isArray(forecast.rules) ? forecast.rules : []
   const assessment = assessNextDayRules(candidates, monitoringActive)
   const ruleText = [...new Set(assessment.rules.map(item => String(item.rule || '').trim()).filter(Boolean))].join('；')
@@ -208,8 +231,18 @@ function buildNextDayForecast(forecast = {}, monitoringActive = false) {
   if (typeof forecast.available !== 'boolean') return unavailable()
   const tradeDate = normalizeTradeDate(forecast.baseTradeDate)
   const nextTradeDate = normalizeTradeDate(forecast.targetTradeDate)
-  if (!forecast.available) return unavailable()
-  if (!tradeDate || !nextTradeDate) return unavailable()
+  if (!tradeDate) return unavailable()
+  if (currentSevereRules.length) {
+    return {
+      line: `按 ${tradeDate.slice(0, 4)}-${tradeDate.slice(4, 6)}-${tradeDate.slice(6)} 收盘数据预测`,
+      text: `已触发：${currentSevereRules.join('；')}`,
+      notice: '将进入重点监控池，具体以官方公告为准。',
+      summaryStatus: '当日已触发严重异动',
+      summaryTone: 'risk',
+      currentTriggered: true
+    }
+  }
+  if (!forecast.available || !nextTradeDate) return unavailable()
   const line = `按 ${tradeDate.slice(0, 4)}-${tradeDate.slice(4, 6)}-${tradeDate.slice(6)} 收盘数据预测 ${nextTradeDate.slice(0, 4)}-${nextTradeDate.slice(4, 6)}-${nextTradeDate.slice(6)}`
   if (candidates.some(item => !String(item.rule || '').trim())) return unavailable()
   const text = assessment.tone === 'safe'
@@ -399,7 +432,7 @@ Page({
   data: {
     query: '', suggestions: [], suggestionHint: false, suggestionTotal: 0, selected: null, detail: null, recentStocks: [],
     detailLoading: false, detailError: '', searchError: '', searchFocused: false, dataUpdatedAt: '',
-    futureTradeDates: [], nextDayForecastLine: '', nextDayForecastText: '正在核对下一交易日预测…',
+    futureTradeDates: [], nextDayForecastLine: '', nextDayForecastText: '正在核对下一交易日预测…', nextDayForecastNotice: '',
     dayOptions: ['10'], simulationExpanded: false, visibleDays: 2,
     inputRows: createInputRows(2), matrixGroups: buildMatrixGroups(createInputRows(2))
   },
@@ -464,7 +497,7 @@ Page({
     const inputRows = createInputRows(2, this.data.futureTradeDates)
     this.detailRequestId = (this.detailRequestId || 0) + 1
     const requestId = this.detailRequestId
-    this.setData({ selected: stock, detail: null, detailLoading: true, detailError: '', dataUpdatedAt: '', nextDayForecastLine: '', nextDayForecastText: '正在核对下一交易日预测…', query: stock.name === '正在加载' ? stock.ts_code : `${stock.name} ${stock.symbol}`, suggestions: [], suggestionHint: false, inputRows, matrixGroups: buildMatrixGroups(inputRows), simulationExpanded: false, visibleDays: 2 })
+    this.setData({ selected: stock, detail: null, detailLoading: true, detailError: '', dataUpdatedAt: '', nextDayForecastLine: '', nextDayForecastText: '正在核对下一交易日预测…', nextDayForecastNotice: '', query: stock.name === '正在加载' ? stock.ts_code : `${stock.name} ${stock.symbol}`, suggestions: [], suggestionHint: false, inputRows, matrixGroups: buildMatrixGroups(inputRows), simulationExpanded: false, visibleDays: 2 })
     Promise.all([
       getStockDetail(stock.ts_code),
       // 详情页读取未去杂的监管快照；监控接口失败不影响行情详情展示。
@@ -496,14 +529,17 @@ Page({
           symbol: monitoring.symbol || detailWithMonitoring.symbol || stock.symbol
         })
       }
-      const forecast = buildNextDayForecast(detailWithMonitoring.nextDayForecast || {}, Boolean(displayDetail.monitoringSummary))
+      const currentSevereRules = currentSevereRuleTexts(detailWithMonitoring.warnings || [])
+      const forecast = buildNextDayForecast(detailWithMonitoring.nextDayForecast || {}, Boolean(displayDetail.monitoringSummary), currentSevereRules)
       const statusSummary = { text: forecast.summaryStatus, tone: forecast.summaryTone }
       displayDetail.summaryStatus = statusSummary.text
       displayDetail.summaryTone = statusSummary.tone
+      displayDetail.currentTriggered = forecast.currentTriggered
+      if (forecast.currentTriggered) displayDetail.statusClass = 'current-triggered'
       const dataUpdatedAt = formatUpdatedAt((detailWithMonitoring.dataQuality || {}).quoteUpdatedAt || detailWithMonitoring.tradeDate)
       const recentStocks = [{ ts_code: detailWithMonitoring.ts_code || stock.ts_code, symbol: detailWithMonitoring.symbol || stock.symbol || stock.ts_code.split('.')[0], name: detailWithMonitoring.name || stock.name || stock.ts_code }, ...(this.data.recentStocks || []).filter(item => item.ts_code !== (detailWithMonitoring.ts_code || stock.ts_code))].slice(0, 8)
       wx.setStorageSync(STOCK_HISTORY_KEY, recentStocks)
-      this.setData({ selected: { ...stock, ...detailWithMonitoring }, detail: displayDetail, detailLoading: false, detailError: '', dataUpdatedAt, recentStocks, futureTradeDates, inputRows: rows, matrixGroups: buildMatrixGroups(rows), query: `${detailWithMonitoring.name} ${detailWithMonitoring.symbol}`, nextDayForecastLine: forecast.line, nextDayForecastText: forecast.text })
+      this.setData({ selected: { ...stock, ...detailWithMonitoring }, detail: displayDetail, detailLoading: false, detailError: '', dataUpdatedAt, recentStocks, futureTradeDates, inputRows: rows, matrixGroups: buildMatrixGroups(rows), query: `${detailWithMonitoring.name} ${detailWithMonitoring.symbol}`, nextDayForecastLine: forecast.line, nextDayForecastText: forecast.text, nextDayForecastNotice: forecast.notice || '' })
     }).catch((error) => {
       if (requestId !== this.detailRequestId) return
       const message = error && error.message ? String(error.message) : ''
@@ -550,4 +586,4 @@ Page({
 })
 
 // 纯计算函数导出给前端回归测试；小程序运行时不影响 Page 注册。
-if (typeof module !== 'undefined') module.exports = { bestDeviation, buildMatrixGroups, buildNextDayForecast, calculateSimulationRows, createInputRows, presentWarnings, summaryStatus, formatMonthDay, monitoringRuleLabel, formatMonitoringSummary, remainingMonitoringDays, findStockMonitoring }
+if (typeof module !== 'undefined') module.exports = { bestDeviation, buildMatrixGroups, buildNextDayForecast, calculateSimulationRows, createInputRows, presentWarnings, summaryStatus, formatMonthDay, monitoringRuleLabel, formatMonitoringSummary, remainingMonitoringDays, findStockMonitoring, currentSevereRuleTexts }

@@ -1,7 +1,7 @@
 const assert = require('assert')
 
 global.Page = () => {}
-const { bestDeviation, buildMatrixGroups, buildNextDayForecast, calculateSimulationRows, createInputRows, presentWarnings, summaryStatus, formatMonthDay, monitoringRuleLabel, formatMonitoringSummary, remainingMonitoringDays, findStockMonitoring } = require('./index')
+const { bestDeviation, buildMatrixGroups, buildNextDayForecast, calculateSimulationRows, createInputRows, presentWarnings, summaryStatus, formatMonthDay, monitoringRuleLabel, formatMonitoringSummary, remainingMonitoringDays, findStockMonitoring, currentSevereRuleTexts } = require('./index')
 
 const forecastBase = { baseTradeDate: '20261016', targetTradeDate: '20261019', available: true }
 assert.deepStrictEqual(buildNextDayForecast({ ...forecastBase, rules: [] }), {
@@ -20,6 +20,23 @@ assert.deepStrictEqual(buildNextDayForecast({ ...forecastBase, rules: [
   text: '次日可能触发：连续10个交易日内收盘价涨幅偏离值累计达到 +100%；连续30个交易日内收盘价涨幅偏离值累计达到 +200%',
   summaryStatus: '存在异动风险',
   summaryTone: 'risk'
+})
+assert.deepStrictEqual(currentSevereRuleTexts([
+  { title: '10 日偏离', upTriggered: true, upThreshold: 100, downTriggered: false },
+  { title: '30 日偏离', upTriggered: false, downTriggered: true, downThreshold: -70 }
+]), [
+  '连续10个交易日内收盘价涨幅偏离值累计达到 +100%',
+  '连续30个交易日内收盘价跌幅偏离值累计达到 -70%'
+])
+assert.deepStrictEqual(buildNextDayForecast({ ...forecastBase, rules: [] }, false, [
+  '连续10个交易日内收盘价涨幅偏离值累计达到 +100%'
+]), {
+  line: '按 2026-10-16 收盘数据预测',
+  text: '已触发：连续10个交易日内收盘价涨幅偏离值累计达到 +100%',
+  notice: '将进入重点监控池，具体以官方公告为准。',
+  summaryStatus: '当日已触发严重异动',
+  summaryTone: 'risk',
+  currentTriggered: true
 })
 assert.deepStrictEqual(buildNextDayForecast({ ...forecastBase, available: false, rules: [] }), {
   line: '', text: '次日预测暂不可用',
