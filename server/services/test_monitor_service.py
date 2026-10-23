@@ -602,6 +602,7 @@ class MonitorWindowTests(unittest.TestCase):
         }
         announcements.extract_pdf_text.return_value = "连续10个交易日涨幅偏离值累计达到100%"
         service = OfficialMonitorService(client=object(), announcements=announcements)
+        service._clock = lambda: datetime(2026, 10, 22, 12, tzinfo=SHANGHAI_TZ)
         try:
             result = service.refresh()
             self.assertTrue(result["started"])
@@ -632,6 +633,7 @@ class MonitorWindowTests(unittest.TestCase):
             "公司股票连续10个交易日内涨幅偏离值累计达到100%，构成严重异常波动。"
         )
         service = OfficialMonitorService(client=object(), announcements=announcements)
+        service._clock = lambda: datetime(2026, 10, 22, 12, tzinfo=SHANGHAI_TZ)
         try:
             result = service.refresh()
             self.assertTrue(result["started"])

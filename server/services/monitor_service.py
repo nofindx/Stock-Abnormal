@@ -179,6 +179,9 @@ class OfficialMonitorService:
         # 只缓存当前严重异动期内且可直接下载的 PDF；默认使用容器临时盘，
         # 可通过 MONITOR_PDF_DIR 指向持久化卷。文件不进入 SQLite，也不写入小程序。
         self.pdf_dir = Path(os.getenv("MONITOR_PDF_DIR", "/tmp/stock-abnormal/monitor-pdf"))
+        # Injectable clock keeps expiry and snapshot tests deterministic while
+        # production continues to use Shanghai local time.
+        self._clock = lambda: datetime.now(SHANGHAI_TZ)
         self.refreshing = False
         self.last_error = ""
         self._lock = Lock()
@@ -211,10 +214,11 @@ class OfficialMonitorService:
                 parsed = datetime.fromisoformat(updated_at)
                 if parsed.tzinfo is None:
                     parsed = parsed.replace(tzinfo=SHANGHAI_TZ)
-                age_seconds = max(0, int((datetime.now(SHANGHAI_TZ) - parsed.astimezone(SHANGHAI_TZ)).total_seconds()))
+                age_seconds = max(0, int((self._clock() - parsed.astimezone(SHANGHAI_TZ)).total_seconds()))
             except ValueError:
                 age_seconds = None
-        today = datetime.now(SHANGHAI_TZ).strftime("%Y-%m-%d")
+        now = self._clock()
+        today = now.strftime("%Y-%m-%d")
         active_items = [
             item for item in (snapshot or {}).get("items", [])
             if not self._is_expired(str(item.get("monitorEndDate") or ""), today)
@@ -241,7 +245,7 @@ class OfficialMonitorService:
         self._scheduler_stop.wait(0.5)
         while not self._scheduler_stop.is_set():
             try:
-                now = datetime.now(SHANGHAI_TZ)
+                now = self._clock()
                 today = now.strftime("%Y-%m-%d")
                 state = self.repository.states()
                 last_attempt_date = state.get("last_attempt_date", "")
@@ -755,7 +759,7 @@ class OfficialMonitorService:
         snapshot = self.repository.active_snapshot()
         if not snapshot:
             return None
-        today = datetime.now(SHANGHAI_TZ).strftime("%Y-%m-%d")
+        today = self._clock().strftime("%Y-%m-%d")
         item = next((row for row in snapshot.get("items", []) if row.get("monitorKey") == monitor_key), None)
         if not item or item.get("riskTone") not in ("severe-10d", "severe-30d"):
             return None
@@ -879,7 +883,7 @@ class OfficialMonitorService:
             if self.refreshing:
                 return {"started": False, "refreshing": True}
             self.refreshing = True
-        now = datetime.now(SHANGHAI_TZ)
+        now = self._clock()
         started_at = now.strftime("%Y-%m-%d %H:%M")
         # 允许失败后立即重试；秒级 ID 会在同一秒内重复并触发 SQLite 主键冲突。
         run_id = now.strftime("%Y%m%d%H%M%S%f")
@@ -1121,7 +1125,7 @@ class OfficialMonitorService:
             merge_items = parsed_events + previous_items
             parsed = self._collapse_by_stock(merge_items, now.strftime("%Y-%m-%d"))
             self._cache_active_pdfs(parsed, now.strftime("%Y-%m-%d"))
-            updated_at = datetime.now(SHANGHAI_TZ).strftime("%Y-%m-%d %H:%M")
+            updated_at = self._clock().strftime("%Y-%m-%d %H:%M")
             active_source = "broker_primary" if broker_available else ("zts_primary" if zts_available else "issuer_disclosure_backup")
             source_label = "18.cn 主源（部分详情失败）" if broker_available and broker_partial else ("18.cn 主源" if broker_available else ("中泰证券公告" if zts_available else "巨潮资讯备源（主源降级接替）"))
             snapshot = {
@@ -1198,7 +1202,7 @@ class OfficialMonitorService:
                 "dataQuality": {"source": "公告快照", "isComplete": False},
             }
         # 读取接口只使用快照字段和上海本地日期，不会触发上游请求。
-        today = datetime.now(SHANGHAI_TZ).strftime("%Y-%m-%d")
+        today = self._clock().strftime("%Y-%m-%d")
         items = []
         for item in snapshot.get("items", []):
             end_date = str(item.get("monitorEndDate") or "")
