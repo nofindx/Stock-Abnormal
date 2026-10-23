@@ -360,12 +360,7 @@ def select_same_direction_events(
     records: Iterable[Any],
     session_dates: Optional[Sequence[Any]] = None,
 ) -> Tuple[Any, ...]:
-    """Keep every qualifying directional window as an independent occurrence.
-
-    The product counting policy counts each market-data-confirmed three-session
-    window separately. Overlap with another qualifying window is not a reason
-    to merge or discard it. Directionless conditions do not enter this counter.
-    """
+    """Select directional qualifying windows before episode consolidation."""
 
     del session_dates  # Kept for call compatibility; occurrence identity is the window.
     selected = [
@@ -377,6 +372,65 @@ def select_same_direction_events(
         selected,
         key=lambda item: (_record_field(item, "end_date"), _record_field(item, "start_date")),
     ))
+
+
+def consolidate_same_direction_events(
+    records: Iterable[Any],
+    session_dates: Optional[Sequence[Any]] = None,
+) -> Tuple[Any, ...]:
+    """Collapse overlapping qualifying 3-session windows into episodes.
+
+    A continuous run of overlapping windows in one direction is one occurrence.
+    Callers that have verified reset dates split the input into segments before
+    calling this helper; opposite directions are always independent. This is a
+    product counting policy, not an exchange definition of overlapping windows.
+    """
+
+    ordered = list(select_same_direction_events(records))
+    if not ordered:
+        return ()
+    session_index = {
+        str(value).replace("-", "")[:8]: index
+        for index, value in enumerate(session_dates or ())
+    }
+    result: List[Any] = []
+    last_window_start = ""
+    episode_end = ""
+    for item in ordered:
+        if not result:
+            if isinstance(item, dict):
+                item.setdefault("episode_start_date", _record_field(item, "start_date"))
+                item.setdefault("episode_end_date", _record_field(item, "end_date"))
+            result.append(item)
+            last_window_start = str(_record_field(item, "start_date") or "")
+            episode_end = str(_record_field(item, "end_date") or "")
+            continue
+        previous = result[-1]
+        same_direction = _record_field(previous, "direction") == _record_field(item, "direction")
+        current_start = str(_record_field(item, "start_date") or "")
+        overlaps = current_start <= episode_end
+        adjacent = True
+        if session_index:
+            current_key = current_start.replace("-", "")[:8]
+            previous_start = last_window_start.replace("-", "")[:8]
+            current_start_key = current_key
+            if previous_start in session_index and current_start_key in session_index:
+                adjacent = session_index[current_start_key] <= session_index[previous_start] + 1
+        if same_direction and overlaps and adjacent:
+            # Keep the first qualifying three-session window as the auditable
+            # representative; also expose the full episode span for audit.
+            if isinstance(previous, dict):
+                previous["episode_end_date"] = _record_field(item, "end_date")
+            last_window_start = current_start
+            episode_end = str(_record_field(item, "end_date") or "")
+            continue
+        if isinstance(item, dict):
+            item.setdefault("episode_start_date", _record_field(item, "start_date"))
+            item.setdefault("episode_end_date", _record_field(item, "end_date"))
+        result.append(item)
+        last_window_start = current_start
+        episode_end = str(_record_field(item, "end_date") or "")
+    return tuple(result)
 
 
 def _count_same_direction(
@@ -455,13 +509,13 @@ def detect_severe_abnormal(
     # 触发偏离值和换手率两条普通异常记录。
     recent_start = stock_bars[-10].trade_date if len(stock_bars) >= 10 else stock_bars[0].trade_date
     recent_end = stock_bars[-1].trade_date
-    same_direction_events = select_same_direction_events(
+    same_direction_events = consolidate_same_direction_events(
         ordinary_records,
         [item.trade_date for item in stock_bars],
     )
     same_direction_events = tuple(
         item for item in same_direction_events
-        if recent_start <= item.end_date <= recent_end
+        if recent_start <= item.start_date <= recent_end
     )
     same_count, same_direction, up_count, down_count = _count_same_direction(same_direction_events)
     return SevereAbnormalResult(

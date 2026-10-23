@@ -25,7 +25,7 @@ from server.core.abnormal_rules import (
     calculate_deviation,
     detect_ordinary_abnormal,
     detect_severe_abnormal,
-    select_same_direction_events,
+    consolidate_same_direction_events,
 )
 from .realtime_quote import RealtimeQuoteClient
 from .market_calc_repository import MarketCalcRepository
@@ -45,7 +45,7 @@ BOARD_BY_MARKET = {"主板": Board.MAIN, "创业板": Board.CHINEXT, "科创板"
 SHANGHAI_TZ = ZoneInfo("Asia/Shanghai") if ZoneInfo else timezone(timedelta(hours=8))
 # 停牌/复牌重置、独立规则候选、上涨同向计数和预测阶段切换属于同一套规则口径。
 # 版本变化会触发服务启动时从已确认收盘行情重建计算基础数据与预测集。
-PREDICTION_RULE_VERSION = "2026-10-rolling-three-day-window-counts-separate-ordinary-severe-resets-v59-shanghai-a-share-index"
+PREDICTION_RULE_VERSION = "2026-10-overlapping-three-day-windows-consolidated-episodes-v60-shanghai-a-share-index"
 RESET_AUTHORIZED_SOURCE_TYPES = {"issuer-disclosure", "exchange-disclosure"}
 RESET_EVIDENCE_CODE = "official_severe_abnormality_body"
 ORDINARY_RESET_EVIDENCE_CODE = "official_ordinary_abnormality_body"
@@ -1648,9 +1648,8 @@ class MarketService:
     ) -> Dict[str, Any]:
         """从日期化收益率向量计算偏离和 10 日同向异动次数。
 
-        同向次数按每个达标的三日滚动窗口分别计数，重叠窗口不合并。
-        普通异常公告只重置三日计算基线；严重异常公告重置严重偏离和同向
-        计次。无方向条件（如换手率）不参与同向计数。
+        同方向、连续重叠的达标三日窗口合并为一次行情事件；经核验的普通
+        公告重置日切分计算段，严重公告重置同向账本。无方向条件不计次。
         """
 
         # 数据库存储、行情源和测试向量可能分别使用 YYYYMMDD 与 YYYY-MM-DD；
@@ -1736,31 +1735,49 @@ class MarketService:
                     "deviation": round(deviation, 6),
                     "direction": direction,
                 })
-        same_direction_events = [
-            item for item in select_same_direction_events([
-                {
-                    "start_date": item["startDate"],
-                    "end_date": item["endDate"],
-                    "direction": item["direction"],
-                    "counts_for_same_direction": True,
-                }
-                for item in candidate_events
-            ], common_dates)
+        # A verified ordinary notice delimits event episodes, but never creates
+        # a count without a market-data threshold hit. Within each reset segment,
+        # consolidate continuous overlapping qualifying windows independently.
+        boundaries = [
+            cls._date_key(value) for value in sorted(ordinary_resets)
+            if cls._date_key(value) and (not severe_reset_date or cls._date_key(value) >= severe_reset_date)
         ]
-        latest_candidates = {
-            (item["endDate"], item["direction"]): item for item in candidate_events
-        }
+        if severe_reset_date:
+            candidate_events = [item for item in candidate_events if item["startDate"] >= severe_reset_date]
+        consolidated_events = []
+        segment_start = severe_reset_date or ""
+        for boundary in [*boundaries, ""]:
+            segment = [
+                item for item in candidate_events
+                if (not segment_start or item["startDate"] >= segment_start)
+                and (not boundary or item["endDate"] < boundary)
+            ]
+            consolidated_events.extend(consolidate_same_direction_events(
+                [
+                    {
+                        "start_date": item["startDate"],
+                        "end_date": item["endDate"],
+                        "direction": item["direction"],
+                        "deviation": item["deviation"],
+                        "counts_for_same_direction": True,
+                    }
+                    for item in segment
+                ],
+                common_dates,
+            ))
+            segment_start = boundary
         same_direction_events = [
             {
                 "startDate": item["start_date"],
                 "endDate": item["end_date"],
+                "episodeStartDate": item.get("episode_start_date", item["start_date"]),
+                "episodeEndDate": item.get("episode_end_date", item["end_date"]),
                 "windowDays": 3,
-                "deviation": latest_candidates[(item["end_date"], item["direction"])]["deviation"],
+                "deviation": item.get("deviation"),
                 "direction": item["direction"],
             }
-            for item in same_direction_events
-            if (item["end_date"], item["direction"]) in latest_candidates
-            and (not recent_start or item["end_date"] >= recent_start)
+            for item in consolidated_events
+            if not recent_start or item["start_date"] >= recent_start
         ]
         up_count = sum(1 for item in same_direction_events if item["direction"] == "up")
         down_count = sum(1 for item in same_direction_events if item["direction"] == "down")
@@ -2054,7 +2071,7 @@ class MarketService:
                     ]) for window in (3, 10, 30)
                 },
             },
-            "calculationInput": {"stock": stock_vector, "index": index_vector, "ordinaryDeviation": rule.ordinary_deviation, "severe10": {"up": rule.severe_10d_threshold.up, "down": rule.severe_10d_threshold.down}, "severe30": {"up": rule.severe_30d_threshold.up, "down": rule.severe_30d_threshold.down}, "sameDirectionThreshold": rule.severe_same_direction_count, "ordinaryResetDates": suspension.get("ordinaryResetDates", []), "severeResetDate": suspension.get("severeResetDate", ""), "sameDirectionWindowPolicy": "each_qualifying_rolling_3d_window_counts", "ruleVersion": PREDICTION_RULE_VERSION},
+            "calculationInput": {"stock": stock_vector, "index": index_vector, "ordinaryDeviation": rule.ordinary_deviation, "severe10": {"up": rule.severe_10d_threshold.up, "down": rule.severe_10d_threshold.down}, "severe30": {"up": rule.severe_30d_threshold.up, "down": rule.severe_30d_threshold.down}, "sameDirectionThreshold": rule.severe_same_direction_count, "ordinaryResetDates": suspension.get("ordinaryResetDates", []), "severeResetDate": suspension.get("severeResetDate", ""), "sameDirectionWindowPolicy": "overlapping-windows-consolidated-into-independent-events", "ruleVersion": PREDICTION_RULE_VERSION},
             "simulationThresholds": {
                 "3": {"up": rule.ordinary_deviation, "down": -rule.ordinary_deviation},
                 "10": {"up": rule.severe_10d_threshold.up, "down": rule.severe_10d_threshold.down},

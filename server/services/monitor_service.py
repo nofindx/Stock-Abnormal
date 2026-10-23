@@ -41,7 +41,7 @@ MONITOR_PERIOD_TRADING_DAYS = {
 MONITOR_WINDOW_TRADING_DAYS = MONITOR_PERIOD_TRADING_DAYS
 # 公告分类口径变化时，启动任务主动重采一次当前快照；避免必须等到次日
 # 00:00 才让修复后的北交所严重异动进入重点监控。
-MONITOR_RULE_VERSION = "2026-10-monitor-zts-effective-date-separate-reset-scopes-retained-reset-facts-v21"
+MONITOR_RULE_VERSION = "2026-10-monitor-zts-effective-date-official-ordinary-two-or-three-day-reset-v22"
 
 # 只有官方披露平台上的发行人/交易所正文，才有资格改变行情累计基线。
 # 18.cn、中泰等风险提示可以作为监管事实或佐证，但不能单独触发重置。
@@ -488,12 +488,21 @@ class OfficialMonitorService:
         title_text = re.sub(r"\s+", "", str(title or ""))
         if not official_host or "异常波动" not in title_text or "严重异常波动" in text:
             return None
-        normalized = text.replace("三个", "3").replace("三個", "3")
+        normalized = text.replace("三个", "3个").replace("三個", "3个")
+        normalized = normalized.replace("两个", "2个").replace("兩個", "2个").replace("两個", "2个")
         normalized = normalized.replace("五个", "5个").replace("五個", "5个")
         normalized = normalized.replace("累积换手率", "累计换手率")
-        if "连续3个交易日" not in normalized:
+        # 正式公告有时会在连续两日已经达到主板普通阈值时披露
+        # “连续两个交易日”，这仍是可审计的普通异动事实；不能因不是
+        # 三日文字而漏掉其后的重置边界。
+        period_match = re.search(r"连续([23])个交易日", normalized)
+        if not period_match:
             return None
-        match = re.search(r"(?:偏离值累计|累计偏离值)(?:达到|为)?([±+-]?\d+(?:\.\d+)?)%", normalized)
+        match = re.search(
+            r"(?:偏离值累计|累计(?:涨幅|跌幅)?偏离值)"
+            r"(?:达到|超过|高于|大于|不少于|为)?([±+-]?\d+(?:\.\d+)?)%",
+            normalized,
+        )
         code_match = re.search(r"\d{6}", str(symbol or ""))
         code = code_match.group(0) if code_match else ""
         is_bse = code.startswith(("4", "8", "9"))
@@ -535,7 +544,7 @@ class OfficialMonitorService:
             "sourceUrl": str(source_url),
             "bodyHash": hashlib.sha256(normalized.encode("utf-8")).hexdigest(),
             "verifiedRiskTone": "ordinary-abnormality",
-            "signals": ["连续3个交易日异常波动", "板块普通偏离阈值或主板换手率条件"],
+            "signals": [f"连续{period_match.group(1)}个交易日异常波动", "板块普通偏离阈值或主板换手率条件"],
         }
 
     @staticmethod
@@ -1159,7 +1168,8 @@ class OfficialMonitorService:
                         "severeRequiresBoardThresholdOrSameDirectionEvidence": True,
                         "ordinaryResetScope": ["3d_baseline"],
                         "severeResetScope": ["10d", "30d", "same_direction_10d"],
-                        "overlappingThreeDayWindowsCountSeparately": True,
+                        "overlappingThreeDayWindowsCountSeparately": False,
+                        "sameDirectionEventPolicy": "same-direction-overlapping-windows-consolidated; verified-reset-boundaries-split-events",
                         "ordinaryRiskAlertsReset": False,
                     },
                     "issuerBodyVerification": {

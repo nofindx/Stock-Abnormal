@@ -101,30 +101,29 @@ class AbnormalRulesTest(unittest.TestCase):
         self.assertIsNone(result.severe_10d)
         self.assertEqual(result.down_count, 1)
 
-    def test_continuous_ordinary_windows_count_separately(self):
-        """每个达标的重叠三日窗口分别计次。"""
+    def test_continuous_ordinary_windows_are_one_episode(self):
+        """同一方向连续重叠的达标三日窗口归为一次事件。"""
 
         stock, index = make_bars([100.0 * (1.1 ** day) for day in range(7)], [100.0] * 7)
         result = detect_severe_abnormal(stock, index, Board.MAIN)
-        self.assertEqual(result.same_direction_count, 4)
+        self.assertEqual(result.same_direction_count, 1)
 
-    def test_each_qualifying_window_uses_its_confirmation_date_in_rolling_ten_days(self):
-        """同向次数按各达标窗口确认日落入最近十个交易日统计。"""
+    def test_episode_start_must_remain_inside_rolling_ten_day_window(self):
+        """事件起始交易日滑出最近十日后不再进入同向次数。"""
 
         stock, index = make_bars([100.0 * (1.08 ** day) for day in range(16)], [100.0] * 16)
         result = detect_severe_abnormal(stock, index, Board.MAIN)
 
-        self.assertEqual(result.same_direction_count, 10)
-        self.assertEqual(len(result.same_direction_events), 10)
-        self.assertEqual(result.same_direction_events[0].start_date, date(2026, 1, 5))
-        self.assertEqual(result.same_direction_events[-1].end_date, date(2026, 1, 16))
+        self.assertEqual(result.same_direction_count, 0)
+        self.assertEqual(len(result.same_direction_events), 0)
 
     def test_same_direction_result_exposes_auditable_events(self):
         """同向次数必须能由起止日期、方向和偏离明细复核。"""
         stock, index = make_bars([100.0 * (1.1 ** day) for day in range(5)], [100.0] * 5)
         result = detect_severe_abnormal(stock, index, Board.MAIN)
-        self.assertEqual(len(result.same_direction_events), 2)
+        self.assertEqual(len(result.same_direction_events), 1)
         self.assertEqual(result.same_direction_events[0].start_date, date(2026, 1, 2))
+        self.assertEqual(result.same_direction_events[0].end_date, date(2026, 1, 4))
         self.assertIs(result.same_direction_events[0].direction, Direction.UP)
         self.assertGreaterEqual(result.same_direction_events[0].deviation, 20.0)
 

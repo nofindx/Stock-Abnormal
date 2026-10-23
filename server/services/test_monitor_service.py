@@ -243,6 +243,23 @@ class MonitorWindowTests(unittest.TestCase):
             "broker-risk-alert", "https://static.cninfo.com.cn/broker.pdf",
         ))
 
+    def test_ordinary_rule_reset_accepts_official_two_day_threshold_body(self):
+        evidence = self.service._ordinary_reset_evidence(
+            "股票交易异常波动公告",
+            "截至10月14日连续两个交易日收盘价格涨幅偏离值累计达到21.69%。",
+            "000530", "issuer-disclosure", "https://static.cninfo.com.cn/ordinary-two-day.pdf",
+        )
+        self.assertIsNotNone(evidence)
+        self.assertIn("连续2个交易日异常波动", evidence["signals"])
+
+    def test_ordinary_rule_reset_accepts_exceeds_wording(self):
+        evidence = self.service._ordinary_reset_evidence(
+            "股票交易异常波动公告",
+            "截至10月14日连续两个交易日收盘价格涨幅偏离值累计超过20%。",
+            "000530", "issuer-disclosure", "https://static.cninfo.com.cn/ordinary-exceeds.pdf",
+        )
+        self.assertIsNotNone(evidence)
+
     def test_main_board_turnover_rule_accepts_actual_values_above_threshold(self):
         evidence = self.service._ordinary_reset_evidence(
             "股票交易异常波动公告",
