@@ -1530,7 +1530,7 @@ class MarketVectorTests(unittest.TestCase):
         _, thirty_window = MarketService._best_vector_deviation(thirty_day_stock, thirty_day_index, 30)
         self.assertEqual(thirty_window, 22)
 
-    def test_next_day_keeps_each_already_triggered_severe_rule_independently(self):
+    def test_next_day_omits_triggered_ten_day_rule_but_keeps_triggered_thirty_day_rule(self):
         service = self.service
         dates = [f"2026-08-{index:02d}" for index in range(1, 31)]
         stock_vector = [{"date": day, "return": 10.0} for day in dates]
@@ -1553,9 +1553,36 @@ class MarketVectorTests(unittest.TestCase):
         service._realtime = SimpleNamespace(fetch_many=lambda _codes: {})
         items = service._compute_prediction_from_repository("next_day")
         by_rule = {item["ruleKey"]: item for item in items}
-        self.assertEqual(set(by_rule), {"severe_10d", "severe_30d"})
-        self.assertTrue(by_rule["severe_10d"]["triggered"])
+        self.assertEqual(set(by_rule), {"severe_30d"})
         self.assertTrue(by_rule["severe_30d"]["triggered"])
+
+    def test_next_day_keeps_reachable_thirty_day_rule_after_triggered_ten_day_rule(self):
+        service = self.service
+        dates = [f"2026-08-{index:02d}" for index in range(1, 31)]
+        stock_vector = [{"date": day, "return": 10.0 if index >= 21 else 0.0} for index, day in enumerate(dates, 1)]
+        index_vector = [{"date": day, "return": 0.0} for day in dates]
+        service._calc_repository = SimpleNamespace(
+            available=True,
+            all_calculations=lambda: {"301190.SZ": {
+                "ts_code": "301190.SZ", "latest_close": 35.93,
+                "as_of_trade_date": "20260830", "stock_return_vector": stock_vector,
+            }},
+            all_indexes=lambda: {"399102.SZ": {
+                "index_code": "399102.SZ", "latest_close": 3210.0,
+                "as_of_trade_date": "20260830", "index_return_vector": index_vector,
+            }},
+        )
+        service._stock_rows = lambda: [{
+            "ts_code": "301190.SZ", "symbol": "301190", "name": "善水科技",
+            "market": "SZSE", "board": "创业板", "isST": False,
+        }]
+        service._realtime = SimpleNamespace(fetch_many=lambda _codes: {})
+
+        items = service._compute_prediction_from_repository("next_day")
+
+        self.assertFalse(any(item["ruleKey"] == "severe_10d" for item in items))
+        thirty_day = next(item for item in items if item["ruleKey"] == "severe_30d")
+        self.assertFalse(thirty_day["triggered"])
 
     def test_same_direction_trigger_does_not_suppress_ten_day_deviation_candidate(self):
         service = self.service

@@ -45,7 +45,7 @@ BOARD_BY_MARKET = {"主板": Board.MAIN, "创业板": Board.CHINEXT, "科创板"
 SHANGHAI_TZ = ZoneInfo("Asia/Shanghai") if ZoneInfo else timezone(timedelta(hours=8))
 # 停牌/复牌重置、独立规则候选、上涨同向计数和预测阶段切换属于同一套规则口径。
 # 版本变化会触发服务启动时从已确认收盘行情重建计算基础数据与预测集。
-PREDICTION_RULE_VERSION = "2026-10-overlapping-three-day-windows-consolidated-episodes-v60-shanghai-a-share-index"
+PREDICTION_RULE_VERSION = "2026-10-next-day-omits-already-triggered-10d-rule-v61-shanghai-a-share-index"
 RESET_AUTHORIZED_SOURCE_TYPES = {"issuer-disclosure", "exchange-disclosure"}
 RESET_EVIDENCE_CODE = "official_severe_abnormality_body"
 ORDINARY_RESET_EVIDENCE_CODE = "official_ordinary_abnormality_body"
@@ -2874,6 +2874,13 @@ class MarketService:
                     stats["excludedByDataQuality"] += 1
                     continue
                 triggered = deviation >= threshold
+                # A 10-day severe trigger at today's close enters the monitoring
+                # state from the next session, so do not repeat the already
+                # triggered +100% rule as a next-day prediction. The independent
+                # 30-day rule remains eligible.
+                if scope == "next_day" and rule_key == "severe_10d" and triggered:
+                    stats["excludedByTriggered"] += 1
+                    continue
                 if not triggered and distance > limit and candidate_keys is None:
                     stats["excludedByLimit"] += 1
                     continue
