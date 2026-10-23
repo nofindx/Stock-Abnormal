@@ -41,7 +41,7 @@ MONITOR_PERIOD_TRADING_DAYS = {
 MONITOR_WINDOW_TRADING_DAYS = MONITOR_PERIOD_TRADING_DAYS
 # 公告分类口径变化时，启动任务主动重采一次当前快照；避免必须等到次日
 # 00:00 才让修复后的北交所严重异动进入重点监控。
-MONITOR_RULE_VERSION = "2026-10-monitor-zts-effective-date-official-ordinary-two-or-three-day-reset-v22"
+MONITOR_RULE_VERSION = "2026-10-monitor-zts-effective-date-severe-fact-date-since-continuous-window-v23"
 
 # 只有官方披露平台上的发行人/交易所正文，才有资格改变行情累计基线。
 # 18.cn、中泰等风险提示可以作为监管事实或佐证，但不能单独触发重置。
@@ -709,6 +709,14 @@ class OfficialMonitorService:
             value = parse_fragment(match.group(1))
             if value:
                 candidates.append(value)
+        # Severe-abnormality announcements commonly say "自 YYYY年M月D日以来
+        # 连续 N 个交易日" without spelling out the last date. The fact was
+        # confirmed at the announcement close, so monitoring begins next session.
+        if re.search(
+            r"(?:自|从)?(?:20\d{2}年)?\d{1,2}月\d{1,2}日(?:以来|起).{0,24}?连续\d+个交易日",
+            text,
+        ):
+            candidates.append(announcement_date)
         return max(candidates) if candidates else ""
 
     def _pdf_path(self, monitor_key: str) -> Path:

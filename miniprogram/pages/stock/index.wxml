@@ -47,6 +47,10 @@
             <text wx:if="{{nextDayForecastLine}}" class="next-day-forecast-date">{{nextDayForecastLine}}</text>
             <text class="next-day-forecast-result">{{nextDayForecastText}}</text>
             <text wx:if="{{nextDayForecastNotice}}" class="next-day-forecast-notice">{{nextDayForecastNotice}}</text>
+            <view wx:if="{{detail.currentTriggered}}" class="next-day-prediction-extra">
+              <text class="next-day-forecast-date">{{detail.futureForecastLine}}</text>
+              <text class="next-day-forecast-result">{{detail.futureForecastText}}</text>
+            </view>
           </view>
           <view wx:if="{{detail.monitoringSummary}}" class="monitoring-summary">
             <view class="monitoring-divider"></view>

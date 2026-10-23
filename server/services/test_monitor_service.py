@@ -90,6 +90,20 @@ class MonitorWindowTests(unittest.TestCase):
             "2026-10-21",
         )
 
+    def test_severe_period_after_since_continuous_days_fact_starts_next_session(self):
+        dates = [
+            "2026-10-23", "2026-10-26", "2026-10-27", "2026-10-28", "2026-10-29",
+            "2026-10-30", "2026-11-02", "2026-11-03", "2026-11-04", "2026-11-05", "2026-11-06",
+        ]
+        self.service._trade_dates = lambda source_date, days: dates
+        body = "公司股票自2026年10月13日以来连续9个交易日涨幅偏离值累计达到118.77%"
+        event_end = self.service._event_end_date("2026-10-23", body)
+        self.assertEqual(event_end, "2026-10-23")
+        self.assertEqual(
+            self.service._monitor_period_dates(event_end, "issuer-disclosure", "severe-10d", "301313", event_end_date=event_end),
+            dates[1:],
+        )
+
     def test_monitor_noise_excludes_st_delisting_but_keeps_normal_bse_nine(self):
         self.assertFalse(self.service._is_noise_stock("920229", "世纪数码"))
         self.assertTrue(self.service._is_noise_stock("510300", "沪深300ETF"))

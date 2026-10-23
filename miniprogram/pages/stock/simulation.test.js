@@ -34,10 +34,18 @@ assert.deepStrictEqual(buildNextDayForecast({ ...forecastBase, rules: [] }, fals
   line: '按 2026-10-16 收盘数据预测',
   text: '已触发：连续10个交易日内收盘价涨幅偏离值累计达到 +100%',
   notice: '将进入重点监控池，具体以官方公告为准。',
+  futureLine: '次日预测（按 2026-10-16 收盘数据预测 2026-10-19）',
+  futureText: '未发现下一交易日可触发的异动规则',
   summaryStatus: '当日已触发严重异动',
   summaryTone: 'risk',
   currentTriggered: true
 })
+const currentTriggerWithThirtyDayCandidate = buildNextDayForecast({
+  ...forecastBase,
+  rules: [{ ruleKey: 'severe_30d', rule: '连续30个交易日偏离达到 +200%' }]
+}, false, ['连续10个交易日内收盘价涨幅偏离值累计达到 +100%'])
+assert.strictEqual(currentTriggerWithThirtyDayCandidate.text, '已触发：连续10个交易日内收盘价涨幅偏离值累计达到 +100%')
+assert.strictEqual(currentTriggerWithThirtyDayCandidate.futureText, '次日可能触发：连续30个交易日偏离达到 +200%')
 assert.deepStrictEqual(buildNextDayForecast({ ...forecastBase, available: false, rules: [] }), {
   line: '', text: '次日预测暂不可用',
   summaryStatus: '未知状态', summaryTone: 'unknown'

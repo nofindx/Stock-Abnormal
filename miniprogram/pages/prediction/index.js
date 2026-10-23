@@ -114,4 +114,4 @@ Page({
   },
 })
 
-module.exports = { isIntradayRefreshResult }
+module.exports = { isIntradayRefreshResult, normalizeItems }

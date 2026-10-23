@@ -233,10 +233,21 @@ function buildNextDayForecast(forecast = {}, monitoringActive = false, currentSe
   const nextTradeDate = normalizeTradeDate(forecast.targetTradeDate)
   if (!tradeDate) return unavailable()
   if (currentSevereRules.length) {
+    const futureLine = forecast.available && nextTradeDate
+      ? `次日预测（按 ${tradeDate.slice(0, 4)}-${tradeDate.slice(4, 6)}-${tradeDate.slice(6)} 收盘数据预测 ${nextTradeDate.slice(0, 4)}-${nextTradeDate.slice(4, 6)}-${nextTradeDate.slice(6)}）`
+      : '次日预测'
+    const futureUnavailable = !forecast.available || !nextTradeDate || candidates.some(item => !String(item.rule || '').trim())
+    const futureText = futureUnavailable
+      ? '次日预测暂不可用'
+      : assessment.tone === 'safe'
+        ? '未发现下一交易日可触发的异动规则'
+        : `次日可能触发：${ruleText}`
     return {
       line: `按 ${tradeDate.slice(0, 4)}-${tradeDate.slice(4, 6)}-${tradeDate.slice(6)} 收盘数据预测`,
       text: `已触发：${currentSevereRules.join('；')}`,
       notice: '将进入重点监控池，具体以官方公告为准。',
+      futureLine,
+      futureText,
       summaryStatus: '当日已触发严重异动',
       summaryTone: 'risk',
       currentTriggered: true
@@ -535,6 +546,8 @@ Page({
       displayDetail.summaryStatus = statusSummary.text
       displayDetail.summaryTone = statusSummary.tone
       displayDetail.currentTriggered = forecast.currentTriggered
+      displayDetail.futureForecastLine = forecast.futureLine || ''
+      displayDetail.futureForecastText = forecast.futureText || ''
       if (forecast.currentTriggered) displayDetail.statusClass = 'current-triggered'
       const dataUpdatedAt = formatUpdatedAt((detailWithMonitoring.dataQuality || {}).quoteUpdatedAt || detailWithMonitoring.tradeDate)
       const recentStocks = [{ ts_code: detailWithMonitoring.ts_code || stock.ts_code, symbol: detailWithMonitoring.symbol || stock.symbol || stock.ts_code.split('.')[0], name: detailWithMonitoring.name || stock.name || stock.ts_code }, ...(this.data.recentStocks || []).filter(item => item.ts_code !== (detailWithMonitoring.ts_code || stock.ts_code))].slice(0, 8)
