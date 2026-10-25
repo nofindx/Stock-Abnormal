@@ -275,6 +275,8 @@
 .stock-page .monitoring-reason { color: #4B5563 !important; }
 .stock-page .monitoring-meta .monitoring-emphasis { color: #C0271E !important; }
 .stock-page .status-current-triggered .next-day-forecast-notice { color: #C0271E !important; font-weight: 700; }
+.stock-page .status-risk { border-color: rgba(231, 168, 162, .92) !important; background: rgba(253, 243, 242, .88) !important; }
+.stock-page .status-risk .status-state { color: #C0271E !important; }
 .stock-page .alert-bar,
 .stock-page .alert-bar.risk,
 .stock-page .alert-bar.severe,
