@@ -1,9 +1,15 @@
 import unittest
 from datetime import date, datetime, timedelta
 from types import SimpleNamespace
+from unittest.mock import patch
 
 from server.services.market_calc_repository import MarketCalcRepository
-from server.services.market_service import CalculationDataUnavailable, MarketService, _index_code_for_stock
+from server.services.market_service import (
+    CalculationDataUnavailable,
+    MarketService,
+    PREDICTION_RULE_VERSION,
+    _index_code_for_stock,
+)
 from server.core.abnormal_rules import BOARD_RULES, Board, PriceBar, detect_severe_abnormal
 
 
@@ -20,6 +26,9 @@ def reset_evidence(risk_tone="severe-10d"):
 
 class MarketVectorTests(unittest.TestCase):
     """最小收益率向量计算回归测试。"""
+
+    def test_prediction_rule_version_fits_persisted_schema(self):
+        self.assertLessEqual(len(PREDICTION_RULE_VERSION), 40)
 
     def setUp(self):
         self.service = MarketService()
@@ -491,33 +500,34 @@ class MarketVectorTests(unittest.TestCase):
         self.assertFalse(result["updated"])
         self.assertEqual(calls, [{"data_stage": "formal", "allow_non_trade_day": True, "force_history": True, "history_end_date": "20261009"}])
 
-    def test_rule_upgrade_uses_one_completed_history_rebuild(self):
+    def test_rule_upgrade_recalculates_from_existing_confirmed_bases(self):
         service = self.service
         service._calc_repository = SimpleNamespace(
             available=True,
             get_prediction=lambda _scope: {"rule_version": "old-version"},
-            all_calculations=lambda: {"000001.SZ": {"as_of_trade_date": "20261013"}},
-            all_indexes=lambda: {"399107.SZ": {"as_of_trade_date": "20261013"}},
         )
         calls = []
-        service.rebuild_formal_history = lambda: calls.append("formal-history") or {"updated": True}
+        service.rebuild_formal_history = lambda: self.fail("rule-only upgrade must not refetch source行情")
+        service._latest_data_stage_date = lambda: ("20261023", "formal")
+        service._generate_prediction_datasets = lambda stage: calls.append(("recalculate", stage))
 
-        service._rebuild_predictions_if_rule_changed()
+        with patch.dict("os.environ", {"FORCE_MARKET_HISTORY_REBUILD": "0"}):
+            service._rebuild_predictions_if_rule_changed()
 
-        self.assertEqual(calls, ["formal-history"])
+        self.assertEqual(calls, [("recalculate", "formal")])
 
-    def test_failed_rule_upgrade_does_not_relabel_old_formal_vectors(self):
+    def test_explicit_history_rebuild_failure_does_not_recalculate(self):
         service = self.service
         service._calc_repository = SimpleNamespace(
             available=True,
             get_prediction=lambda _scope: {"rule_version": "old-version"},
         )
         service.rebuild_formal_history = lambda: {"updated": False, "reason": "incomplete upstream data"}
-        service._latest_data_stage_date = lambda: ("20261013", "formal")
         generated = []
         service._generate_prediction_datasets = lambda stage: generated.append(stage)
 
-        service._rebuild_predictions_if_rule_changed()
+        with patch.dict("os.environ", {"FORCE_MARKET_HISTORY_REBUILD": "1"}):
+            service._rebuild_predictions_if_rule_changed()
 
         self.assertEqual(generated, [])
 

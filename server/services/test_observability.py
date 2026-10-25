@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import Mock
 
-from server.services.market_service import MarketService, SHANGHAI_TZ
+from server.services.market_service import MarketService, PREDICTION_RULE_VERSION, SHANGHAI_TZ
 from server.services.realtime_quote import RealtimeQuoteClient
 from server.services.tushare_client import TushareClient, TushareUnavailable
 from server.tools.health_alert_check import collect_alerts
@@ -69,7 +69,7 @@ class PredictionHealthTests(unittest.TestCase):
                 get_prediction=lambda scope: {
                     "scope": scope, "trade_date": "20260930", "updated_at": updated,
                     "items": [{"ts_code": "000001.SZ"}], "data_stage": "formal",
-                    "data_quality": "confirmed", "rule_version": "test", "last_error": "",
+                    "data_quality": "confirmed", "rule_version": PREDICTION_RULE_VERSION, "last_error": "",
                 },
             )
             result = service.prediction_health()
@@ -85,8 +85,8 @@ class PredictionHealthTests(unittest.TestCase):
         try:
             updated = datetime.now(SHANGHAI_TZ) - timedelta(hours=48)
             records = {
-                ("today", ""): {"scope": "today", "target_trade_date": "20261016", "updated_at": updated, "items": [{"ts_code": "000001.SZ"}]},
-                ("next_day", "20261019"): {"scope": "next_day", "base_trade_date": "20261016", "target_trade_date": "20261019", "updated_at": updated, "items": [{"ts_code": "000002.SZ"}], "status": "ready", "dataset_quote_complete": True},
+                ("today", ""): {"scope": "today", "target_trade_date": "20261016", "updated_at": updated, "items": [{"ts_code": "000001.SZ"}], "rule_version": PREDICTION_RULE_VERSION},
+                ("next_day", "20261019"): {"scope": "next_day", "base_trade_date": "20261016", "target_trade_date": "20261019", "updated_at": updated, "items": [{"ts_code": "000002.SZ"}], "status": "ready", "dataset_quote_complete": True, "rule_version": PREDICTION_RULE_VERSION},
             }
             service._calc_repository = SimpleNamespace(
                 available=True,
@@ -117,7 +117,32 @@ class PredictionHealthTests(unittest.TestCase):
             "intradayState": {},
         })
         keys = {item["key"] for item in alerts}
-        self.assertEqual(keys, {"prediction_today"})
+        self.assertEqual(keys, {"prediction_today", "prediction_today_rule_version", "prediction_today_last_error"})
+
+    def test_health_alerts_detect_old_rule_dataset_and_persisted_write_error(self):
+        alerts = collect_alerts({
+            "marketCalc": {},
+            "prediction": {
+                "today": {
+                    "available": True,
+                    "status": "ready",
+                    "ruleVersion": "old-rule-v61",
+                    "lastError": "Data too long for column 'rule_version'",
+                    "datasetQuoteComplete": True,
+                },
+                "next_day": {
+                    "available": True,
+                    "status": "ready",
+                    "ruleVersion": PREDICTION_RULE_VERSION,
+                    "lastError": "",
+                    "datasetQuoteComplete": True,
+                },
+            },
+        })
+        self.assertEqual(
+            {item["key"] for item in alerts},
+            {"prediction_today_rule_version", "prediction_today_last_error"},
+        )
 
     def test_health_alerts_report_incomplete_stock_fields_and_legacy_rows(self):
         alerts = collect_alerts({

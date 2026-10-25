@@ -57,8 +57,10 @@ def _health_ui(payload: dict) -> str:
         issues.append("股票基础资料不完整")
     for scope, label in (("today", "当日"), ("next_day", "次日")):
         state = prediction.get(scope) or {}
-        if state.get("status") in {"failed", "missing", "incomplete"} or state.get("stale"):
+        if state.get("status") in {"failed", "missing", "incomplete", "rule_version_mismatch"} or state.get("stale"):
             issues.append(f"{label}预测数据不可用或已过期")
+        if state.get("lastError"):
+            issues.append(f"{label}预测最近一次生成失败")
         if state.get("datasetQuoteComplete") is False and state.get("available"):
             issues.append(f"{label}行情数据未完整")
     overall = "异常" if issues else "正常"

@@ -8,9 +8,14 @@ from __future__ import annotations
 
 import argparse
 import json
+from pathlib import Path
 import sys
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+from server.services.market_service import PREDICTION_RULE_VERSION
 
 
 def request_health(base_url: str) -> dict:
@@ -35,14 +40,26 @@ def collect_alerts(data: dict) -> list[dict]:
         alerts.append({"severity": "warning", "key": "prediction_cache_migration", "message": "旧预测表仍有记录，迁移兼容读取尚未关闭"})
     for scope in ("today", "next_day"):
         state = (data.get("prediction") or {}).get(scope) or {}
-        if state.get("status") in {"failed", "missing", "incomplete"} or state.get("stale"):
+        if state.get("status") in {"failed", "missing", "incomplete", "rule_version_mismatch"} or state.get("stale"):
             alerts.append({
-                "severity": "critical" if state.get("status") == "failed" else "warning",
+                "severity": "critical" if state.get("status") in {"failed", "rule_version_mismatch"} else "warning",
                 "key": f"prediction_{scope}",
                 "message": state.get("lastError") or f"{scope} 数据集不可用或已过期",
             })
         if state.get("datasetQuoteComplete") is False and state.get("available"):
             alerts.append({"severity": "critical", "key": f"prediction_{scope}_quote", "message": f"{scope} 行情数据未完整"})
+        if state.get("available") and state.get("ruleVersion") != PREDICTION_RULE_VERSION:
+            alerts.append({
+                "severity": "critical",
+                "key": f"prediction_{scope}_rule_version",
+                "message": f"{scope} 数据集规则版本不匹配：{state.get('ruleVersion') or '缺失'}，期望 {PREDICTION_RULE_VERSION}",
+            })
+        if state.get("lastError"):
+            alerts.append({
+                "severity": "critical",
+                "key": f"prediction_{scope}_last_error",
+                "message": str(state["lastError"]),
+            })
     return alerts
 
 

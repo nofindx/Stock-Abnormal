@@ -4,7 +4,7 @@ from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
 
-from server.services.market_service import MarketService, SHANGHAI_TZ
+from server.services.market_service import MarketService, PREDICTION_RULE_VERSION, SHANGHAI_TZ
 
 
 class PredictionBoundaryTests(unittest.TestCase):
@@ -86,6 +86,7 @@ class PredictionFailurePropagationTests(unittest.TestCase):
                     "status": "ready",
                     "data_stage": "formal",
                     "data_quality": "confirmed",
+                    "rule_version": PREDICTION_RULE_VERSION,
                     "dataset_quote_complete": True,
                     "exclusion_stats": {},
                 }
@@ -123,6 +124,7 @@ class PredictionFailurePropagationTests(unittest.TestCase):
                 "status": "ready",
                 "data_stage": "formal",
                 "data_quality": "confirmed",
+                "rule_version": PREDICTION_RULE_VERSION,
                 "dataset_quote_complete": True,
                 "exclusion_stats": {},
             }
@@ -165,6 +167,7 @@ class PredictionFailurePropagationTests(unittest.TestCase):
                     "status": "ready",
                     "data_stage": "formal",
                     "data_quality": "confirmed",
+                    "rule_version": PREDICTION_RULE_VERSION,
                     "dataset_quote_complete": True,
                     "exclusion_stats": {},
                 }

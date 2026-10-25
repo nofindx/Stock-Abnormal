@@ -57,7 +57,9 @@ BOARD_BY_MARKET = {"主板": Board.MAIN, "创业板": Board.CHINEXT, "科创板"
 SHANGHAI_TZ = ZoneInfo("Asia/Shanghai") if ZoneInfo else timezone(timedelta(hours=8))
 # 停牌/复牌重置、独立规则候选、上涨同向计数和预测阶段切换属于同一套规则口径。
 # 版本变化会触发服务启动时从已确认收盘行情重建计算基础数据与预测集。
-PREDICTION_RULE_VERSION = "2026-10-independent-four-rule-metrics-official-ordinary-event-ledger-severe-reset-all-direction-quality-v65-reset-effective-date-baselines-and-announced-monitoring"
+# Keep the persisted identifier compact: existing production schemas use a
+# 40-character rule-version column; the human-readable rationale lives in docs.
+PREDICTION_RULE_VERSION = "v65"
 _has_auditable_reset_evidence = has_auditable_reset_evidence
 
 
@@ -363,23 +365,21 @@ class MarketService:
                 )
                 if rules_match and not force_history:
                     return
-                try:
-                    formal = self.rebuild_formal_history()
-                except Exception as exc:  # noqa: BLE001 - keep initial snapshot fallback available
-                    self._prediction_last_error["today"] = f"正式行情刷新失败：{exc}"
-                    formal = {"updated": False, "reason": str(exc)}
-                if formal.get("updated"):
+                if force_history:
+                    try:
+                        formal = self.rebuild_formal_history()
+                    except Exception as exc:  # noqa: BLE001 - preserve stored bases on upstream failure
+                        self._prediction_last_error["today"] = f"正式行情刷新失败：{exc}"
+                        formal = {"updated": False, "reason": str(exc)}
+                    if formal.get("updated"):
+                        return
                     return
+
+                # A rule-version change only invalidates derived predictions.
+                # Recalculate from the confirmed vectors already in MySQL;
+                # do not refetch or overwrite source market data.
                 latest_date, stage = self._latest_data_stage_date()
-                refreshed_initial = False
-                if not force_history:
-                    today = self._now().strftime("%Y%m%d")
-                    if latest_date == today and stage == "initial":
-                        refreshed = self.update_initial_data()
-                        if refreshed.get("updated") and refreshed.get("tradeDate") == today:
-                            latest_date, stage = self._latest_data_stage_date()
-                            refreshed_initial = True
-                if latest_date and refreshed_initial:
+                if latest_date:
                     self._generate_prediction_datasets(stage)
             except Exception as exc:  # noqa: BLE001 - 重建失败不影响旧数据读取
                 self._prediction_last_error["today"] = f"预测规则重建失败：{exc}"
@@ -3579,8 +3579,12 @@ class MarketService:
             items = (record or {}).get("items")
             if items is None and cached:
                 items = cached[1]
+            version_mismatch = bool(
+                record
+                and str(record.get("rule_version") or "") != PREDICTION_RULE_VERSION
+            )
             phase_available = not (state and scope == "next_day" and state.get("phase") in ("dataset_open_pending", "intraday"))
-            if not phase_available:
+            if not phase_available or version_mismatch:
                 items = []
             age_seconds = self._age_seconds(updated)
             phase = str((state or {}).get("phase") or "")
@@ -3605,6 +3609,7 @@ class MarketService:
                 "exclusionStats": (record or {}).get("exclusion_stats") or self._prediction_generation_stats.get(effective_scope, {}),
                 "status": str(
                     "not_available_in_phase" if not phase_available else
+                    "rule_version_mismatch" if version_mismatch else
                     "failed" if (job or {}).get("status") == "failed" else
                     (record or {}).get("status") or ("ready" if record else "missing")
                 ),
@@ -3643,7 +3648,8 @@ class MarketService:
         if persistent:
             updated = persistent.get("updated_at")
             updated_dt = updated.replace(tzinfo=SHANGHAI_TZ) if isinstance(updated, datetime) and updated.tzinfo is None else updated
-            if isinstance(updated_dt, datetime) and persistent.get("status") != "failed":
+            persistent_rule_mismatch = str(persistent.get("rule_version") or "") != PREDICTION_RULE_VERSION
+            if isinstance(updated_dt, datetime) and persistent.get("status") != "failed" and not persistent_rule_mismatch:
                 self._prediction_cache[source_scope] = (updated_dt, persistent.get("items") or [])
             self._prediction_trade_date[source_scope] = str(persistent.get("target_trade_date") or persistent.get("trade_date") or "")
             if persistent.get("last_error"):
@@ -3654,7 +3660,11 @@ class MarketService:
         display_target_date = dataset_date or lookup_date
         cached = self._prediction_cache.get(source_scope)
         # GET 只读已生成的数据集；盘中实时结果由 POST refresh 直接返回，不进入缓存或数据库。
-        items = list(cached[1] if cached else [])
+        dataset_rule_mismatch = bool(
+            persistent
+            and str(persistent.get("rule_version") or "") != PREDICTION_RULE_VERSION
+        )
+        items = list(cached[1] if cached and not dataset_rule_mismatch else [])
         target_date = str(state.get("targetTradeDate") or "")
         dataset_matches_target = dataset_date == target_date
         next_data_stage = str((persistent or {}).get("data_stage") or "formal")
@@ -3678,6 +3688,8 @@ class MarketService:
         )
         if scope == "next_day" and not next_trade_available:
             items = []
+        if dataset_rule_mismatch:
+            items = []
         if scope == "today" and source_scope == "next_day" and not dataset_matches_target:
             items = []
         # 普通/同向卡只有在股票仍处于 10 日或 30 日重点监控期时才展示。
@@ -3695,7 +3707,11 @@ class MarketService:
         stored_stage = str((persistent or {}).get("data_stage") or "formal")
         quality = str((persistent or {}).get("data_quality") or ("provisional" if stored_stage == "initial" else "confirmed"))
         job_failed = str((prediction_job or {}).get("status") or "") == "failed"
-        dataset_status = "failed" if job_failed else str((persistent or {}).get("status") or ("ready" if persistent else "missing"))
+        dataset_status = (
+            "rule_version_mismatch" if dataset_rule_mismatch else
+            "failed" if job_failed else
+            str((persistent or {}).get("status") or ("ready" if persistent else "missing"))
+        )
         dataset_error = str(
             (prediction_job or {}).get("last_error")
             or (persistent or {}).get("last_error")
@@ -3726,7 +3742,7 @@ class MarketService:
             "datasetQuoteComplete": bool((persistent or {}).get("dataset_quote_complete", True)),
             "exclusionStats": (persistent or {}).get("exclusion_stats") or self._prediction_generation_stats.get(source_scope, {}),
             # 任务失败时保留上一份 items，但明确告诉前端更新时间位置显示不可用。
-            "dataUnavailable": bool(job_failed or (persistent or {}).get("status") in {"failed", "incomplete"} or dataset_incomplete or ((persistent is None) and not items)),
+            "dataUnavailable": bool(dataset_rule_mismatch or job_failed or (persistent or {}).get("status") in {"failed", "incomplete"} or dataset_incomplete or ((persistent is None) and not items)),
             "datasetStatus": dataset_status,
             "updatedAt": dataset_updated,
             "dataStage": stored_stage,
