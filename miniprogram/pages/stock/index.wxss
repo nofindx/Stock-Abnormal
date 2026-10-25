@@ -171,6 +171,8 @@
 
 .metric-grid { display: grid; width: 100%; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: stretch; gap: 20rpx; margin-top: 20rpx; }
 .metric-card { display: flex; width: 100%; min-width: 0; height: 184rpx; min-height: 184rpx; box-sizing: border-box; align-items: center; justify-content: space-between; gap: 8rpx; padding: 16rpx; border-radius: 12rpx; text-align: left; }
+.metric-card-warning { border-color: #F0D36A; background: #FFFAE8; }
+.metric-card-severe { border-color: #E7A8A2; background: #FFF5F5; }
 .metric-copy { display: grid; min-width: 0; flex: 1; align-self: stretch; grid-template-rows: auto minmax(0, 1fr) auto; padding: 2rpx 0; }
 .metric-label { display: inline-flex; width: 112rpx; height: 38rpx; max-width: 100%; align-items: center; align-self: flex-start; justify-self: start; justify-content: center; box-sizing: border-box; padding: 4rpx 12rpx; border: 1rpx solid #B9D6F2; border-radius: 7rpx; background: #EAF3FC; color: #185A96; font-size: 19rpx; font-weight: 600; line-height: 28rpx; transform: none; white-space: nowrap; }
 .metric-label-warning { border-color: #F0D36A; background: #FFF5CC; color: #8A6D0B; }
@@ -277,6 +279,7 @@
 .stock-page .status-current-triggered .next-day-forecast-notice { color: #C0271E !important; font-weight: 700; }
 .stock-page .status-risk { border-color: rgba(231, 168, 162, .92) !important; background: rgba(253, 243, 242, .88) !important; }
 .stock-page .status-risk .status-state { color: #C0271E !important; }
+.stock-page .status-warning { border-color: rgba(240, 211, 106, .9) !important; background: rgba(255, 250, 232, .82) !important; }
 .stock-page .alert-bar,
 .stock-page .alert-bar.risk,
 .stock-page .alert-bar.severe,

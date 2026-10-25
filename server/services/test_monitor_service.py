@@ -6,6 +6,7 @@ from unittest.mock import Mock
 
 from server.services.monitor_service import MONITOR_RULE_VERSION, OfficialMonitorService, SHANGHAI_TZ
 from server.services.announcement_service import AnnouncementService
+from server.services.fact_ledger import FactLedger
 
 
 class MonitorWindowTests(unittest.TestCase):
@@ -22,6 +23,35 @@ class MonitorWindowTests(unittest.TestCase):
         else:
             os.environ["MONITOR_DB_PATH"] = self.previous_db_path
         self.temp_dir.cleanup()
+
+    def test_fact_ledger_is_idempotent_and_rebuildable_after_snapshot_rotation(self):
+        ledger = FactLedger(os.path.join(self.temp_dir.name, "facts.db"))
+        fact = {
+            "sourceId": "cninfo-ordinary-1", "symbol": "600825",
+            "announcementDate": "2026-10-23", "riskTone": "ordinary-abnormality",
+            "eventDate": "2026-10-22", "eventDirection": "up",
+            "ruleResetDate": "2026-10-24", "sourceUrl": "https://static.cninfo.com.cn/a.pdf",
+        }
+        self.assertEqual(ledger.upsert([fact, fact]), 2)
+        rebuilt = ledger.rebuild(symbol="600825", since="2026-10-01")
+        self.assertEqual(len(rebuilt), 1)
+        self.assertEqual(rebuilt[0]["eventDirection"], "up")
+        ledger.upsert_pending([{
+            "symbol": "600825", "announcementDate": "2026-10-24",
+            "title": "股票交易异常波动公告", "sourceUrl": "https://static.cninfo.com.cn/pending.pdf",
+            "status": "pending_verification", "reason": "official_body_unreadable",
+        }])
+        self.assertEqual(len(ledger.pending("600825")), 1)
+        self.assertEqual(ledger.health()["factCount"], 1)
+        self.assertEqual(ledger.health()["pendingCount"], 1)
+        ledger.upsert([{
+            "sourceId": ledger.pending("600825")[0]["sourceId"],
+            "symbol": "600825", "announcementDate": "2026-10-24",
+            "riskTone": "ordinary-abnormality", "eventDate": "2026-10-23",
+            "eventDirection": "up", "ruleResetDate": "2026-10-26",
+            "sourceUrl": "https://static.cninfo.com.cn/pending.pdf",
+        }])
+        self.assertEqual(ledger.health()["pendingCount"], 0)
 
     def test_cninfo_query_market_includes_bse_column(self):
         service = AnnouncementService()
@@ -253,6 +283,11 @@ class MonitorWindowTests(unittest.TestCase):
             "issuer-disclosure", "https://static.cninfo.com.cn/risk.pdf",
         ))
         self.assertIsNone(self.service._ordinary_reset_evidence(
+            "关于股票交易异常波动的风险提示公告",
+            "截至10月20日连续3个交易日收盘价格涨幅偏离值累计达到30%。",
+            "600825", "issuer-disclosure", "https://static.cninfo.com.cn/risk-with-history.pdf",
+        ))
+        self.assertIsNone(self.service._ordinary_reset_evidence(
             "股票交易异常波动公告", "连续3个交易日偏离值累计达到20%", "600825",
             "broker-risk-alert", "https://static.cninfo.com.cn/broker.pdf",
         ))
@@ -273,6 +308,44 @@ class MonitorWindowTests(unittest.TestCase):
             "000530", "issuer-disclosure", "https://static.cninfo.com.cn/ordinary-exceeds.pdf",
         )
         self.assertIsNotNone(evidence)
+
+    def test_one_announcement_can_confirm_ordinary_and_severe_facts(self):
+        title = "股票交易异常波动公告"
+        body = (
+            "截至2026年10月23日连续3个交易日收盘价格涨幅偏离值累计超过31.2%。"
+            "公司股票连续9个交易日涨幅偏离值累计达到120%，构成严重异常波动。"
+        )
+        ordinary = self.service._ordinary_reset_evidence(
+            title, body, "301313", "issuer-disclosure", "https://static.cninfo.com.cn/mixed.pdf",
+        )
+        monitor_type, risk_tone = self.service._classify_monitor_text(title, body, "301313")
+
+        self.assertIsNotNone(ordinary)
+        self.assertTrue(ordinary["countsForSameDirection"])
+        self.assertEqual(self.service._ordinary_event_direction(body), "up")
+        self.assertEqual(risk_tone, "severe-10d")
+
+    def test_ambiguous_rise_and_fall_wording_does_not_infer_event_direction(self):
+        self.assertEqual(self.service._ordinary_event_direction("涨跌幅偏离值累计达到20%"), "")
+
+    def test_ordinary_event_direction_is_only_counted_when_explicit_in_notice(self):
+        self.assertEqual(
+            self.service._ordinary_event_direction("连续三个交易日收盘价格涨幅偏离值累计超过20%"),
+            "up",
+        )
+        self.assertEqual(
+            self.service._ordinary_event_direction("连续三个交易日收盘价格跌幅偏离值累计超过20%"),
+            "down",
+        )
+        self.assertEqual(self.service._ordinary_event_direction("连续三个交易日换手率异常"), "")
+
+    def test_ordinary_reset_evidence_marks_turnover_notice_non_counting(self):
+        evidence = self.service._ordinary_reset_evidence(
+            "股票交易异常波动公告",
+            "连续3个交易日内，日均换手率与前5个交易日的日均换手率相比达到31.4倍，累计换手率达到20.6%。",
+            "600001", "issuer-disclosure", "https://static.cninfo.com.cn/turnover.pdf",
+        )
+        self.assertFalse(evidence["countsForSameDirection"])
 
     def test_main_board_turnover_rule_accepts_actual_values_above_threshold(self):
         evidence = self.service._ordinary_reset_evidence(
@@ -709,6 +782,38 @@ class MonitorWindowTests(unittest.TestCase):
         finally:
             service.close()
 
+    def test_mixed_notice_publishes_ordinary_fact_and_severe_monitor_fact(self):
+        announcements = Mock()
+        announcements.query_broker_risk_alerts.return_value = {"available": False, "items": []}
+        announcements.query_market.return_value = {
+            "available": True, "partial": False, "items": [{
+                "title": "股票交易异常波动公告", "date": "2026-10-24", "stockCode": "301313",
+                "stockName": "凡拓数创", "url": "https://static.cninfo.com.cn/mixed.PDF",
+                "source": "巨潮资讯",
+            }],
+        }
+        announcements.extract_pdf_text.return_value = (
+            "截至2026年10月23日连续3个交易日收盘价格涨跌幅偏离值累计超过30%。"
+            "公司股票连续9个交易日涨幅偏离值累计达到120%，构成严重异常波动。"
+        )
+        service = OfficialMonitorService(client=object(), announcements=announcements)
+        service._clock = lambda: datetime(2026, 10, 24, 12, tzinfo=SHANGHAI_TZ)
+        service._trade_dates = lambda _source_date, _days: [
+            "2026-10-26", "2026-10-27", "2026-10-28", "2026-10-29", "2026-10-30",
+            "2026-11-02", "2026-11-03", "2026-11-04", "2026-11-05", "2026-11-06",
+        ]
+        try:
+            result = service.refresh()
+            self.assertTrue(result["started"])
+            snapshot = service.repository.active_snapshot()
+            self.assertEqual(len(snapshot["resetFacts"]), 1)
+            self.assertEqual(snapshot["resetFacts"][0]["riskTone"], "ordinary-abnormality")
+            self.assertTrue(snapshot["resetFacts"][0]["countsForSameDirection"])
+            self.assertEqual(len(snapshot["items"]), 1)
+            self.assertEqual(snapshot["items"][0]["riskTone"], "severe-10d")
+        finally:
+            service.close()
+
     def test_both_sources_unavailable_keep_old_snapshot_or_return_empty_error(self):
         announcements = Mock()
         announcements.query_broker_risk_alerts.return_value = {"available": False, "items": [], "error": "primary down"}
@@ -747,6 +852,61 @@ class MonitorWindowTests(unittest.TestCase):
             self.assertIsNotNone(snapshot)
             self.assertEqual(len(snapshot["items"]), 1)
             self.assertEqual(snapshot["dataQuality"]["sourceHealth"]["issuerBackup"], "degraded")
+        finally:
+            service.close()
+
+    def test_partial_cninfo_rows_are_retained_as_pending_when_body_read_fails(self):
+        announcements = Mock()
+        announcements.query_broker_risk_alerts.return_value = {"available": False, "items": []}
+        announcements.query_market.return_value = {
+            "available": False, "partial": True, "items": [{
+                "title": "股票交易异常波动公告", "date": "2026-10-21",
+                "stockCode": "600825", "stockName": "新华传媒",
+                "url": "https://static.cninfo.com.cn/pending.PDF", "source": "巨潮资讯",
+            }], "error": "szse keyword timeout",
+        }
+        announcements.extract_pdf_text.return_value = ""
+        service = OfficialMonitorService(client=object(), announcements=announcements)
+        service._clock = lambda: datetime(2026, 10, 22, 12, tzinfo=SHANGHAI_TZ)
+        try:
+            result = service.refresh()
+            self.assertTrue(result["started"])
+            snapshot = service.repository.active_snapshot()
+            self.assertEqual(len(snapshot["unresolvedFacts"]), 1)
+            self.assertEqual(snapshot["unresolvedFacts"][0]["status"], "pending_verification")
+            quality = snapshot["dataQuality"]["issuerBodyVerification"]
+            self.assertEqual(quality["bodyUnavailable"], 1)
+            self.assertEqual(quality["status"], "pending_verification")
+            self.assertEqual(snapshot["dataQuality"]["sourceHealth"]["issuerBackup"], "degraded")
+        finally:
+            service.close()
+
+    def test_title_confirmed_ordinary_fact_survives_unreadable_body(self):
+        announcements = Mock()
+        announcements.query_broker_risk_alerts.return_value = {"available": False, "items": []}
+        announcements.query_market.return_value = {
+            "available": False, "partial": True, "items": [{
+                "title": "关于新华传媒股票交易异常波动的公告", "date": "2026-10-21",
+                "stockCode": "600825", "stockName": "新华传媒",
+                "url": "https://static.cninfo.com.cn/title-only.PDF", "source": "巨潮资讯",
+            }], "error": "issuer body timeout",
+        }
+        announcements.extract_pdf_text.return_value = ""
+        service = OfficialMonitorService(client=object(), announcements=announcements)
+        service._clock = lambda: datetime(2026, 10, 22, 12, tzinfo=SHANGHAI_TZ)
+        try:
+            result = service.refresh()
+            self.assertTrue(result["started"])
+            snapshot = service.repository.active_snapshot()
+            self.assertEqual(len(snapshot["resetFacts"]), 1)
+            fact = snapshot["resetFacts"][0]
+            self.assertEqual(fact["riskTone"], "ordinary-abnormality")
+            self.assertTrue(fact["ruleResetConfirmed"])
+            self.assertFalse(fact["countsForSameDirection"])
+            self.assertTrue(fact["resetEvidence"]["countsForSameDirectionCandidate"])
+            self.assertEqual(fact["resetEvidence"]["code"], "official_ordinary_abnormality_title_market")
+            self.assertEqual(fact["confirmationStatus"], "official-ordinary-abnormality-title-market-pending-body")
+            self.assertEqual(snapshot["unresolvedFacts"][0]["factType"], "ordinary-abnormality")
         finally:
             service.close()
 

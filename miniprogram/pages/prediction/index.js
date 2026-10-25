@@ -21,7 +21,8 @@ function normalizeItems(items = [], scope = 'today') {
     const deviationLabel = item.deviationLabel || item.deviation || '--'
     const triggerValue = item.triggerValue || '--'
     const window = item.predictionWindow || item.deviationWindow || ''
-    return { ...item, deviationLabel, triggerValue, ruleLabel: item.ruleLabel || ruleLabels[item.ruleKey] || item.rule || '异动预测', triggered, showCurrentChange: scope !== 'next_day', alertText: triggered ? (item.alertText || '已触发') : '', cardTone: triggered ? 'triggered' : '', predictionKey: item.predictionKey || `${item.ts_code || index}-${item.ruleKey || window || index}`, change, changeClass: change === '--' ? 'neutral' : (change[0] === '-' ? 'down' : 'up') }
+    const riskTone = item.ruleKey === 'ordinary_3d' ? 'ordinary' : 'severe'
+    return { ...item, deviationLabel, triggerValue, ruleLabel: item.ruleLabel || ruleLabels[item.ruleKey] || item.rule || '异动预测', triggered, todayTriggered: scope === 'today' && triggered, riskTone, showCurrentChange: scope !== 'next_day', alertText: triggered ? (item.alertText || '已触发') : '', cardTone: triggered ? 'triggered' : '', predictionKey: item.predictionKey || `${item.ts_code || index}-${item.ruleKey || window || index}`, change, changeClass: change === '--' ? 'neutral' : (change[0] === '-' ? 'down' : 'up') }
   })
 }
 

@@ -179,10 +179,16 @@ class AnnouncementService:
                     if not response.get("hasMore") or not rows:
                         break
                     page += 1
+        # ``status`` is deliberately distinct from item count: an empty but
+        # successful query means no matching facts, while a failed/partial
+        # query means the absence of facts is unknown.
+        status = "unavailable" if not found and errors else "partial" if errors else "available"
         return {
             "items": sorted(found.values(), key=lambda item: (item["date"], item["stockCode"]), reverse=True),
             "available": not errors,
             "partial": bool(errors),
+            "status": status,
+            "error": "; ".join(sorted(set(errors))) if errors else "",
             "failedKeywords": sorted(set(errors)),
             "source": "巨潮资讯",
             "sourceUrl": self.endpoint,

@@ -5,18 +5,18 @@
   <view class="snapshot-row prediction-snapshot-row"><view class="snapshot-summary"><text class="snapshot-count-copy">共 <text class="snapshot-count">{{items.length}}</text> 条</text><text wx:if="{{quoteUpdatedAt || refreshing || dataUnavailable}}" class="snapshot-dot">·</text><text wx:if="{{dataUnavailable}}" class="snapshot-pending snapshot-updated">{{scope === 'today' ? '当日数据不可用' : '次日数据不可用'}}</text><text wx:elif="{{quoteUpdatedAt}}" class="snapshot-updated">数据更新于 {{quoteUpdatedAt}}</text><text wx:elif="{{refreshing}}" class="snapshot-pending snapshot-updated">正在获取数据</text></view><view class="snapshot-refresh {{loading || refreshing ? 'snapshot-refreshing' : ''}}" hover-class="snapshot-refresh-pressed" bindtap="refresh" aria-role="button" aria-label="刷新异动预测数据" aria-disabled="{{loading || refreshing}}"><image class="snapshot-refresh-icon" src="/assets/refresh.svg" mode="aspectFit" aria-hidden="true"></image></view></view>
   <view wx:if="{{loading}}" class="card loading-state">正在加载预测快照…</view>
   <view wx:if="{{error}}" class="card error-state">{{error}}</view>
-  <view class="prediction-list"><view wx:for="{{items}}" wx:key="predictionKey" class="prediction-row {{item.cardTone === 'triggered' ? 'prediction-row-triggered' : ''}}" hover-class="tap-feedback" bindtap="openStock" data-code="{{item.ts_code}}" aria-role="button" aria-label="查看{{item.name}}详情">
+  <view class="prediction-list"><view wx:for="{{items}}" wx:key="predictionKey" class="prediction-row prediction-row-{{scope}} {{item.todayTriggered ? 'prediction-row-triggered' : ''}}" hover-class="tap-feedback" bindtap="openStock" data-code="{{item.ts_code}}" aria-role="button" aria-label="查看{{item.name}}详情">
     <view class="prediction-top">
       <view class="prediction-stock"><view class="stock-line"><text class="stock-name">{{item.name}}</text><text class="stock-meta">{{item.symbol}}</text></view></view>
       <view wx:if="{{item.showCurrentChange}}" class="prediction-quote prediction-metric-control"><text class="prediction-change-prefix">当前涨幅</text><text class="prediction-change-value change {{item.changeClass}}">{{item.change}}</text></view>
     </view>
     <view class="prediction-middle">
       <view class="deviation-field">
-        <text class="prediction-tag prediction-rule-tag">{{item.ruleLabel}}</text>
-        <text class="prediction-tag prediction-deviation-tag">{{item.deviationLabel}}</text>
-        <text wx:if="{{item.triggered}}" class="prediction-tag prediction-triggered-badge">已触发</text>
+        <text class="prediction-tag prediction-rule-tag prediction-tone-{{item.riskTone}}">{{item.ruleLabel}}</text>
+        <text class="prediction-tag prediction-deviation-tag prediction-tone-{{item.riskTone}}">{{item.deviationLabel}}</text>
+        <text wx:if="{{item.triggered}}" class="prediction-tag prediction-triggered-badge prediction-tone-{{item.riskTone}}">已触发</text>
       </view>
-      <view class="trigger-field prediction-metric-control"><text class="prediction-label">触发条件</text><text class="trigger-value">{{item.triggerValue}}</text></view>
+      <view class="trigger-field prediction-metric-control"><text class="prediction-label">触发条件</text><text class="trigger-value prediction-value-{{item.riskTone}}">{{item.triggerValue}}</text></view>
     </view>
   </view></view>
   <view wx:if="{{!items.length && !loading && !refreshing}}" class="card empty">当前范围暂无候选股票</view>

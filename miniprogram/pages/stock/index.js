@@ -181,15 +181,13 @@ function assessNextDayRules(rules = [], monitoringActive = false) {
   const ruleKeys = new Set(candidates.map(item => String(item.ruleKey)))
   if (!ruleKeys.size) return { text: '暂无异动风险', tone: 'safe', rules: [] }
 
-  const severeKeys = new Set(['severe_10d', 'severe_30d'])
-  const warningKeys = new Set(['ordinary_3d', 'same_direction_10d'])
-  // 监管事实本身不把短周期候选升级成严重规则。只要次日存在
-  // 10/30 日严重候选，顶部说明只列严重规则；没有严重候选时，
-  // 才列 3 日偏离和 10 日同向警告规则。
+  const severeKeys = new Set(['same_direction_10d', 'severe_10d', 'severe_30d'])
+  const warningKeys = new Set(['ordinary_3d'])
+  // 规则级别由指标本身决定，监管状态不改变 3 日普通异动的级别。
+  // 若同时有严重候选，摘要优先列严重规则；否则列普通 3 日候选。
   if (Array.from(ruleKeys).some(key => severeKeys.has(key))) {
     return { text: '存在异动风险', tone: 'risk', rules: candidates.filter(item => severeKeys.has(String(item.ruleKey))) }
   }
-  if (monitoringActive) return { text: '存在异动风险', tone: 'risk', rules: candidates.filter(item => warningKeys.has(String(item.ruleKey))) }
   return { text: '存在警告风险', tone: 'warning', rules: candidates.filter(item => warningKeys.has(String(item.ruleKey))) }
 }
 
@@ -205,6 +203,18 @@ function currentSevereRuleTexts(warnings = []) {
   const texts = []
   warnings.forEach(item => {
     const title = String(item && item.title || '')
+    if (title === '10 日同向') {
+      const match = String(item.target || '').match(/(\d+(?:\.\d+)?)\s*次/)
+      const threshold = match ? Number(match[1]) : 0
+      const up = Number(item.up || 0)
+      const down = Number(item.down || 0)
+      const isUp = up >= down
+      const count = isUp ? up : down
+      if (threshold > 0 && (item.upTriggered || item.downTriggered || count >= threshold)) {
+        texts.push(`连续10个交易日内出现${threshold}次${isUp ? '上涨' : '下跌'}同向异常波动`)
+      }
+      return
+    }
     if (title !== '10 日偏离' && title !== '30 日偏离') return
     const window = title.startsWith('30') ? 30 : 10
     const directions = []
@@ -265,6 +275,16 @@ function buildNextDayForecast(forecast = {}, monitoringActive = false, currentSe
     summaryStatus: assessment.text,
     summaryTone: assessment.tone
   }
+}
+
+function resolveStatusBanner(forecast = {}, monitoringSummary = null) {
+  if (forecast.currentTriggered) {
+    return { summaryStatus: forecast.summaryStatus, summaryTone: forecast.summaryTone, statusClass: 'current-triggered' }
+  }
+  if (monitoringSummary) {
+    return { summaryStatus: '已被重点监管', summaryTone: 'risk', statusClass: 'monitoring' }
+  }
+  return { summaryStatus: forecast.summaryStatus, summaryTone: forecast.summaryTone, statusClass: forecast.summaryTone }
 }
 
 function summaryStatus(detail) {
@@ -382,8 +402,8 @@ function presentWarnings(warnings = [], options = {}) {
     '30 日偏离': 'severe_30d'
   })[title] || ''
   const displayTone = (title, currentRisk, hasValue) => {
-    const shortWindow = title === '3 日偏离' || title === '10 日同向'
-    if (currentRisk || nextDayRuleKeys.has(ruleKeyForTitle(title))) return shortWindow ? 'warning' : 'severe'
+    const ruleKey = ruleKeyForTitle(title)
+    if (currentRisk || nextDayRuleKeys.has(ruleKey)) return ruleKey === 'ordinary_3d' ? 'warning' : 'severe'
     return hasValue ? 'base' : 'unknown'
   }
   return warnings.map((item) => {
@@ -394,13 +414,14 @@ function presentWarnings(warnings = [], options = {}) {
       const down = Number(item.down || 0)
       const isUp = up >= down
       const count = isUp ? up : down
+      const pending = Array.isArray(item.pendingEvents) && item.pendingEvents.length > 0
       const progress = limit > 0 ? Math.min(100, count / limit * 100) : 0
       const tone = limit <= 0 ? 'unknown' : progress >= 100 ? 'triggered' : progress >= 66.6667 ? 'warning' : 'safe'
       const currentRisk = tone === 'triggered' || tone === 'warning'
       const labelTone = displayTone(item.title, currentRisk, limit > 0)
       const sign = isUp ? '+' : '-'
       const ringTone = labelTone === 'warning' || labelTone === 'severe' ? labelTone : tone === 'unknown' ? 'unknown' : 'base'
-      return { ...item, currentText: `${sign}${count}次`, currentNumber: `${sign}${count}`, currentUnit: '次', currentFontSize: 20, target: `阈值 ${isUp ? '+' : '-'}${limit}次`, remainingText: tone === 'triggered' ? '已触及' : `还差 ${Math.max(0, limit - count)} 次`, ringText: tone === 'triggered' ? '已触及' : tone === 'unknown' ? '--' : `${Math.max(0, limit - count)}次`, ringValueClass: 'metric-ring-value-count', progress: Number(progress.toFixed(2)), tone, labelTone: ringTone, toneColor: colors[ringTone], valueClass: 'metric-current-count' }
+      return { ...item, currentText: `${sign}${count}次`, currentNumber: `${sign}${count}`, currentUnit: '次', currentFontSize: 20, target: `阈值 ${isUp ? '+' : '-'}${limit}次${pending ? ' · 待核验' : ''}`, remainingText: pending ? '存在待核验公告' : (tone === 'triggered' ? '已触及' : `还差 ${Math.max(0, limit - count)} 次`), ringText: pending ? '待核验' : (tone === 'triggered' ? '已触及' : tone === 'unknown' ? '--' : `${Math.max(0, limit - count)}次`), ringValueClass: 'metric-ring-value-count', progress: Number(progress.toFixed(2)), tone: pending ? 'unknown' : tone, labelTone: pending ? 'unknown' : ringTone, toneColor: colors[pending ? 'unknown' : ringTone], valueClass: 'metric-current-count' }
     }
     const rawValue = String(item.value || '').replace('%', '')
     const value = Number.parseFloat(rawValue)
@@ -541,14 +562,21 @@ Page({
         })
       }
       const currentSevereRules = currentSevereRuleTexts(detailWithMonitoring.warnings || [])
+      const monitoringStartKey = dateKey(monitoring && monitoring.monitorStartDate)
+      const detailTradeDateKey = dateKey(detailWithMonitoring.tradeDate)
+      if (
+        monitoring && /^severe-/.test(String(monitoring.riskTone || ''))
+        && monitoringStartKey && detailTradeDateKey && monitoringStartKey > detailTradeDateKey
+      ) {
+        const announcedRule = monitoringRuleLabel({ ...monitoring, ts_code: detailWithMonitoring.ts_code || stock.ts_code })
+        if (announcedRule && !currentSevereRules.includes(announcedRule)) currentSevereRules.push(announcedRule)
+      }
       const forecast = buildNextDayForecast(detailWithMonitoring.nextDayForecast || {}, Boolean(displayDetail.monitoringSummary), currentSevereRules)
       const statusSummary = { text: forecast.summaryStatus, tone: forecast.summaryTone }
-      displayDetail.summaryStatus = statusSummary.text
-      displayDetail.summaryTone = statusSummary.tone
       displayDetail.currentTriggered = forecast.currentTriggered
       displayDetail.futureForecastLine = forecast.futureLine || ''
       displayDetail.futureForecastText = forecast.futureText || ''
-      if (forecast.currentTriggered) displayDetail.statusClass = 'current-triggered'
+      Object.assign(displayDetail, resolveStatusBanner({ ...forecast, summaryStatus: statusSummary.text, summaryTone: statusSummary.tone }, displayDetail.monitoringSummary))
       const dataUpdatedAt = formatUpdatedAt((detailWithMonitoring.dataQuality || {}).quoteUpdatedAt || detailWithMonitoring.tradeDate)
       const recentStocks = [{ ts_code: detailWithMonitoring.ts_code || stock.ts_code, symbol: detailWithMonitoring.symbol || stock.symbol || stock.ts_code.split('.')[0], name: detailWithMonitoring.name || stock.name || stock.ts_code }, ...(this.data.recentStocks || []).filter(item => item.ts_code !== (detailWithMonitoring.ts_code || stock.ts_code))].slice(0, 8)
       wx.setStorageSync(STOCK_HISTORY_KEY, recentStocks)
@@ -599,4 +627,4 @@ Page({
 })
 
 // 纯计算函数导出给前端回归测试；小程序运行时不影响 Page 注册。
-if (typeof module !== 'undefined') module.exports = { bestDeviation, buildMatrixGroups, buildNextDayForecast, calculateSimulationRows, createInputRows, presentWarnings, summaryStatus, formatMonthDay, monitoringRuleLabel, formatMonitoringSummary, remainingMonitoringDays, findStockMonitoring, currentSevereRuleTexts }
+if (typeof module !== 'undefined') module.exports = { bestDeviation, buildMatrixGroups, buildNextDayForecast, calculateSimulationRows, createInputRows, presentWarnings, summaryStatus, formatMonthDay, monitoringRuleLabel, formatMonitoringSummary, remainingMonitoringDays, findStockMonitoring, currentSevereRuleTexts, resolveStatusBanner }
