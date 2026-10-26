@@ -1,4 +1,5 @@
 import os
+import hashlib
 import tempfile
 import unittest
 from datetime import date, datetime, timedelta
@@ -878,6 +879,40 @@ class MonitorWindowTests(unittest.TestCase):
             self.assertEqual(quality["bodyUnavailable"], 1)
             self.assertEqual(quality["status"], "pending_verification")
             self.assertEqual(snapshot["dataQuality"]["sourceHealth"]["issuerBackup"], "degraded")
+        finally:
+            service.close()
+
+    def test_inquiry_reply_is_not_retained_as_an_event_or_stale_pending_fact(self):
+        announcements = Mock()
+        announcements.query_broker_risk_alerts.return_value = {"available": True, "partial": False, "items": []}
+        announcements.query_zts_risk_alerts.return_value = {"available": True, "partial": False, "items": []}
+        reply = {
+            "title": "关于公司股票交易异常波动征询函的回函", "date": "2026-10-24",
+            "stockCode": "603728", "stockName": "鸣志电器",
+            "url": "https://static.cninfo.com.cn/reply.PDF", "source": "巨潮资讯",
+        }
+        announcements.query_market.return_value = {
+            "available": True, "partial": False, "items": [], "supportingItems": [reply],
+        }
+        service = OfficialMonitorService(client=object(), announcements=announcements)
+        service._clock = lambda: datetime(2026, 10, 26, 12, tzinfo=SHANGHAI_TZ)
+        pending_id = hashlib.sha256(b"ordinary-reset:https://static.cninfo.com.cn/reply.PDF").hexdigest()[:24]
+        service.repository.publish({
+            "snapshotId": "prior", "snapshotDate": "2026-10-26", "updatedAt": "2026-10-26 11:00",
+            "startedAt": "2026-10-26 10:59",
+            "items": [], "dataQuality": {"announcementStatus": "source-specific"},
+            "unresolvedFacts": [{
+                "sourceId": pending_id, "symbol": "603728", "announcementDate": "2026-10-24",
+                "title": reply["title"], "sourceUrl": reply["url"], "status": "pending_verification",
+            }],
+        }, [], "prior")
+        try:
+            result = service.refresh()
+            self.assertTrue(result["started"])
+            snapshot = service.repository.active_snapshot()
+            self.assertEqual(snapshot["unresolvedFacts"], [])
+            self.assertEqual(snapshot["resetFacts"], [])
+            self.assertEqual(snapshot["items"], [])
         finally:
             service.close()
 

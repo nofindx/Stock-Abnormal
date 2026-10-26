@@ -7,6 +7,11 @@ PyMySQL>=1.1,<2
 # 公告正文解析（失败时仍保留标题级保守判断）
 pypdf>=5,<7
 
+# Scanned CNINFO PDFs: render and OCR when the PDF has no text layer.
+PyMuPDF>=1.24,<2
+pytesseract>=0.3.13,<1
+Pillow>=10,<13
+
 # 中泰证券公告接口鉴权
 pycryptodome>=3.20,<4
 

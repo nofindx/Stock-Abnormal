@@ -42,7 +42,7 @@ MONITOR_PERIOD_TRADING_DAYS = {
 MONITOR_WINDOW_TRADING_DAYS = MONITOR_PERIOD_TRADING_DAYS
 # 公告分类口径变化时，启动任务主动重采一次当前快照；避免必须等到次日
 # 00:00 才让修复后的北交所严重异动进入重点监控。
-MONITOR_RULE_VERSION = "2026-10-zts-effective-date-cninfo-official-ordinary-event-direction-fact-ledger-v26"
+MONITOR_RULE_VERSION = "2026-10-zts-effective-date-cninfo-official-ordinary-event-direction-fact-ledger-ocr-v27"
 
 # 只有官方披露平台上的发行人/交易所事实，才有资格改变行情累计基线。
 # 可读正文优先；普通异动正文短时不可读时，官方标题只能作为待行情核验
@@ -1002,6 +1002,17 @@ class OfficialMonitorService:
             # because the aggregate source is marked partial; completeness is
             # reported separately in dataQuality.
             issuer_items = list(result.get("items") or [])
+            issuer_supporting_items = list(result.get("supportingItems") or [])
+            excluded_pending_source_ids = set()
+            for supporting_item in issuer_supporting_items:
+                pending_source_key = supporting_item.get("url") or (
+                    f"{supporting_item.get('stockCode')}:{supporting_item.get('date')}:{supporting_item.get('title')}"
+                )
+                normalized_reply_title = re.sub(r"\s+", "", str(supporting_item.get("title") or ""))
+                ordinary_reply = "股票交易异常波动" in normalized_reply_title and "严重异常波动" not in normalized_reply_title
+                excluded_pending_source_ids.add(hashlib.sha256(pending_source_key.encode("utf-8")).hexdigest()[:24])
+                if ordinary_reply:
+                    excluded_pending_source_ids.add(hashlib.sha256(f"ordinary-reset:{pending_source_key}".encode("utf-8")).hexdigest()[:24])
             issuer_available = bool(result.get("available")) and not bool(result.get("partial"))
             issuer_has_rows = bool(issuer_items)
             if not broker_available and not issuer_has_rows and not zts_available:
@@ -1011,12 +1022,20 @@ class OfficialMonitorService:
             raw_announcements: List[Dict[str, Any]] = []
             issuer_body_checked = 0
             issuer_body_available = 0
+            issuer_body_ocr = 0
+            issuer_body_ocr_failed = 0
             issuer_reset_verified = 0
             issuer_unread_facts: List[Dict[str, Any]] = []
             for announcement in issuer_items if (issuer_available or issuer_has_rows) else []:
                 title = announcement["title"]
-                body = self.announcements.extract_pdf_text(announcement["url"])
+                if isinstance(self.announcements, AnnouncementService):
+                    body_result = self.announcements.extract_pdf_body(announcement["url"])
+                else:  # compatibility for injected test and legacy readers
+                    body_result = {"text": self.announcements.extract_pdf_text(announcement["url"]), "method": "text_layer"}
+                body = str(body_result.get("text") or "")
                 issuer_body_checked += 1
+                issuer_body_ocr += int(body_result.get("method") == "ocr")
+                issuer_body_ocr_failed += int(str(body_result.get("error") or "").startswith("ocr_"))
                 if str(body or "").strip():
                     issuer_body_available += 1
                 else:
@@ -1041,7 +1060,11 @@ class OfficialMonitorService:
                         "factType": "ordinary-abnormality" if pending_is_ordinary else "announcement-hit",
                         "countsForSameDirection": True if pending_is_ordinary else False,
                         "status": "pending_verification",
-                        "reason": "official_body_unreadable",
+                        "reason": str(body_result.get("error") or "official_body_unreadable"),
+                        "bodyReadMethod": str(body_result.get("method") or "unavailable"),
+                        "bodyReadConfidence": body_result.get("confidence"),
+                        "bodyReadPages": int(body_result.get("pages") or 0),
+                        "bodyReadError": str(body_result.get("error") or ""),
                     })
                 if announcement.get("date"):
                     ordinary_evidence = self._ordinary_reset_evidence(
@@ -1079,6 +1102,8 @@ class OfficialMonitorService:
                                 "announcementDate": announcement["date"],
                                 "eventDate": event_end_date or announcement["date"],
                                 "eventDirection": self._ordinary_event_direction(body),
+                                "bodyReadMethod": str(body_result.get("method") or "text_layer"),
+                                "bodyReadConfidence": body_result.get("confidence"),
                                 "countsForSameDirection": bool(ordinary_evidence.get("countsForSameDirection")),
                                 "ruleResetDate": reset_dates[0].replace("-", ""),
                                 # 官方普通异动公告本身确认 3 日基线重置；
@@ -1121,6 +1146,8 @@ class OfficialMonitorService:
                     "ruleResetConfirmed": False,
                     "resetEvidence": None,
                     "eventDirection": self._severe_event_direction(body) if risk_tone.startswith("severe-") else "",
+                    "bodyReadMethod": str(body_result.get("method") or "text_layer"),
+                    "bodyReadConfidence": body_result.get("confidence"),
                     "monitorType": monitor_type, "riskTone": risk_tone,
                     "sourceRelation": self._risk_prompt_relation(title, body, risk_tone),
                     "isST": "ST" in announcement["stockName"].upper(),
@@ -1243,6 +1270,7 @@ class OfficialMonitorService:
                 if item.get("sourceId")
                 and str(item.get("announcementDate") or "") >= start_date
                 and str(item.get("sourceId")) not in confirmed_fact_ids
+                and str(item.get("sourceId")) not in excluded_pending_source_ids
             }
             issuer_unread_facts = sorted(
                 pending_by_id.values(),
@@ -1328,6 +1356,8 @@ class OfficialMonitorService:
                         "checked": issuer_body_checked,
                         "bodyAvailable": issuer_body_available,
                         "bodyUnavailable": max(0, issuer_body_checked - issuer_body_available),
+                        "ocrUsed": issuer_body_ocr,
+                        "ocrFailed": issuer_body_ocr_failed,
                         "resetEvidenceVerified": issuer_reset_verified,
                         "resetFactsCount": len(reset_facts),
                         "unreadFacts": issuer_unread_facts,

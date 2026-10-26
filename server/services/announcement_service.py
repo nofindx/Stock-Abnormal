@@ -33,6 +33,9 @@ class AnnouncementService:
     zts_api = zts_base + "/clientApi"
     zts_column_id = 3465  # 新闻中心 > 业务公告 > 重要通知
 
+    def __init__(self) -> None:
+        self._pdf_body_cache: Dict[str, Dict[str, Any]] = {}
+
     @staticmethod
     def _zts_headers() -> Dict[str, str]:
         """生成中泰官网前端同口径的轻量鉴权头。"""
@@ -140,6 +143,7 @@ class AnnouncementService:
         """按日期批量获取全市场异动相关公告，并按公告原文 URL 去重。"""
 
         found: Dict[str, Dict[str, Any]] = {}
+        supporting: Dict[str, Dict[str, Any]] = {}
         errors: List[str] = []
         # 巨潮的 fulltext 查询按交易所栏目分别执行；北交所使用 bse，
         # 否则 8/4/9 开头的北交所股票（例如世纪数码 920229）会漏掉。
@@ -167,7 +171,7 @@ class AnnouncementService:
                         relative_url = str(row.get("adjunctUrl") or "")
                         url = self.detail_prefix + relative_url.lstrip("/") if relative_url else ""
                         key = url or f"{code}:{self._announcement_date(row)}:{title}"
-                        found[key] = {
+                        item = {
                             "title": title,
                             "date": self._announcement_date(row),
                             "stockCode": code,
@@ -176,15 +180,22 @@ class AnnouncementService:
                             "source": "巨潮资讯",
                             "exchangeColumn": column,
                         }
+                        normalized_title = re.sub(r"\s+", "", title)
+                        is_inquiry_reply = (
+                            any(marker in normalized_title for marker in ("回函", "复函", "回复", "答复"))
+                            and any(marker in normalized_title for marker in ("征询函", "问询函", "异常波动"))
+                        )
+                        (supporting if is_inquiry_reply else found)[key] = item
                     if not response.get("hasMore") or not rows:
                         break
                     page += 1
         # ``status`` is deliberately distinct from item count: an empty but
         # successful query means no matching facts, while a failed/partial
         # query means the absence of facts is unknown.
-        status = "unavailable" if not found and errors else "partial" if errors else "available"
+        status = "unavailable" if not found and not supporting and errors else "partial" if errors else "available"
         return {
             "items": sorted(found.values(), key=lambda item: (item["date"], item["stockCode"]), reverse=True),
+            "supportingItems": sorted(supporting.values(), key=lambda item: (item["date"], item["stockCode"]), reverse=True),
             "available": not errors,
             "partial": bool(errors),
             "status": status,
@@ -195,20 +206,100 @@ class AnnouncementService:
         }
 
     @staticmethod
-    def extract_pdf_text(url: str) -> str:
-        """只为严重异动候选提取公告正文，失败时返回空文本并保留标题结果。"""
+    def _extract_pdf_text_layer(content: bytes) -> str:
+        from pypdf import PdfReader
+        reader = PdfReader(BytesIO(content))
+        return "\n".join((page.extract_text() or "") for page in reader.pages[:20]).strip()
 
-        if not url:
-            return ""
+    @staticmethod
+    def _extract_pdf_ocr(content: bytes) -> Dict[str, Any]:
+        """OCR image-only PDFs; low-confidence output is deliberately rejected."""
+        try:
+            import fitz
+            import pytesseract
+            from PIL import Image
+            from pytesseract import Output
+        except Exception as exc:  # pragma: no cover - depends on deployment image
+            return {"text": "", "confidence": None, "pages": 0, "error": f"ocr_unavailable:{type(exc).__name__}"}
 
         try:
-            from pypdf import PdfReader
-            request = Request(url, headers={"User-Agent": "Stock-Abnormal/1.0", "Referer": "https://www.cninfo.com.cn/"})
+            document = fitz.open(stream=content, filetype="pdf")
+            text_parts: List[str] = []
+            confidences: List[float] = []
+            page_count = min(len(document), 8)
+            for page_index in range(page_count):
+                pixmap = document[page_index].get_pixmap(dpi=220, alpha=False)
+                image = Image.frombytes("RGB", (pixmap.width, pixmap.height), pixmap.samples)
+                result = pytesseract.image_to_data(
+                    image, lang="chi_sim+eng", config="--psm 6", output_type=Output.DICT, timeout=12
+                )
+                words = []
+                for raw_word, raw_confidence in zip(result.get("text", []), result.get("conf", [])):
+                    word = str(raw_word or "").strip()
+                    try:
+                        confidence = float(raw_confidence)
+                    except (TypeError, ValueError):
+                        continue
+                    if word and confidence >= 0:
+                        words.append(word)
+                        confidences.append(confidence)
+                if words:
+                    text_parts.append(" ".join(words))
+            text = "\n".join(text_parts).strip()
+            confidence = round(sum(confidences) / len(confidences), 1) if confidences else None
+            if len(re.sub(r"\s+", "", text)) < 30 or confidence is None or confidence < 55:
+                return {"text": "", "confidence": confidence, "pages": page_count, "error": "ocr_low_confidence"}
+            return {"text": text, "confidence": confidence, "pages": page_count, "error": ""}
+        except Exception as exc:  # noqa: BLE001 - keep a failed official hit pending
+            return {"text": "", "confidence": None, "pages": 0, "error": f"ocr_failed:{type(exc).__name__}"}
+
+    def extract_pdf_body(self, url: str) -> Dict[str, Any]:
+        """Read selectable PDF text first, then OCR scanned pages with diagnostics."""
+        if not url:
+            return {"text": "", "method": "unavailable", "confidence": None, "pages": 0, "error": "missing_url"}
+        cached = self._pdf_body_cache.get(url)
+        if cached:
+            return dict(cached)
+        try:
+            request = Request(url, headers={
+                "User-Agent": "Stock-Abnormal/1.0", "Referer": "https://www.cninfo.com.cn/"
+            })
             content = urlopen(request, timeout=12).read()
-            reader = PdfReader(BytesIO(content))
-            return "\n".join((page.extract_text() or "") for page in reader.pages[:20])
-        except Exception:
-            return ""
+            if not content.startswith(b"%PDF"):
+                result = {"text": "", "method": "unavailable", "confidence": None, "pages": 0, "error": "not_pdf"}
+            else:
+                try:
+                    text = self._extract_pdf_text_layer(content)
+                except Exception as exc:  # malformed PDFs may still be OCR-readable
+                    text = ""
+                    text_error = f"text_layer_failed:{type(exc).__name__}"
+                else:
+                    text_error = ""
+                if len(re.sub(r"\s+", "", text)) >= 30:
+                    result = {"text": text, "method": "text_layer", "confidence": 100.0, "pages": 0, "error": ""}
+                else:
+                    ocr = self._extract_pdf_ocr(content)
+                    result = {
+                        "text": str(ocr.get("text") or ""),
+                        "method": "ocr" if ocr.get("text") else "unavailable",
+                        "confidence": ocr.get("confidence"),
+                        "pages": int(ocr.get("pages") or 0),
+                        "error": str(ocr.get("error") or text_error),
+                    }
+            # Cache only successful reads. Failed/low-confidence PDFs are retried
+            # on a later scheduled scan in case the source or OCR service recovers.
+            if result.get("text"):
+                self._pdf_body_cache[url] = dict(result)
+                if len(self._pdf_body_cache) > 256:
+                    self._pdf_body_cache.pop(next(iter(self._pdf_body_cache)))
+            return result
+        except Exception as exc:  # noqa: BLE001 - retain audit state for official hits
+            return {"text": "", "method": "unavailable", "confidence": None, "pages": 0,
+                    "error": f"download_failed:{type(exc).__name__}"}
+
+    def extract_pdf_text(self, url: str) -> str:
+        """Compatibility wrapper; unresolved official hits remain pending."""
+        return str(self.extract_pdf_body(url).get("text") or "")
 
     class _AlertListParser(HTMLParser):
         """读取 18.cn 重要公告列表中的标题、日期和详情路径。"""
