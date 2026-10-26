@@ -42,7 +42,7 @@ MONITOR_PERIOD_TRADING_DAYS = {
 MONITOR_WINDOW_TRADING_DAYS = MONITOR_PERIOD_TRADING_DAYS
 # 公告分类口径变化时，启动任务主动重采一次当前快照；避免必须等到次日
 # 00:00 才让修复后的北交所严重异动进入重点监控。
-MONITOR_RULE_VERSION = "2026-10-zts-effective-date-cninfo-official-ordinary-event-direction-fact-ledger-ocr-v27"
+MONITOR_RULE_VERSION = "2026-10-zts-effective-date-cninfo-official-ordinary-event-direction-fact-ledger-ocr-v28"
 
 # 只有官方披露平台上的发行人/交易所事实，才有资格改变行情累计基线。
 # 可读正文优先；普通异动正文短时不可读时，官方标题只能作为待行情核验
@@ -1165,6 +1165,12 @@ class OfficialMonitorService:
                 if reset_evidence:
                     parsed_events[-1]["ruleResetConfirmed"] = True
                     parsed_events[-1]["resetEvidence"] = reset_evidence
+                    # Keep the confirmed severe fact in the calculation ledger
+                    # as well as the monitoring projection.  These are
+                    # separate concerns: an overlapping/renewed monitoring
+                    # card may be collapsed for display, but its official
+                    # reset evidence must never be dropped from rule inputs.
+                    parsed_reset_facts.append(dict(parsed_events[-1]))
                     issuer_reset_verified += 1
             for alert in broker_result.get("items", []) if broker_available else []:
                 # 18.cn 是主源；只有正文满足风险提示或 10/30 日阈值语义才进入重点监控。

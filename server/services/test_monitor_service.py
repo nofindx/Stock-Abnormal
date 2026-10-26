@@ -135,6 +135,34 @@ class MonitorWindowTests(unittest.TestCase):
             dates[1:],
         )
 
+    def test_confirmed_severe_notice_is_also_persisted_as_reset_fact(self):
+        """展示层折叠不能丢掉严重公告的四项规则重置事实."""
+        title = "关于公司股票交易严重异常波动及股票交易异常波动的公告"
+        body = (
+            "股票交易连续三个交易日（2026年10月21日、2026年10月22日、2026年10月23日）"
+            "涨幅偏离值累计达到32.66%，属于股票交易异常波动；公司股票自2026年10月13日以来"
+            "连续9个交易日涨幅偏离值累计达到118.77%，属于股票交易严重异常波动情形。"
+        )
+        self.assertEqual(
+            self.service._classify_monitor_text(title, body, "301313"),
+            ("10日严重异动", "severe-10d"),
+        )
+        evidence = self.service._reset_evidence(
+            title, body, "301313", "severe-10d", "issuer-disclosure",
+            "https://static.cninfo.com.cn/finalpage/2026-10-23/1225621200.PDF",
+        )
+        self.assertIsNotNone(evidence)
+        event = {
+            "sourceId": "fantuo-severe-20261023",
+            "symbol": "301313", "riskTone": "severe-10d",
+            "eventDate": "2026-10-23", "eventDirection": "up",
+            "ruleResetConfirmed": True, "resetEvidence": evidence,
+            "ruleResetDate": "20261026",
+        }
+        from server.resets.decisions import build_reset_context
+        context = build_reset_context([event])
+        self.assertEqual(context.severe_reset_dates, ["20261026"])
+
     def test_monitor_noise_excludes_st_delisting_but_keeps_normal_bse_nine(self):
         self.assertFalse(self.service._is_noise_stock("920229", "世纪数码"))
         self.assertTrue(self.service._is_noise_stock("510300", "沪深300ETF"))
@@ -807,9 +835,12 @@ class MonitorWindowTests(unittest.TestCase):
             result = service.refresh()
             self.assertTrue(result["started"])
             snapshot = service.repository.active_snapshot()
-            self.assertEqual(len(snapshot["resetFacts"]), 1)
-            self.assertEqual(snapshot["resetFacts"][0]["riskTone"], "ordinary-abnormality")
-            self.assertTrue(snapshot["resetFacts"][0]["countsForSameDirection"])
+            self.assertEqual(len(snapshot["resetFacts"]), 2)
+            ordinary = next(fact for fact in snapshot["resetFacts"] if fact["riskTone"] == "ordinary-abnormality")
+            severe = next(fact for fact in snapshot["resetFacts"] if fact["riskTone"] == "severe-10d")
+            self.assertTrue(ordinary["countsForSameDirection"])
+            self.assertTrue(severe["ruleResetConfirmed"])
+            self.assertEqual(severe["resetEvidence"]["code"], "official_severe_abnormality_body")
             self.assertEqual(len(snapshot["items"]), 1)
             self.assertEqual(snapshot["items"][0]["riskTone"], "severe-10d")
         finally:
