@@ -614,15 +614,10 @@ Page({
         })
       }
       const currentSevereRules = currentSevereRuleTexts(detailWithMonitoring.warnings || [])
-      const monitoringStartKey = dateKey(monitoring && monitoring.monitorStartDate)
-      const detailTradeDateKey = dateKey(detailWithMonitoring.tradeDate)
-      if (
-        monitoring && /^severe-/.test(String(monitoring.riskTone || ''))
-        && monitoringStartKey && detailTradeDateKey && monitoringStartKey > detailTradeDateKey
-      ) {
-        const announcedRule = monitoringRuleLabel({ ...monitoring, ts_code: detailWithMonitoring.ts_code || stock.ts_code })
-        if (announcedRule && !currentSevereRules.includes(announcedRule)) currentSevereRules.push(announcedRule)
-      }
+      // Monitoring facts describe regulatory status, not a current-session
+      // trigger.  Current severe rules must come only from today's four
+      // calculated warnings; otherwise a monitoring period that starts on the
+      // next trading day is incorrectly shown as "当日已触发".
       const forecast = buildNextDayForecast(
         detailWithMonitoring.nextDayForecast || {},
         Boolean(displayDetail.monitoringSummary),

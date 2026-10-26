@@ -156,6 +156,14 @@ assert.deepStrictEqual(summaryStatus({
   nextDayForecast: { ...forecastBase, rules: [] }
 }), { text: '暂无异动风险', tone: 'safe' })
 assert.deepStrictEqual(summaryStatus({ nextDayForecast: { ...forecastBase, rules: [{ ruleKey: 'ordinary_3d', rule: '连续3个交易日偏离达到阈值' }] } }), { text: '存在警告风险', tone: 'warning' })
+assert.deepStrictEqual(buildNextDayForecast(
+  { baseTradeDate: '20261026', targetTradeDate: '20261027', available: true, rules: [] }, true, [], '20261026'
+), {
+  line: '按 2026-10-26 收盘数据预测 2026-10-27',
+  text: '未发现下一交易日可触发的异动规则',
+  summaryStatus: '暂无异动风险',
+  summaryTone: 'safe'
+})
 assert.strictEqual(formatMonthDay('2026-10-19'), '10/19')
 assert.strictEqual(monitoringRuleLabel({ riskTone: 'severe-30d', monitorType: '30日严重异动', symbol: '600825' }), '连续30个交易日内收盘价涨幅偏离值累计达到 +200%')
 assert.strictEqual(monitoringRuleLabel({ riskTone: 'severe-10d', monitorType: '10日严重异动', symbol: '920229' }), '连续10个交易日内收盘价涨幅偏离值累计达到 +150%')
