@@ -198,6 +198,7 @@ class OfficialMonitorService:
         self._clock = lambda: datetime.now(SHANGHAI_TZ)
         self.refreshing = False
         self.last_error = ""
+        self._snapshot_published_callback = None
         self._lock = Lock()
         self._scheduler_stop = Event()
         self._scheduler: Optional[Thread] = None
@@ -215,6 +216,11 @@ class OfficialMonitorService:
         """停止后台任务，供测试和进程退出使用。"""
 
         self._scheduler_stop.set()
+
+    def set_snapshot_published_callback(self, callback: Any) -> None:
+        """Register a consumer to refresh derived data after new facts publish."""
+
+        self._snapshot_published_callback = callback
 
     def health_stats(self, today_is_trade_day: Optional[bool] = None) -> Dict[str, Any]:
         """返回当前监管快照年龄和采集状态，不读取公告正文。"""
@@ -1343,6 +1349,13 @@ class OfficialMonitorService:
             self.repository.publish(snapshot, raw_announcements, run_id)
             self.repository.set_state("monitor_rule_version", MONITOR_RULE_VERSION)
             self.last_error = ""
+            callback = self._snapshot_published_callback
+            if callback:
+                Thread(
+                    target=callback,
+                    name="prediction-facts-rebuild",
+                    daemon=True,
+                ).start()
             return {"started": True, "refreshing": False, "count": len(parsed)}
         except Exception as exc:
             self.last_error = str(exc)

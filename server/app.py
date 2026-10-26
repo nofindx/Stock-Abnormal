@@ -27,6 +27,7 @@ ANNOUNCEMENTS = AnnouncementService()
 # 重点监控是独立的公告快照链路，不再从全市场预测结果推导。
 OFFICIAL_MONITOR = OfficialMonitorService(SERVICE.client, ANNOUNCEMENTS)
 SERVICE.set_monitor_provider(OFFICIAL_MONITOR.repository.active_snapshot)
+OFFICIAL_MONITOR.set_snapshot_published_callback(SERVICE.rebuild_predictions_from_existing_bases)
 
 
 def _json_bytes(value):

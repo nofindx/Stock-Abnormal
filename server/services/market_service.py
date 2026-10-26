@@ -59,7 +59,7 @@ SHANGHAI_TZ = ZoneInfo("Asia/Shanghai") if ZoneInfo else timezone(timedelta(hour
 # 版本变化会触发服务启动时从已确认收盘行情重建计算基础数据与预测集。
 # Keep the persisted identifier compact: existing production schemas use a
 # 40-character rule-version column; the human-readable rationale lives in docs.
-PREDICTION_RULE_VERSION = "v65"
+PREDICTION_RULE_VERSION = "v66"
 _has_auditable_reset_evidence = has_auditable_reset_evidence
 
 
@@ -383,6 +383,19 @@ class MarketService:
                     self._generate_prediction_datasets(stage)
             except Exception as exc:  # noqa: BLE001 - 重建失败不影响旧数据读取
                 self._prediction_last_error["today"] = f"预测规则重建失败：{exc}"
+
+    def rebuild_predictions_from_existing_bases(self) -> None:
+        """Rebuild derived datasets after a new official-fact snapshot is published."""
+
+        if not self._calc_repository.available:
+            return
+        with self._prediction_rebuild_lock:
+            try:
+                latest_date, stage = self._latest_data_stage_date()
+                if latest_date:
+                    self._generate_prediction_datasets(stage)
+            except Exception as exc:  # noqa: BLE001 - keep API serving existing data
+                self._prediction_last_error["today"] = f"公告快照后预测重建失败：{exc}"
 
     def close(self) -> None:
         """停止每日更新和预测线程池。"""

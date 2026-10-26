@@ -516,6 +516,18 @@ class MarketVectorTests(unittest.TestCase):
 
         self.assertEqual(calls, [("recalculate", "formal")])
 
+    def test_new_announcement_snapshot_recalculates_without_history_fetch(self):
+        service = self.service
+        service._calc_repository = SimpleNamespace(available=True)
+        service.rebuild_formal_history = lambda: self.fail("announcement refresh must not refetch market history")
+        service._latest_data_stage_date = lambda: ("20261023", "formal")
+        calls = []
+        service._generate_prediction_datasets = lambda stage: calls.append(stage)
+
+        service.rebuild_predictions_from_existing_bases()
+
+        self.assertEqual(calls, ["formal"])
+
     def test_explicit_history_rebuild_failure_does_not_recalculate(self):
         service = self.service
         service._calc_repository = SimpleNamespace(
