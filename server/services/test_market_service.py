@@ -952,6 +952,25 @@ class MarketVectorTests(unittest.TestCase):
         self.assertEqual(metrics["up"], 2)
         self.assertEqual(len(metrics["same_direction_events"]), 2)
 
+    def test_same_ordinary_fact_from_multiple_source_ids_counts_once(self):
+        dates = [f"2026-10-{day:02d}" for day in range(13, 23)]
+        stock = [{"date": day, "return": 0.0} for day in dates]
+        index = [{"date": day, "return": 0.0} for day in dates]
+        facts = [
+            {"sourceId": "cninfo-url-a", "eventDate": "20261016", "direction": "up", "contentHash": "a" * 64},
+            {"sourceId": "cninfo-mirror-url-b", "eventDate": "20261016", "direction": "up", "contentHash": "a" * 64},
+            {"sourceId": "cninfo-next-event", "eventDate": "20261017", "direction": "up", "contentHash": "a" * 64},
+            {"sourceId": "cninfo-second-event-same-day", "eventDate": "20261016", "direction": "up", "contentHash": "b" * 64},
+            {"sourceId": "cninfo-url-a", "eventDate": "20261016", "direction": "up", "contentHash": "c" * 64},
+        ]
+
+        metrics = MarketService._vector_metrics(
+            stock, index, BOARD_RULES[Board.MAIN], ordinary_events=facts,
+        )
+
+        self.assertEqual(metrics["up"], 3)
+        self.assertEqual([item["endDate"] for item in metrics["same_direction_events"]], ["20261016", "20261016", "20261017"])
+
     def test_next_day_same_direction_forecast_projects_one_unconfirmed_window_event(self):
         dates = [f"2026-10-{day:02d}" for day in range(1, 9)]
         stock = [{"date": day, "return": 0.0} for day in dates]

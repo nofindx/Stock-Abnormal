@@ -70,11 +70,15 @@ def main() -> int:
 
     mismatches = []
     missing_indexes = []
+    missing_event_ledgers = []
     for item in items:
         index_code = str(item.get("indexCode") or "")
         index = indexes.get(index_code)
         if not index:
             missing_indexes.append(str(item.get("ts_code") or ""))
+            continue
+        if not isinstance(item.get("ordinaryEvents"), list):
+            missing_event_ledgers.append(str(item.get("ts_code") or ""))
             continue
         board = BOARD_BY_LABEL.get(str(item.get("board") or ""), Board.MAIN)
         metrics = MarketService._vector_metrics(
@@ -83,22 +87,33 @@ def main() -> int:
             BOARD_RULES[board],
             ordinary_reset_dates=item.get("ordinaryResetDates") or [],
             severe_reset_date=str(item.get("severeResetDate") or ""),
+            ordinary_events=item["ordinaryEvents"],
         )
         stored = item.get("sameDirection") or {}
         expected = {"up": int(metrics.get("up") or 0), "down": int(metrics.get("down") or 0)}
         actual = {"up": int(stored.get("up") or 0), "down": int(stored.get("down") or 0)}
-        if actual != expected:
-            mismatches.append({"ts_code": item.get("ts_code"), "actual": actual, "expected": expected})
+        event_counts = {
+            "up": len([event for event in item.get("sameDirectionEvents") or [] if event.get("direction") == "up"]),
+            "down": len([event for event in item.get("sameDirectionEvents") or [] if event.get("direction") == "down"]),
+        }
+        if actual != expected or actual != event_counts:
+            mismatches.append({
+                "ts_code": item.get("ts_code"), "actual": actual,
+                "expected": expected, "eventLedger": event_counts,
+            })
 
     print(json.dumps({
         "checked": len(items),
         "total": total,
         "indexCount": len(indexes),
         "missingIndex": len(missing_indexes),
+        "missingEventLedger": len(missing_event_ledgers),
         "mismatch": len(mismatches),
         "sampleMismatches": mismatches[:20],
     }, ensure_ascii=False, indent=2))
-    return 1 if missing_indexes or mismatches else 0
+    if missing_event_ledgers:
+        print(json.dumps({"sampleMissingEventLedgers": missing_event_ledgers[:20]}, ensure_ascii=False, indent=2))
+    return 1 if missing_indexes or missing_event_ledgers or mismatches else 0
 
 
 if __name__ == "__main__":

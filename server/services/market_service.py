@@ -59,7 +59,7 @@ SHANGHAI_TZ = ZoneInfo("Asia/Shanghai") if ZoneInfo else timezone(timedelta(hour
 # 版本变化会触发服务启动时从已确认收盘行情重建计算基础数据与预测集。
 # Keep the persisted identifier compact: existing production schemas use a
 # 40-character rule-version column; the human-readable rationale lives in docs.
-PREDICTION_RULE_VERSION = "v66"
+PREDICTION_RULE_VERSION = "v67"
 _has_auditable_reset_evidence = has_auditable_reset_evidence
 
 
@@ -1954,11 +1954,14 @@ class MarketService:
             ):
                 confirmed_events.append({
                     "sourceId": item.get("sourceId", ""),
+                    "symbol": item.get("symbol", ""),
                     "startDate": event_date,
                     "endDate": event_date,
                     "direction": direction,
                     "windowDays": 3,
                     "deviation": None,
+                    "contentHash": item.get("contentHash", ""),
+                    "bodyHash": item.get("bodyHash", ""),
                     "directionSource": direction_source,
                     "directionStatus": "resolved",
                     "marketDeviation": round(market_deviation, 6) if market_deviation is not None else None,

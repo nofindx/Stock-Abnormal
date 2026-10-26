@@ -54,7 +54,7 @@
           </view>
           <view wx:if="{{detail.monitoringSummary}}" class="monitoring-summary">
             <view class="monitoring-divider"></view>
-            <text class="monitoring-badge">已被重点监管</text>
+            <text class="monitoring-badge">{{detail.monitoringSummary.badgeText}}</text>
             <view class="monitoring-meta"><text>监管日期：{{detail.monitoringSummary.dateText}} · 剩余 </text><text class="monitoring-emphasis">{{detail.monitoringSummary.remainingText}}</text><text> 天</text></view>
             <view class="monitoring-reason"><text>监管原因：</text><text>{{detail.monitoringSummary.ruleText}}</text></view>
           </view>

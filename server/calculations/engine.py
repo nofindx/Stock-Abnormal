@@ -361,14 +361,37 @@ def confirmed_same_direction_event_ledger(confirmed_events: Iterable[Any]) -> Tu
     interpretation and not a written exchange definition.
     """
 
-    confirmed = list(confirmed_events)
-    unique_confirmed = {}
-    for item in confirmed:
+    unique_by_source = {}
+    for item in confirmed_events:
         source_id = str(_record_field(item, "source_id") or _record_field(item, "sourceId") or "")
-        key = source_id or (
+        if source_id:
+            unique_by_source.setdefault(source_id, item)
+            continue
+        fallback_key = (
             str(_record_field(item, "start_date") or _record_field(item, "startDate") or ""),
             str(_record_field(item, "end_date") or _record_field(item, "endDate") or ""),
             str(_record_field(item, "direction") or ""),
+        )
+        unique_by_source.setdefault(fallback_key, item)
+
+    unique_confirmed = {}
+    for item in unique_by_source.values():
+        source_id = str(_record_field(item, "source_id") or _record_field(item, "sourceId") or "")
+        event_date = str(
+            _record_field(item, "event_date") or _record_field(item, "eventDate")
+            or _record_field(item, "end_date") or _record_field(item, "endDate")
+            or _record_field(item, "start_date") or _record_field(item, "startDate") or ""
+        ).replace("-", "")[:8]
+        direction = str(_record_field(item, "direction") or "")
+        content_hash = str(
+            _record_field(item, "content_hash") or _record_field(item, "contentHash")
+            or _record_field(item, "body_hash") or _record_field(item, "bodyHash") or ""
+        ).lower()
+        stable_hash = len(content_hash) == 64 and all(char in "0123456789abcdef" for char in content_hash)
+        # Cross-source copies are the same fact only when a stable announcement
+        # body identity is available. Date/direction alone can merge distinct events.
+        key = (event_date, direction, content_hash) if stable_hash and event_date and direction else source_id or (
+            event_date, direction, str(_record_field(item, "start_date") or _record_field(item, "startDate") or "")
         )
         unique_confirmed[key] = item
     confirmed = list(unique_confirmed.values())

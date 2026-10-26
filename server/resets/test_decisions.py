@@ -43,6 +43,23 @@ class ResetDecisionTests(unittest.TestCase):
         self.assertEqual(context.severe_reset_dates, [])
         self.assertEqual(context.latest_reset_date, "")
 
+    def test_ordinary_event_passes_body_identity_to_calculation_context(self):
+        fact = confirmed_fact("ordinary-abnormality", "20261017", "official_ordinary_abnormality_body")
+        fact.update({
+            "sourceId": "notice-a",
+            "symbol": "002696",
+            "eventDate": "20261016",
+            "eventDirection": "up",
+            "contentHash": "b" * 64,
+            "countsForSameDirection": True,
+        })
+
+        context = build_reset_context([fact])
+
+        self.assertEqual(context.ordinary_events[0]["contentHash"], "b" * 64)
+        self.assertEqual(context.ordinary_events[0]["bodyHash"], "a" * 64)
+        self.assertEqual(context.ordinary_events[0]["symbol"], "002696")
+
 
 if __name__ == "__main__":
     unittest.main()

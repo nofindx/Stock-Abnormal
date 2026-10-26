@@ -116,11 +116,14 @@ def build_reset_context(facts: Iterable[Dict[str, Any]]) -> ResetContext:
         ):
             ordinary_events.append({
                 "sourceId": item.get("sourceId", ""),
+                "symbol": item.get("symbol", ""),
                 "startDate": item.get("eventDate", ""),
                 "endDate": item.get("eventDate", ""),
                 "direction": item.get("eventDirection", ""),
                 "riskTone": item.get("riskTone", "ordinary-abnormality"),
                 "sourceUrl": item.get("sourceUrl", ""),
+                "contentHash": item.get("contentHash", ""),
+                "bodyHash": evidence.get("bodyHash", ""),
                 "confirmationStatus": item.get("confirmationStatus", ""),
                 "verificationMode": evidence.get("verificationMode", ""),
             })

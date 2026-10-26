@@ -147,20 +147,42 @@ function formatMonitoringSummary(monitoring, today = localTodayKey()) {
   const end = monitoring.monitorEndDate || monitoring.monitorEnd
   return {
     dateText: `${formatMonthDay(start)}-${formatMonthDay(end)}`,
+    badgeText: isDelistingMonitoring(monitoring) ? '退市整理期' : '已被重点监管',
     ruleText: monitoringRuleLabel(monitoring),
     remainingText: remainingMonitoringDays(monitoring, today)
   }
 }
 
+function isDelistingMonitoring(item = {}) {
+  return String(item.riskTone || '') === 'delisting-warning'
+    || /退市整理|退市倒计时/.test(`${item.monitorType || ''} ${item.ruleText || ''} ${item.monitorReason || ''}`)
+}
+
 function monitoringPriority(item = {}) {
-  return { 'severe-30d': 4, 'severe-10d': 3, 'delisting-warning': 2, ordinary: 1 }[String(item.riskTone || '')] || 0
+  if (isDelistingMonitoring(item)) return 5
+  return { 'severe-30d': 4, 'severe-10d': 3, ordinary: 1 }[String(item.riskTone || '')] || 0
 }
 
 function findStockMonitoring(items = [], tsCode = '') {
   const code = String(tsCode || '').split('.')[0]
   return (items || [])
-    .filter(item => String(item.ts_code || item.symbol || '').split('.')[0] === code)
+    .filter(item => item && item.active !== false && String(item.ts_code || item.symbol || '').split('.')[0] === code)
     .sort((left, right) => monitoringPriority(right) - monitoringPriority(left) || String(right.monitorEndDate || '').localeCompare(String(left.monitorEndDate || '')))[0] || null
+}
+
+function selectStockMonitoring(detailMonitoring, snapshotItems = [], tsCode = '', fallbackSymbol = '') {
+  const stockCode = String(tsCode || '')
+  const stockSymbol = stockCode.split('.')[0]
+  const facts = detailMonitoring
+    ? [{ ...detailMonitoring, ts_code: detailMonitoring.ts_code || stockCode }]
+    : []
+  const matchingSnapshotFacts = (snapshotItems || [])
+    .filter(item => item && String(item.ts_code || item.symbol || '').split('.')[0] === stockSymbol)
+  return findStockMonitoring([...facts, ...matchingSnapshotFacts].map(item => ({
+    ...item,
+    ts_code: item.ts_code || stockCode,
+    symbol: item.symbol || fallbackSymbol
+  })), stockCode)
 }
 
 const STOCK_HISTORY_KEY = 'stockSearchHistory'
@@ -228,7 +250,7 @@ function currentSevereRuleTexts(warnings = []) {
   return [...new Set(texts)]
 }
 
-function buildNextDayForecast(forecast = {}, monitoringActive = false, currentSevereRules = []) {
+function buildNextDayForecast(forecast = {}, monitoringActive = false, currentSevereRules = [], currentTradeDate = '', ruleFactsStatus = '') {
   const candidates = Array.isArray(forecast.rules) ? forecast.rules : []
   const assessment = assessNextDayRules(candidates, monitoringActive)
   const ruleText = [...new Set(assessment.rules.map(item => String(item.rule || '').trim()).filter(Boolean))].join('；')
@@ -238,11 +260,21 @@ function buildNextDayForecast(forecast = {}, monitoringActive = false, currentSe
     summaryStatus: '未知状态',
     summaryTone: 'unknown'
   })
+  if (['pending_verification', 'partial', 'unavailable', 'not_configured', 'unknown'].includes(String(ruleFactsStatus || ''))) {
+    return unavailable()
+  }
   if (typeof forecast.available !== 'boolean') return unavailable()
   const tradeDate = normalizeTradeDate(forecast.baseTradeDate)
   const nextTradeDate = normalizeTradeDate(forecast.targetTradeDate)
-  if (!tradeDate) return unavailable()
-  if (currentSevereRules.length) {
+  const currentDate = normalizeTradeDate(currentTradeDate)
+  if (!tradeDate || !nextTradeDate || nextTradeDate <= tradeDate) return unavailable()
+  if (currentDate && nextTradeDate < currentDate) return unavailable()
+  if (!currentDate && currentSevereRules.length) return unavailable()
+  // Current severe metrics may include a live quote. Keep that state only while
+  // the forecast target is still a future session; once target day arrives,
+  // the target-day forecast decides the banner regardless of the old trigger.
+  const currentSevereIsForFutureSession = Boolean(currentDate && nextTradeDate > currentDate)
+  if (currentSevereIsForFutureSession && currentSevereRules.length) {
     const futureLine = forecast.available && nextTradeDate
       ? `次日预测（按 ${tradeDate.slice(0, 4)}-${tradeDate.slice(4, 6)}-${tradeDate.slice(6)} 收盘数据预测 ${nextTradeDate.slice(0, 4)}-${nextTradeDate.slice(4, 6)}-${nextTradeDate.slice(6)}）`
       : '次日预测'
@@ -281,15 +313,13 @@ function resolveStatusBanner(forecast = {}, monitoringSummary = null) {
   if (forecast.currentTriggered) {
     return { summaryStatus: forecast.summaryStatus, summaryTone: forecast.summaryTone, statusClass: 'current-triggered' }
   }
-  if (monitoringSummary) {
-    return { summaryStatus: '已被重点监管', summaryTone: 'risk', statusClass: 'monitoring' }
-  }
   return { summaryStatus: forecast.summaryStatus, summaryTone: forecast.summaryTone, statusClass: forecast.summaryTone }
 }
 
 function summaryStatus(detail) {
   const monitoringActive = Boolean(detail && detail.monitoring && detail.monitoring.active !== false)
-  const assessment = buildNextDayForecast(detail && detail.nextDayForecast || {}, monitoringActive)
+  const ruleFactsStatus = detail && detail.dataQuality && detail.dataQuality.ruleFacts && detail.dataQuality.ruleFacts.status
+  const assessment = buildNextDayForecast(detail && detail.nextDayForecast || {}, monitoringActive, [], '', ruleFactsStatus)
   return { text: assessment.summaryStatus, tone: assessment.summaryTone }
 }
 
@@ -406,7 +436,7 @@ function presentWarnings(warnings = [], options = {}) {
     if (currentRisk || nextDayRuleKeys.has(ruleKey)) return ruleKey === 'ordinary_3d' ? 'warning' : 'severe'
     return hasValue ? 'base' : 'unknown'
   }
-  return warnings.map((item) => {
+  const presented = warnings.map((item) => {
     if (item.title === '10 日同向') {
       const up = Number(item.up || 0)
       const match = String(item.target || '').match(/(\d+(?:\.\d+)?)\s*次/)
@@ -458,6 +488,17 @@ function presentWarnings(warnings = [], options = {}) {
     const currentFontSize = numberText.length >= 8 ? 21 : numberText.length >= 7 ? 24 : numberText.length >= 6 ? 27 : 30
     return { ...item, currentText: actualText, currentNumber: numberText, currentUnit: '%', currentFontSize, target: `阈值 ${positive ? '+' : '-'}${selectedThreshold}%`, remainingText: tone === 'triggered' ? '已触及' : `还差 ${remaining.toFixed(2)}%`, ringText: tone === 'triggered' ? '已触及' : `${remaining.toFixed(2)}%`, ringValueClass: 'metric-ring-value-percent', progress: Number(progress.toFixed(2)), tone, labelTone: ringTone, toneColor: colors[ringTone], valueClass: '' }
   }).sort((left, right) => (order[left.title] ?? 99) - (order[right.title] ?? 99))
+  if (!options.forceUnknown) return presented
+  return presented.map(item => ({
+    ...item,
+    target: /待核验/.test(String(item.target || '')) ? item.target : `${item.target} · 待核验`,
+    remainingText: '存在待核验公告',
+    ringText: '待核验',
+    progress: 0,
+    tone: 'unknown',
+    labelTone: 'unknown',
+    toneColor: colors.unknown
+  }))
 }
 
 Page({
@@ -536,12 +577,22 @@ Page({
       getMonitor({ status: 'current', type: 'all' }).catch(() => ({ items: [] }))
     ]).then(([detail, monitorSnapshot]) => {
       if (requestId !== this.detailRequestId) return
-      const monitoring = detail.monitoring || findStockMonitoring(monitorSnapshot.items, detail.ts_code || stock.ts_code)
+      const stockCode = detail.ts_code || stock.ts_code
+      // The endpoint may choose a severe event as its primary monitoring fact;
+      // keep all current facts available for the display label so delisting
+      // management is not mislabeled as severe monitoring on retired stocks.
+      const monitoring = selectStockMonitoring(
+        detail.monitoring,
+        monitorSnapshot.items,
+        stockCode,
+        detail.symbol || stock.symbol
+      )
       const detailWithMonitoring = monitoring
         ? { ...detail, monitoring, monitoringStatus: 'active', monitoringStatusDisplay: '监管中' }
         : detail
       const futureTradeDates = detailWithMonitoring.futureTradeDates || []
       const rows = calculateSimulationRows(createInputRows(2, futureTradeDates), detailWithMonitoring)
+      const ruleFactsStatus = String((detailWithMonitoring.dataQuality && detailWithMonitoring.dataQuality.ruleFacts || {}).status || 'unknown')
       const displayDetail = {
         ...detailWithMonitoring,
         statusDisplay: detailWithMonitoring.statusDisplay || (detailWithMonitoring.status === '正常' ? '状态安全' : '状态异常'),
@@ -552,7 +603,8 @@ Page({
         warnings: presentWarnings(detailWithMonitoring.warnings, {
           nextDayRules: detailWithMonitoring.nextDayForecast && detailWithMonitoring.nextDayForecast.available
             ? (detailWithMonitoring.nextDayForecast.rules || [])
-            : []
+            : [],
+          forceUnknown: ruleFactsStatus !== 'available'
         }),
         alerts: presentAlerts(detailWithMonitoring.alerts),
         monitoringSummary: formatMonitoringSummary(monitoring && {
@@ -571,7 +623,13 @@ Page({
         const announcedRule = monitoringRuleLabel({ ...monitoring, ts_code: detailWithMonitoring.ts_code || stock.ts_code })
         if (announcedRule && !currentSevereRules.includes(announcedRule)) currentSevereRules.push(announcedRule)
       }
-      const forecast = buildNextDayForecast(detailWithMonitoring.nextDayForecast || {}, Boolean(displayDetail.monitoringSummary), currentSevereRules)
+      const forecast = buildNextDayForecast(
+        detailWithMonitoring.nextDayForecast || {},
+        Boolean(displayDetail.monitoringSummary),
+        currentSevereRules,
+        detailWithMonitoring.tradeDate,
+        ruleFactsStatus
+      )
       const statusSummary = { text: forecast.summaryStatus, tone: forecast.summaryTone }
       displayDetail.currentTriggered = forecast.currentTriggered
       displayDetail.futureForecastLine = forecast.futureLine || ''
@@ -627,4 +685,4 @@ Page({
 })
 
 // 纯计算函数导出给前端回归测试；小程序运行时不影响 Page 注册。
-if (typeof module !== 'undefined') module.exports = { bestDeviation, buildMatrixGroups, buildNextDayForecast, calculateSimulationRows, createInputRows, presentWarnings, summaryStatus, formatMonthDay, monitoringRuleLabel, formatMonitoringSummary, remainingMonitoringDays, findStockMonitoring, currentSevereRuleTexts, resolveStatusBanner }
+if (typeof module !== 'undefined') module.exports = { bestDeviation, buildMatrixGroups, buildNextDayForecast, calculateSimulationRows, createInputRows, presentWarnings, summaryStatus, formatMonthDay, monitoringRuleLabel, formatMonitoringSummary, remainingMonitoringDays, findStockMonitoring, selectStockMonitoring, currentSevereRuleTexts, resolveStatusBanner }
