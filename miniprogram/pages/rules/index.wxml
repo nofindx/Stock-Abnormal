@@ -1,5 +1,5 @@
 <view class="rules-page">
-  <view class="rules-updated">更新时间：2026-10-22</view>
+  <view class="rules-updated">更新时间：2026-10-26</view>
   <view class="rules-section">
     <view class="rules-heading">异动规则</view>
     <view class="threshold-table">
@@ -30,8 +30,8 @@
   <view class="rules-section">
     <view class="rules-heading">计算口径</view>
     <view class="rules-copy">10 日窗口使用最近 11 条有效交易日 K，30 日窗口使用最近 31 条。停牌、无效价格与缺失指数不做 0 填充。</view>
-    <view class="rules-copy">普通异动按连续 3 个交易日收盘价偏离累计计算；10 日同向按收盘行情和板块阈值逐个判断每个三日窗口，重叠窗口分别计次，公告数量不作为计次数量。该窗口计次方式是本工具依据规则结构及公开案例制定的产品口径，交易所规则未明文解释重叠窗口如何计数。</view>
-    <view class="rules-copy">普通异常公告重置三日普通异动基线，不清除 10 日同向次数；严重异常公告重置 10 日同向及 10/30 日严重指标。两类重置范围是本工具按指标类别作出的推断，最终认定以交易所规则及公告为准。</view>
+    <view class="rules-copy">普通异动按连续 3 个交易日收盘价偏离累计计算；10 日同向按已核验的普通异动公告事件计数。每个独立正式公告事件最多计 1 次；同一公告重复抓取不重复计数，不同独立公告即使区间重叠也分别留证计数。公告日期对应的三日行情用于核验方向和阈值，不能用最新单日涨跌代替。</view>
+    <view class="rules-copy">普通异动公告确认后，对应方向的 10 日同向次数加 1，并只重置 3 日偏离基线；10 日同向历史及 10/30 日偏离继续保留。严重异动公告确认后进入重点监控，并从规则生效日重置四项指标（3 日偏离、10 日同向、10 日偏离、30 日偏离）。重叠窗口计次和重置范围属于本工具产品口径，不代表交易所对数学窗口的明文解释。</view>
   </view>
 
   <view class="rules-section rules-risk">

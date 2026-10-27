@@ -6,6 +6,9 @@ const { bestDeviation, buildMatrixGroups, buildNextDayForecast, calculateSimulat
 assert.deepStrictEqual(resolveStatusBanner({ summaryStatus: '暂无异动风险', summaryTone: 'safe' }, { dateText: '10/26-11/06' }), {
   summaryStatus: '暂无异动风险', summaryTone: 'safe', statusClass: 'safe'
 })
+assert.deepStrictEqual(resolveStatusBanner({ summaryStatus: '暂无异动风险', summaryTone: 'safe' }, { dateText: '10/26-11/06', badgeText: '已被重点监管' }), {
+  summaryStatus: '暂无异动风险', summaryTone: 'safe', statusClass: 'monitoring'
+})
 assert.deepStrictEqual(resolveStatusBanner({ currentTriggered: true, summaryStatus: '当日已触发严重异动', summaryTone: 'risk' }, { dateText: '10/26-11/06' }), {
   summaryStatus: '当日已触发严重异动', summaryTone: 'risk', statusClass: 'current-triggered'
 })
@@ -94,6 +97,11 @@ const targetDoesNotFollowBaseDate = buildNextDayForecast({
 assert.deepStrictEqual(targetDoesNotFollowBaseDate, {
   line: '', text: '次日预测暂不可用', summaryStatus: '未知状态', summaryTone: 'unknown'
 })
+const resetTargetForecast = buildNextDayForecast({
+  baseTradeDate: '20261023', targetTradeDate: '20261026', available: true, rules: []
+}, false, ['连续10个交易日内收盘价涨幅偏离值累计达到 +100%'], '20261026')
+assert.strictEqual(resetTargetForecast.summaryStatus, '暂无异动风险')
+assert.strictEqual(resolveStatusBanner(resetTargetForecast, { badgeText: '已被重点监管' }).statusClass, 'monitoring')
 const pendingAnnouncementFacts = buildNextDayForecast({
   baseTradeDate: '20261023', targetTradeDate: '20261026', available: true,
   rules: [{ ruleKey: 'severe_30d', rule: '连续30个交易日内收盘价涨幅偏离值累计达到 +200%' }]
@@ -105,6 +113,10 @@ assert.deepStrictEqual(buildNextDayForecast({ ...forecastBase, available: false,
   line: '', text: '次日预测暂不可用',
   summaryStatus: '未知状态', summaryTone: 'unknown'
 })
+assert.deepStrictEqual(buildNextDayForecast({ ...forecastBase, rules: [] }, false, [], '', 'available', false), {
+  line: '', text: '次日预测暂不可用',
+  summaryStatus: '未知状态', summaryTone: 'unknown'
+})
 assert.deepStrictEqual(buildNextDayForecast({ ...forecastBase, available: false, unavailableReason: '股票与所属指数行情基准未对齐', rules: [{ ruleKey: 'severe_30d', rule: '连续30个交易日偏离达到阈值' }] }), {
   line: '', text: '次日预测暂不可用', summaryStatus: '未知状态', summaryTone: 'unknown'
 })
@@ -113,6 +125,11 @@ assert.deepStrictEqual(buildNextDayForecast({ ...forecastBase, rules: [{ ruleKey
 })
 assert.deepStrictEqual(buildNextDayForecast({}), { line: '', text: '次日预测暂不可用', summaryStatus: '未知状态', summaryTone: 'unknown' })
 assert.deepStrictEqual(summaryStatus({ nextDayForecast: { available: false, rules: [] } }), { text: '未知状态', tone: 'unknown' })
+assert.deepStrictEqual(summaryStatus({
+  stockState: { dataAvailable: false },
+  dataQuality: { isComplete: false, ruleFacts: { status: 'available' } },
+  nextDayForecast: { ...forecastBase, rules: [] }
+}), { text: '未知状态', tone: 'unknown' })
 const safeForecast = { ...forecastBase, available: true, rules: [] }
 assert.deepStrictEqual(summaryStatus({ status: '正常', monitoring: { monitorType: '严重异动' }, nextDayForecast: safeForecast }), { text: '暂无异动风险', tone: 'safe' })
 assert.deepStrictEqual(summaryStatus({ status: '正常', monitoringStatus: 'active', nextDayForecast: safeForecast }), { text: '暂无异动风险', tone: 'safe' })
@@ -185,6 +202,16 @@ assert.strictEqual(findStockMonitoring([
   { ts_code: '301190.SZ', riskTone: 'severe-10d', monitorEndDate: '2026-10-22' },
   { ts_code: '688137.SH', riskTone: 'severe-30d' }
 ], '301190.SZ').riskTone, 'severe-10d')
+assert.strictEqual(findStockMonitoring([
+  { ts_code: '301313.SZ', riskTone: 'ordinary', monitorStartDate: '2026-10-26', monitorEndDate: '2026-11-06' },
+  { ts_code: '301313.SZ', riskTone: 'severe-10d', monitorStartDate: '2026-10-27', monitorEndDate: '2026-11-09' }
+], '301313.SZ', '20261026').riskTone, 'ordinary')
+assert.strictEqual(findStockMonitoring([
+  { ts_code: '301313.SZ', riskTone: 'severe-10d', monitorStartDate: '2026-10-27', monitorEndDate: '2026-11-09' }
+], '301313.SZ', '20261026'), null)
+assert.strictEqual(findStockMonitoring([
+  { ts_code: '301313.SZ', riskTone: 'severe-10d', monitorStart: '10-27', monitorEnd: '11-09' }
+], '301313.SZ', '20261026'), null)
 const delistingAndSevereFacts = findStockMonitoring([
   { ts_code: '002731.SZ', riskTone: 'severe-10d', monitorEndDate: '2026-11-05' },
   { ts_code: '002731.SZ', riskTone: 'delisting-warning', monitorType: '退市倒计时', monitorEndDate: '2026-10-27' }

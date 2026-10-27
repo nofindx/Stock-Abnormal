@@ -266,8 +266,8 @@
 .stock-page .status-safe,
 .stock-page .status-risk,
 .stock-page .status-severe,
-.stock-page .status-monitoring,
 .stock-page .status-neutral { border-color: rgba(209, 213, 219, .84) !important; background: rgba(255, 255, 255, .72) !important; color: #1C1C1E !important; -webkit-backdrop-filter: blur(18rpx); backdrop-filter: blur(18rpx); }
+.stock-page .status-monitoring { border-color: rgba(231, 168, 162, .92) !important; background: rgba(253, 243, 242, .88) !important; color: #1C1C1E !important; -webkit-backdrop-filter: blur(18rpx); backdrop-filter: blur(18rpx); }
 .stock-page .status-current-triggered { border-color: #D93025 !important; background: #FFF5F5 !important; color: #1C1C1E !important; -webkit-backdrop-filter: blur(18rpx); backdrop-filter: blur(18rpx); }
 .stock-page .status-safe .status-state,
 .stock-page .status-risk .status-state,

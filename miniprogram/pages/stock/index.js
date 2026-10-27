@@ -123,6 +123,16 @@ function dateKey(value) {
   return String(value == null ? '' : value).replace(/[^\d]/g, '').slice(0, 8)
 }
 
+function monitoringStartKey(item = {}, asOf = '') {
+  const raw = String(item.monitorStartDate || item.monitorStart || '').trim()
+  const full = dateKey(raw)
+  if (full.length === 8) return full
+  const short = raw.match(/^(\d{1,2})[/-](\d{1,2})$/)
+  return short && String(asOf).length >= 4
+    ? `${String(asOf).slice(0, 4)}${String(short[1]).padStart(2, '0')}${String(short[2]).padStart(2, '0')}`
+    : ''
+}
+
 function localTodayKey() {
   const now = new Date()
   return `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`
@@ -163,14 +173,19 @@ function monitoringPriority(item = {}) {
   return { 'severe-30d': 4, 'severe-10d': 3, ordinary: 1 }[String(item.riskTone || '')] || 0
 }
 
-function findStockMonitoring(items = [], tsCode = '') {
+function findStockMonitoring(items = [], tsCode = '', asOfDate = '') {
   const code = String(tsCode || '').split('.')[0]
+  const asOf = dateKey(asOfDate)
   return (items || [])
-    .filter(item => item && item.active !== false && String(item.ts_code || item.symbol || '').split('.')[0] === code)
+    .filter(item => {
+      if (!item || item.active === false || String(item.ts_code || item.symbol || '').split('.')[0] !== code) return false
+      const start = monitoringStartKey(item, asOf)
+      return !asOf || !start || start <= asOf
+    })
     .sort((left, right) => monitoringPriority(right) - monitoringPriority(left) || String(right.monitorEndDate || '').localeCompare(String(left.monitorEndDate || '')))[0] || null
 }
 
-function selectStockMonitoring(detailMonitoring, snapshotItems = [], tsCode = '', fallbackSymbol = '') {
+function selectStockMonitoring(detailMonitoring, snapshotItems = [], tsCode = '', fallbackSymbol = '', asOfDate = '') {
   const stockCode = String(tsCode || '')
   const stockSymbol = stockCode.split('.')[0]
   const facts = detailMonitoring
@@ -182,7 +197,7 @@ function selectStockMonitoring(detailMonitoring, snapshotItems = [], tsCode = ''
     ...item,
     ts_code: item.ts_code || stockCode,
     symbol: item.symbol || fallbackSymbol
-  })), stockCode)
+  })), stockCode, asOfDate)
 }
 
 const STOCK_HISTORY_KEY = 'stockSearchHistory'
@@ -250,7 +265,7 @@ function currentSevereRuleTexts(warnings = []) {
   return [...new Set(texts)]
 }
 
-function buildNextDayForecast(forecast = {}, monitoringActive = false, currentSevereRules = [], currentTradeDate = '', ruleFactsStatus = '') {
+function buildNextDayForecast(forecast = {}, monitoringActive = false, currentSevereRules = [], currentTradeDate = '', ruleFactsStatus = '', marketDataAvailable = true) {
   const candidates = Array.isArray(forecast.rules) ? forecast.rules : []
   const assessment = assessNextDayRules(candidates, monitoringActive)
   const ruleText = [...new Set(assessment.rules.map(item => String(item.rule || '').trim()).filter(Boolean))].join('；')
@@ -263,6 +278,10 @@ function buildNextDayForecast(forecast = {}, monitoringActive = false, currentSe
   if (['pending_verification', 'partial', 'unavailable', 'not_configured', 'unknown'].includes(String(ruleFactsStatus || ''))) {
     return unavailable()
   }
+  // A forecast candidate cannot be presented as safe when the detail payload
+  // explicitly says the market window is incomplete/unavailable. Keep the
+  // unknown state visible until the backend publishes a complete result.
+  if (marketDataAvailable === false) return unavailable()
   if (typeof forecast.available !== 'boolean') return unavailable()
   const tradeDate = normalizeTradeDate(forecast.baseTradeDate)
   const nextTradeDate = normalizeTradeDate(forecast.targetTradeDate)
@@ -313,13 +332,23 @@ function resolveStatusBanner(forecast = {}, monitoringSummary = null) {
   if (forecast.currentTriggered) {
     return { summaryStatus: forecast.summaryStatus, summaryTone: forecast.summaryTone, statusClass: 'current-triggered' }
   }
-  return { summaryStatus: forecast.summaryStatus, summaryTone: forecast.summaryTone, statusClass: forecast.summaryTone }
+  // Regulatory monitoring is an independent card state. Keep the forecast
+  // conclusion in the pill, while the card stays red for an active severe
+  // monitoring fact even when the post-reset forecast is safe.
+  const statusClass = monitoringSummary && monitoringSummary.badgeText
+    ? 'monitoring'
+    : forecast.summaryTone
+  return { summaryStatus: forecast.summaryStatus, summaryTone: forecast.summaryTone, statusClass }
 }
 
 function summaryStatus(detail) {
   const monitoringActive = Boolean(detail && detail.monitoring && detail.monitoring.active !== false)
   const ruleFactsStatus = detail && detail.dataQuality && detail.dataQuality.ruleFacts && detail.dataQuality.ruleFacts.status
-  const assessment = buildNextDayForecast(detail && detail.nextDayForecast || {}, monitoringActive, [], '', ruleFactsStatus)
+  const marketDataAvailable = (
+    (!detail || !detail.stockState || detail.stockState.dataAvailable !== false)
+    && (!detail || !detail.dataQuality || detail.dataQuality.isComplete !== false)
+  )
+  const assessment = buildNextDayForecast(detail && detail.nextDayForecast || {}, monitoringActive, [], '', ruleFactsStatus, marketDataAvailable)
   return { text: assessment.summaryStatus, tone: assessment.summaryTone }
 }
 
@@ -585,7 +614,8 @@ Page({
         detail.monitoring,
         monitorSnapshot.items,
         stockCode,
-        detail.symbol || stock.symbol
+        detail.symbol || stock.symbol,
+        detail.tradeDate
       )
       const detailWithMonitoring = monitoring
         ? { ...detail, monitoring, monitoringStatus: 'active', monitoringStatusDisplay: '监管中' }
@@ -593,6 +623,10 @@ Page({
       const futureTradeDates = detailWithMonitoring.futureTradeDates || []
       const rows = calculateSimulationRows(createInputRows(2, futureTradeDates), detailWithMonitoring)
       const ruleFactsStatus = String((detailWithMonitoring.dataQuality && detailWithMonitoring.dataQuality.ruleFacts || {}).status || 'unknown')
+      const marketDataAvailable = (
+        (!detailWithMonitoring.stockState || detailWithMonitoring.stockState.dataAvailable !== false)
+        && (!detailWithMonitoring.dataQuality || detailWithMonitoring.dataQuality.isComplete !== false)
+      )
       const displayDetail = {
         ...detailWithMonitoring,
         statusDisplay: detailWithMonitoring.statusDisplay || (detailWithMonitoring.status === '正常' ? '状态安全' : '状态异常'),
@@ -604,7 +638,7 @@ Page({
           nextDayRules: detailWithMonitoring.nextDayForecast && detailWithMonitoring.nextDayForecast.available
             ? (detailWithMonitoring.nextDayForecast.rules || [])
             : [],
-          forceUnknown: ruleFactsStatus !== 'available'
+          forceUnknown: ruleFactsStatus !== 'available' || !marketDataAvailable
         }),
         alerts: presentAlerts(detailWithMonitoring.alerts),
         monitoringSummary: formatMonitoringSummary(monitoring && {
@@ -623,7 +657,8 @@ Page({
         Boolean(displayDetail.monitoringSummary),
         currentSevereRules,
         detailWithMonitoring.tradeDate,
-        ruleFactsStatus
+        ruleFactsStatus,
+        marketDataAvailable
       )
       const statusSummary = { text: forecast.summaryStatus, tone: forecast.summaryTone }
       displayDetail.currentTriggered = forecast.currentTriggered
