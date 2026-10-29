@@ -6,7 +6,11 @@ function searchStocks(query) {
 }
 
 function getStockDetail(tsCode) {
-  return request({ url: '/api/stocks/detail', data: { ts_code: tsCode }, timeout: 30000 }).then((response) => response.data || null)
+  return getVNextContext('stock', 'current', tsCode).then((context) => request({
+    url: '/api/v2/stocks/detail',
+    data: { security_id: tsCode, read_token: context.read_token.value },
+    timeout: 30000
+  })).then((response) => response.data || null)
 }
 
 function getMonitor(options = {}) {
@@ -14,11 +18,16 @@ function getMonitor(options = {}) {
 }
 
 function getPredictions(scope) {
-  return request({ url: '/api/predictions', data: { scope }, timeout: 8000 }).then((response) => response.data || { items: [], quoteUpdatedAt: '' })
+  const role = scope === 'next_day' ? 'next' : 'current'
+  return getVNextContext('prediction', role).then((context) => getVNextPredictions(context.read_token.value, role))
 }
 
 function refreshPredictions(scope) {
-  return request({ url: '/api/predictions/refresh', method: 'POST', data: { scope }, timeout: 10000, retry: 0 }).then((response) => response.data || { items: [], quoteUpdatedAt: '' })
+  const role = scope === 'next_day' ? 'next' : 'current'
+  return getVNextContext('prediction', role).then((context) => request({
+    url: '/api/v2/realtime/refresh', method: 'POST',
+    data: { scope, read_token: context.read_token.value }, timeout: 10000, retry: 0
+  })).then((response) => response.data || { items: [], quoteUpdatedAt: '' })
 }
 
 // 仅供需要原始盘中行情的页面使用；后端不保存本次报价。

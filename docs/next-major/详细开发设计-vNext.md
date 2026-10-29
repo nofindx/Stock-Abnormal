@@ -136,7 +136,7 @@ metric.availability: available | unavailable
 
 ### 4.1 规则包组成
 
-`RuleSet` 必须含：适用交易所/板块/证券特征、生效区间、基准指数映射、收益构造方法、四项阈值和比较符、计次和核验政策、重置政策、交易时段和日期角色政策、预测政策、监管期政策、展示级别和解释来源。当前产品基准映射为沪市主板 `000002.SH`、深市主板 `399107.SZ`、创业板 `399102.SZ`、科创板 `000688.SH`、北交所 `899050.BJ`。规则证据表至少记录板块/情形、参数或计算边界、官方来源与条款、生效日期、证据结论及 `official_explicit|product_policy|pending_verification` 标记；映射证据缺失或冲突时阻断受影响规则包发布。
+`RuleSet` 必须含：适用交易所/板块/证券特征、生效区间、基准指数映射、收益构造方法、四项阈值和比较符、计次和核验政策、重置政策、交易时段和日期角色政策、预测政策、监管期政策、展示级别和解释来源。当前产品基准映射为沪市主板 `000002.SH`、深市主板 `399107.SZ`、创业板 `399102.SZ`、科创板 `000688.SH`、北交所 `899050.BJ`。规则证据表至少记录板块/情形、参数或计算边界、产品规则依据、生效日期、内容哈希、夹具引用及 `product_policy|pending_verification` 标记；产品规则缺失或冲突时阻断受影响规则包发布。
 
 收益构造只对会改变当前产品结果的边界显式记录：原始收盘/涨跌幅字段、股票与基准指数复合收益、除权处理、普通事项停牌复牌、严重异动相关停牌复牌、复牌首个有效收益日和比较基点。业务日期统一为 `YYYYMMDD`。规则未核实或存在冲突时不得由相邻板块/情形默认继承，受影响指标返回 `unavailable` 并带 `RULE_UNRESOLVED` 或 `RESET_BOUNDARY_UNRESOLVED`。
 
@@ -460,7 +460,7 @@ MySQL 是结构化事实、修订、结果和任务的真值；PDF 仅按 §15 �
 | `market_bar_revision` | instrument_id、kind(stock/index)、trade_date、close、pre_close、pct_chg、adj_factor、source、hash、revision_id | UNIQUE instrument_id+trade_date+source+content_hash；索引 instrument_id+trade_date；最新指向可变但数据集不读它 |
 | `trading_event_revision` | security_id、停/复牌/终止/退市整理、开始结束、原因、证据、确认度 | PK revision_id；索引 security_id+effective_date；原因未知可存但不伪造 |
 | `rule_bundle` | rule_version、content_hash、schema、配置文本、basis清单 | UNIQUE rule_version；哈希变化禁止覆盖同号；发布需审核状态 |
-| `rule_evidence` | evidence_id、rule_version、rule_key、source_type(`official|product_policy`)、source_title、source_url、article_or_locator、excerpt、content_hash、effective_from/to、applicability_scope、review_status、reviewed_by、reviewed_at | PK evidence_id；UNIQUE rule_version+rule_key+source_url+article_or_locator+content_hash；规则包以 evidence_id 引用；官方明文与产品约定分型保存；缺失、冲突或未审核的必需证据阻断对应规则包发布 |
+| `rule_evidence` | evidence_id、rule_version、rule_key、source_type(`product_policy`)、policy_basis、source_url(可选)、fixture_refs、content_hash、effective_from/to、applicability_scope、review_status、reviewed_by、reviewed_at | PK evidence_id；规则包以 evidence_id 引用；产品批准规则与补充材料分开保存；缺失、冲突或未审核的必需证据阻断对应规则包发布 |
 | `return_policy_revision` | policy_id、rule_version、board_scope、event_type、stock_return_method、index_return_method、comparison_base、suspension_resume_policy、ex_right_policy、valid_from/to、evidence_ids、review_status、content_hash | PK policy_id；索引 rule_version+board_scope+valid_from；每个有效规则包引用唯一适用政策版本；缺收益口径、基点或证据时阻断受影响规则包，不用运行时默认值 |
 | `source_batch` | source、kind、scope、watermark、分页、完整状态、输入引用 | PK batch_id；UNIQUE source+request_fingerprint+run_revision；失败状态持久保存 |
 | `announcement_revision` | source_ann_id、publisher、channel、披露时刻、URL、正文证据、正文哈希、解析版本 | PK revision_id；UNIQUE source+source_ann_id+content_hash；正文证据不可覆盖 |
@@ -992,7 +992,7 @@ P0 公共契约/口径与来源定版 → P1 数据和工程地基 → P2 唯一
 - Tushare官方日线文档：<https://tushare.pro/document/2?doc_id=27>。用于核对盘后静态日频字段、发布时间和分页限制。
 - Tushare官方文档入口：<https://tushare.pro/document/2>。本设计不把 Tushare 声称为盘中实时源；盘中行情适配器与回退顺序以当前仓库实现及部署配置为准。
 - MySQL官方Atomic DDL说明：<https://dev.mysql.com/doc/refman/8.0/en/atomic-ddl.html>。Atomic DDL不等于事务性DDL；实施前按实际数据库版本核对。
-- 交易监管官方原文逐条登记在规则包source_ref；本轮未重新取证的阈值/收益/停复牌细节，不因专家文本写“官方”即自动标official_explicit。
+- 本版本按已批准的 `product_policy` manifest 执行；外部公告或规则链接仅作为补充证据，不是 G21 的必需前提，不把产品口径标为 `official_explicit`。
 
 ### 21.3 文档版本维护
 

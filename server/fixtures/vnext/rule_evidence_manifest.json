@@ -1,11 +1,19 @@
 {
-  "manifest_version": "G21-20261029.1",
-  "status": "blocked_pending_review",
+  "manifest_version": "G21-20261029.2",
+  "status": "approved_by_product",
+  "authority": "product_policy",
+  "policy_version": "PRD-NEXT-20261029.21",
   "entries": [
-    {"rule_key": "main_board_thresholds", "scope": "沪市主板/深市主板", "source_type": "official", "source_url": "", "effective_from": "", "review_status": "pending_verification"},
-    {"rule_key": "chinext_thresholds", "scope": "创业板", "source_type": "official", "source_url": "", "effective_from": "", "review_status": "pending_verification"},
-    {"rule_key": "star_thresholds", "scope": "科创板", "source_type": "official", "source_url": "", "effective_from": "", "review_status": "pending_verification"},
-    {"rule_key": "bse_thresholds", "scope": "北交所", "source_type": "official", "source_url": "https://www.bse.cn/jygl_list/200028217.html", "effective_from": "20260706", "review_status": "pending_verification"},
-    {"rule_key": "return_and_resume_policy", "scope": "四板块/停复牌/除权", "source_type": "official", "source_url": "", "effective_from": "", "review_status": "pending_verification"}
+    {"rule_key":"main_board_thresholds","scope":"沪市主板/深市主板","source_type":"product_policy","effective_from":"20261029","review_status":"approved_by_product","policy_basis":"四项异动规则：3日普通；10日同向、10日偏离、30日偏离严重；板块阈值由规则目录提供。","fixture_refs":["F-RULE-BOARD-MAIN"],"content_hash":"c0f7d1c5e3d1860196e4c0fde077341d17b7caf1b460461a91dbd981b2d59de7"},
+    {"rule_key":"chinext_thresholds","scope":"创业板","source_type":"product_policy","effective_from":"20261029","review_status":"approved_by_product","policy_basis":"创业板适用产品规则目录与四项独立预警。","fixture_refs":["F-RULE-BOARD-CHINEXT"],"content_hash":"c4b7637ea430e6662cc2fa3b7500aee72c5753433787f50c947c2a96c3d89cfd"},
+    {"rule_key":"star_thresholds","scope":"科创板","source_type":"product_policy","effective_from":"20261029","review_status":"approved_by_product","policy_basis":"科创板适用产品规则目录与四项独立预警。","fixture_refs":["F-RULE-BOARD-STAR"],"content_hash":"77fee8463ea46d144877a2907944c845ad4d4c81179d1083e4ab2bfcbe951f0f"},
+    {"rule_key":"bse_thresholds","scope":"北交所","source_type":"product_policy","effective_from":"20261029","review_status":"approved_by_product","policy_basis":"北交所适用产品规则目录与四项独立预警。","fixture_refs":["F-RULE-BOARD-BSE"],"content_hash":"df6c7a2a1ba6cf57ee6c85db95be747e214c796db3c36dd05b4914241b041e34"},
+    {"rule_key":"index_mapping","scope":"沪市主板/深市主板/创业板/科创板/北交所","source_type":"product_policy","effective_from":"20261029","review_status":"approved_by_product","policy_basis":"使用规则目录中固定基准指数映射，映射版本随规则包发布。","fixture_refs":["F-RULE-INDEX-MAPPING"],"content_hash":"db6b8ebe4c5759dede295e419414e9e0d1bc136d3c7af1cf3a8f5ac1bbecfa74"},
+    {"rule_key":"return_construction","scope":"四板块/3日/10日/30日收益构造","source_type":"product_policy","effective_from":"20261029","review_status":"approved_by_product","policy_basis":"按已发布产品规则计算收盘收益、偏离值、交易日窗口、除权及复牌首个有效收益。","fixture_refs":["F-RETURN-RESET-BASELINE"],"content_hash":"08631bb962f88e94f7122e4fef062ac2860c2e614165c33e6f20d419a7f38ddc"},
+    {"rule_key":"ordinary_announcement_count_reset","scope":"普通异动公告","source_type":"product_policy","effective_from":"20261029","review_status":"approved_by_product","policy_basis":"公告确认后按公告方向计入10日同向+1，并按effective_date重置3日；计算仅核验。","fixture_refs":["F-Q2-ORDINARY-COUNT-RESET","F-Q2-DIRECTION-PENDING"],"content_hash":"bb462ec0c2b8e91a4fbf5cbd70c6878cc5c81caf91c856e8e3e4e75b50b56db5"},
+    {"rule_key":"severe_announcement_reset","scope":"严重异动公告","source_type":"product_policy","effective_from":"20261029","review_status":"approved_by_product","policy_basis":"严重公告自effective_date重置3/10/30日偏离并清除生效日前10日同向事件。","fixture_refs":["F-Q2-SEVERE-RESET-D1"],"content_hash":"55b9baed5305a142246775fc3bd53ffa9d628a9e53b443b9466bad8c39efe4a1"},
+    {"rule_key":"ordinary_pause_resume","scope":"普通事项停牌复牌","source_type":"product_policy","effective_from":"20261029","review_status":"approved_by_product","policy_basis":"普通事项停复牌重置价格偏离基线，10日同向事件延续。","fixture_refs":["F-RESET-ORDINARY-PAUSE"],"content_hash":"25de86a7053ecb13442ab95d9f29f11de57cd5e59b2eec9506c9159632771a15"},
+    {"rule_key":"severe_pause_resume","scope":"严重异动相关停牌复牌","source_type":"product_policy","effective_from":"20261029","review_status":"approved_by_product","policy_basis":"因严重异动停牌或严重公告后停牌，复牌时四项与10日同向一并重置。","fixture_refs":["F-RESET-SEVERE-PAUSE"],"content_hash":"cef93338ce605354f2534032f5a421f36cea5d5de81bd2cd80861ff336dd860c"},
+    {"rule_key":"resume_first_valid_return","scope":"复牌首个有效收益日","source_type":"product_policy","effective_from":"20261029","review_status":"approved_by_product","policy_basis":"按复牌事实与规则版本确定首个有效收益日，缺失时对应指标不可用。","fixture_refs":["F-RETURN-RESUME-FIRST-DAY"],"content_hash":"af5fae500e04bf506ec70084e80659ee80bad82125c4d098090b659c98191bde"}
   ]
 }

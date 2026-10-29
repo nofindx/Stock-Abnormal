@@ -309,6 +309,25 @@ class ApiHandler(BaseHTTPRequestHandler):
                 data.update({"dataset_id": context.dataset_id, "dataset_version": context.dataset_version, "pool_version": context.pool_version, "pool_hash": context.pool_hash, "rule_version": context.rule_version, "time_context_id": context.time_context_id, "read_token": {"value": token, "expires_at": context.expires_at}})
                 self._respond({"code": 0, "data": data, "message": "ok"})
                 return
+            if parsed.path == "/api/v2/stocks/detail":
+                if CONTEXTS is None:
+                    self._respond({"code": 50304, "data": None, "message": "vNext context 签名密钥未配置"}, status=503)
+                    return
+                token = query.get("read_token", [""])[0]
+                try:
+                    context = CONTEXTS.verify(token)
+                except ContextExpired as exc:
+                    self._respond({"code": 40902, "data": None, "message": str(exc)}, status=409)
+                    return
+                security_id = query.get("security_id", [""])[0]
+                if not security_id or context.role not in ("current", "next"):
+                    raise ApiError(40001, "security_id 参数无效", 400)
+                data = SERVICE.detail(security_id)
+                data.update({"dataset_id": context.dataset_id, "dataset_version": context.dataset_version,
+                             "rule_version": context.rule_version, "time_context_id": context.time_context_id,
+                             "read_token": {"value": token, "expires_at": context.expires_at}})
+                self._respond({"code": 0, "data": data, "message": "ok"})
+                return
             if parsed.path == "/api/market/history-coverage":
                 try:
                     offset = int(query.get("offset", ["0"])[0])
@@ -431,7 +450,7 @@ class ApiHandler(BaseHTTPRequestHandler):
         """处理不落盘的盘中行情透传和已有预测池刷新。"""
 
         parsed = urlparse(self.path)
-        if parsed.path not in ("/api/predictions/refresh", "/api/quotes/realtime"):
+        if parsed.path not in ("/api/predictions/refresh", "/api/quotes/realtime", "/api/v2/realtime/refresh"):
             self._respond({"code": 40401, "data": None, "message": "接口不存在"}, status=404)
             return
         query = parse_qs(parsed.query)
@@ -468,6 +487,28 @@ class ApiHandler(BaseHTTPRequestHandler):
                     self._respond({"code": 50303, "data": {"quotes": {}, "refresh_state": "failed", "result_state": "unavailable", "reasons": ["SOURCE_POLICY_OR_REDIS_NOT_READY"]}, "message": "实时行情策略或共享协调服务尚未通过发布门禁"}, status=503)
                     return
                 self._respond({"code": 0, "data": SERVICE.realtime_quotes(codes), "message": "ok"})
+                return
+            if parsed.path == "/api/v2/realtime/refresh":
+                if CONTEXTS is None:
+                    self._respond({"code": 50304, "data": None, "message": "vNext context 签名密钥未配置"}, status=503)
+                    return
+                token = str(payload.get("read_token") or "")
+                try:
+                    context = CONTEXTS.verify(token)
+                except ContextExpired as exc:
+                    self._respond({"code": 40902, "data": None, "message": str(exc)}, status=409)
+                    return
+                scope = str(payload.get("scope") or ("today" if context.role == "current" else "next_day"))
+                if scope not in ("today", "next_day") or (scope == "next_day" and context.role != "next") or (scope == "today" and context.role != "current"):
+                    raise ApiError(40001, "scope 与 read_token 不一致", 400)
+                if scope == "today" and SERVICE._prediction_state().get("realtimeRefreshAllowed") and not _realtime_ready():
+                    self._respond({"code": 50303, "data": {"items": [], "refresh_state": "failed", "result_state": "unavailable", "reasons": ["SOURCE_POLICY_OR_REDIS_NOT_READY"]}, "message": "实时行情策略或共享协调服务尚未通过发布门禁"}, status=503)
+                    return
+                data = SERVICE.refresh_predictions(scope)
+                data.update({"dataset_id": context.dataset_id, "dataset_version": context.dataset_version,
+                             "rule_version": context.rule_version, "time_context_id": context.time_context_id,
+                             "read_token": {"value": token, "expires_at": context.expires_at}})
+                self._respond({"code": 0, "data": data, "message": "ok"})
                 return
             scope = query.get("scope", ["today"])[0]
             if scope not in ("today", "next_day"):
