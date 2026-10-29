@@ -817,11 +817,20 @@ class OfficialMonitorService:
         return (
             risk_tone == "ordinary"
             and item.get("sourceType") in PDF_ORDINARY_SOURCE_TYPES
-            and "异常波动公告" in title
-            and "风险提示" not in title
+            and "异常波动" in title
         )
 
-    def _cache_active_pdfs(self, items: List[Dict[str, Any]], today: str) -> None:
+    @classmethod
+    def _trusted_pdf_url(cls, item: Dict[str, Any]) -> str:
+        if not cls._pdf_eligible(item):
+            return ""
+        for candidate in [str(item.get("sourceUrl") or "")] + [str(url) for url in item.get("sourceUrls", [])]:
+            parsed = urlparse(candidate)
+            if parsed.scheme == "https" and parsed.hostname in PDF_ALLOWED_HOSTS and re.search(r"\.pdf(?:$|[?#])", candidate, re.I):
+                return candidate
+        return ""
+
+    def _cache_active_pdfs(self, items: List[Dict[str, Any]], today: str, *, cleanup: bool = True) -> None:
         """缓存当前有效监控事实的 PDF，并清理已到期或已不在当前快照的文件。"""
 
         try:
@@ -836,12 +845,8 @@ class OfficialMonitorService:
             if end_date and end_date < today:
                 continue
             monitor_key = str(item.get("monitorKey") or "")
-            source_candidates = [str(item.get("sourceUrl") or "")] + [str(url) for url in item.get("sourceUrls", [])]
-            source_url = next((url for url in source_candidates if re.search(r"\.pdf(?:$|[?#])", url, re.I)), "")
-            if not monitor_key or not source_url or not re.search(r"\.pdf(?:$|[?#])", source_url, re.I):
-                continue
-            parsed_source = urlparse(source_url)
-            if parsed_source.scheme != "https" or parsed_source.hostname not in PDF_ALLOWED_HOSTS:
+            source_url = self._trusted_pdf_url(item)
+            if not monitor_key or not source_url:
                 continue
             path = self._pdf_path(monitor_key)
             active_keys.add(path.name)
@@ -852,6 +857,9 @@ class OfficialMonitorService:
                 request = Request(source_url, headers={"User-Agent": "Stock-Abnormal/1.0"})
                 started = time.monotonic()
                 response = urlopen(request, timeout=PDF_CONNECT_TIMEOUT)
+                final_url = urlparse(getattr(response, "geturl", lambda: source_url)())
+                if final_url.scheme != "https" or final_url.hostname not in PDF_ALLOWED_HOSTS:
+                    raise ValueError("PDF 重定向目标不在白名单")
                 chunks = []
                 total = 0
                 while True:
@@ -874,16 +882,17 @@ class OfficialMonitorService:
                     temporary.unlink(missing_ok=True)
                 except OSError:
                     pass
-        try:
-            for path in self.pdf_dir.glob("*.pdf"):
-                if path.name not in active_keys:
+        if cleanup:
+            try:
+                for path in self.pdf_dir.glob("*.pdf"):
+                    if path.name not in active_keys:
+                        path.unlink(missing_ok=True)
+                for path in self.pdf_dir.glob("*.part"):
                     path.unlink(missing_ok=True)
-            for path in self.pdf_dir.glob("*.part"):
-                path.unlink(missing_ok=True)
-        except OSError:
-            pass
+            except OSError:
+                pass
 
-    def announcement_pdf_path(self, monitor_key: str) -> Optional[Path]:
+    def announcement_pdf_path(self, monitor_key: str, *, fetch_if_missing: bool = False) -> Optional[Path]:
         """仅允许读取当前有效监控事实的 PDF。"""
 
         snapshot = self.repository.active_snapshot()
@@ -896,6 +905,8 @@ class OfficialMonitorService:
         if self._is_expired(str(item.get("monitorEndDate") or ""), today):
             return None
         path = self._pdf_path(monitor_key)
+        if not path.is_file() and fetch_if_missing:
+            self._cache_active_pdfs([item], today, cleanup=False)
         return path if path.is_file() else None
 
     def _collapse_by_stock(self, items: List[Dict[str, Any]], snapshot_date: str) -> List[Dict[str, Any]]:
@@ -1480,7 +1491,9 @@ class OfficialMonitorService:
             remaining = self._remaining_natural_days(end_date, today)
             row = {**item, "ts_code": item.get("ts_code") or self._standard_ts_code(item.get("symbol", "")), "days": remaining}
             if self._pdf_eligible(item):
-                row["pdfCached"] = bool(self.announcement_pdf_path(str(item.get("monitorKey") or "")))
+                # Availability is source-based; cache state is local to this instance.
+                row["pdfAvailable"] = bool(self._trusted_pdf_url(item))
+                row["pdfCached"] = row["pdfAvailable"]
             items.append(row)
         # 监管期按快照保存的交易日序列倒计时；未公开结束日的记录排在已确认日期之后。
         items.sort(key=lambda item: (item.get("days") is None, item.get("days") if item.get("days") is not None else 9999, item.get("announcementDate", "")))

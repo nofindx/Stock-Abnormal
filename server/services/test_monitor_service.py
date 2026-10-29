@@ -331,6 +331,38 @@ class MonitorWindowTests(unittest.TestCase):
         self.assertIsNone(self.service.announcement_pdf_path("risk-key"))
         self.assertTrue(self.service._pdf_path("ordinary-key").read_bytes().startswith(b"%PDF"))
 
+    def test_pdf_is_lazily_fetched_when_request_hits_an_uncached_instance(self):
+        self.service.pdf_dir = Path(self.temp_dir.name) / "instance-b-pdfs"
+        self.service._clock = lambda: datetime(2026, 10, 29, 12, tzinfo=SHANGHAI_TZ)
+        item = {
+            "monitorKey": "ordinary-key", "riskTone": "ordinary", "sourceType": "issuer-disclosure",
+            "title": "股票交易异常波动公告", "sourceUrl": "https://static.cninfo.com.cn/ordinary.pdf",
+            "monitorEndDate": "2026-11-05",
+        }
+        self.service.repository.active_snapshot = lambda: {"items": [item]}
+        with patch("server.services.monitor_service.urlopen", return_value=BytesIO(b"%PDF-1.7 uncached-instance")) as fetch:
+            path = self.service.announcement_pdf_path("ordinary-key", fetch_if_missing=True)
+
+        self.assertIsNotNone(path)
+        self.assertTrue(path.read_bytes().startswith(b"%PDF"))
+        fetch.assert_called_once()
+
+    def test_pdf_list_availability_does_not_eagerly_download(self):
+        self.service.pdf_dir = Path(self.temp_dir.name) / "instance-b-pdfs"
+        self.service._clock = lambda: datetime(2026, 10, 29, 12, tzinfo=SHANGHAI_TZ)
+        item = {
+            "monitorKey": "ordinary-key", "riskTone": "ordinary", "sourceType": "issuer-disclosure",
+            "title": "股票交易异常波动公告", "sourceUrl": "https://static.cninfo.com.cn/ordinary.pdf",
+            "monitorEndDate": "2026-11-05", "monitorStartDate": "2026-10-28",
+            "symbol": "600825", "name": "新华传媒", "monitorStart": "10-28", "monitorEnd": "11-05",
+        }
+        self.service.repository.active_snapshot = lambda: {"items": [item], "updatedAt": "2026-10-29"}
+        with patch("server.services.monitor_service.urlopen") as fetch:
+            result = self.service.read("current", "all")
+
+        self.assertTrue(result["items"][0]["pdfCached"])
+        fetch.assert_not_called()
+
     def test_pdf_cache_removes_files_after_monitor_period_ends(self):
         self.service.pdf_dir = Path(self.temp_dir.name) / "pdfs"
         self.service.pdf_dir.mkdir()

@@ -364,7 +364,9 @@ class ApiHandler(BaseHTTPRequestHandler):
             elif parsed.path == "/api/monitor/announcement":
                 # 严重异动期内的 PDF 由后端缓存并以内联方式返回；出监管后路径立即失效。
                 monitor_key = query.get("key", [""])[0]
-                file_path = OFFICIAL_MONITOR.announcement_pdf_path(monitor_key)
+                # A CloudRun instance may not have the temporary file created by
+                # another instance. Fetch only on an explicit user click.
+                file_path = OFFICIAL_MONITOR.announcement_pdf_path(monitor_key, fetch_if_missing=True)
                 if not file_path:
                     self._respond({"code": 40401, "data": None, "message": "公告文件不可用"}, status=404)
                     return
@@ -400,7 +402,7 @@ class ApiHandler(BaseHTTPRequestHandler):
                 # 小程序生产环境通过 callContainer 访问，统一返回可直接打开的公网代理地址。
                 public_base = os.getenv("MONITOR_PUBLIC_BASE_URL", "https://flask-9a5y-319926-10-1496305218.sh.run.tcloudbase.com").rstrip("/")
                 for item in data.get("items", []):
-                    if item.get("pdfCached"):
+                    if item.get("pdfAvailable"):
                         key = quote(str(item.get("monitorKey") or ""), safe="")
                         item["sourceUrl"] = f"{public_base}/api/monitor/announcement?key={key}"
             else:
