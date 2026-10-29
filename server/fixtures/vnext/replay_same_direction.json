@@ -1,0 +1,15 @@
+{
+  "fixture_version": "VNEXT-REPLAY-20261029.1",
+  "case_type": "synthetic_boundary",
+  "rule_version": "PRD-NEXT-20261029.20",
+  "target_date": "20261022",
+  "window_dates": ["20261013", "20261014", "20261015", "20261016", "20261017", "20261020", "20261021", "20261022"],
+  "threshold": 3,
+  "events": [
+    {"fact_id": "event-a", "fact_end_date": "20261020", "direction": "up", "fact_type": "ordinary_3d"},
+    {"fact_id": "event-a", "fact_end_date": "20261020", "direction": "up", "fact_type": "ordinary_3d", "source_variant": "duplicate"},
+    {"fact_id": "event-b", "fact_end_date": "20261021", "direction": "up", "fact_type": "ordinary_3d"}
+  ],
+  "boundaries": [],
+  "expected": {"up_count": 2, "down_count": 0, "up_triggered": false, "down_triggered": false, "event_ids": ["event-a", "event-b"]}
+}

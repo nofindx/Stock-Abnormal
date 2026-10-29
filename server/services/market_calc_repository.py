@@ -75,6 +75,12 @@ class MarketCalcRepository:
     def ensure_schema(self) -> None:
         if not self.available or self._initialised:
             return
+        # vNext production uses the explicit migration CLI.  Request paths
+        # may verify required tables, but must never execute DDL implicitly.
+        if str(os.getenv("VNEXT_EXPLICIT_MIGRATIONS", "0")).strip().lower() in {"1", "true", "yes", "on"}:
+            self._verify_explicit_schema()
+            self._initialised = True
+            return
         with self.connection() as db:
             with db.cursor() as cursor:
                 cursor.execute("""
@@ -228,6 +234,20 @@ class MarketCalcRepository:
                             pass
             db.commit()
         self._initialised = True
+
+    def _verify_explicit_schema(self) -> None:
+        required = ("stock_basic", "stock_calc_base", "index_calc_base", "prediction_dataset", "dataset")
+        with self.connection() as db:
+            with db.cursor() as cursor:
+                cursor.execute(
+                    "SELECT table_name FROM information_schema.tables "
+                    "WHERE table_schema=%s AND table_name IN (%s)" % (", ".join(["%s"] * len(required))),
+                    (self.config["database"], *required),
+                )
+                found = {row[0] if not isinstance(row, dict) else row["table_name"] for row in cursor.fetchall()}
+        missing = [name for name in required if name not in found]
+        if missing:
+            raise RuntimeError("vNext 显式迁移未完成，缺少表: " + ", ".join(missing))
 
     def search(self, query: str, limit: int = 5) -> Optional[List[Dict[str, Any]]]:
         """查询已同步的基础资料；排序仍由业务层统一完成。"""

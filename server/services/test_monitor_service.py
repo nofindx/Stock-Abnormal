@@ -2,8 +2,10 @@ import os
 import hashlib
 import tempfile
 import unittest
+from io import BytesIO
 from datetime import date, datetime, timedelta
-from unittest.mock import Mock
+from pathlib import Path
+from unittest.mock import Mock, patch
 
 from server.services.monitor_service import MONITOR_RULE_VERSION, OfficialMonitorService, SHANGHAI_TZ
 from server.services.announcement_service import AnnouncementService
@@ -299,6 +301,89 @@ class MonitorWindowTests(unittest.TestCase):
         self.assertIsNone(self.service._reset_evidence(
             "股票交易严重异常波动公告", "连续10个交易日涨幅偏离值累计达到100%", "600825", "severe-10d", "issuer-disclosure"
         ))
+
+    def test_pdf_cache_supports_ordinary_abnormality_and_delisting_not_generic_risk_prompt(self):
+        self.service.pdf_dir = Path(self.temp_dir.name) / "pdfs"
+        today = "2026-10-29"
+        self.service._clock = lambda: datetime(2026, 10, 29, 12, tzinfo=SHANGHAI_TZ)
+        ordinary = {
+            "monitorKey": "ordinary-key", "riskTone": "ordinary", "sourceType": "issuer-disclosure",
+            "title": "股票交易异常波动公告", "sourceUrl": "https://static.cninfo.com.cn/ordinary.pdf",
+            "monitorEndDate": "2026-11-05",
+        }
+        delisting = {
+            "monitorKey": "delisting-key", "riskTone": "delisting-warning", "sourceType": "zts-risk-alert",
+            "title": "进入退市整理期的风险警示", "sourceUrl": "https://static.cninfo.com.cn/delisting.pdf",
+            "monitorEndDate": "2026-11-05",
+        }
+        generic_risk = {
+            "monitorKey": "risk-key", "riskTone": "ordinary", "sourceType": "issuer-disclosure",
+            "title": "股票交易风险提示公告", "sourceUrl": "https://static.cninfo.com.cn/risk.pdf",
+            "monitorEndDate": "2026-11-05",
+        }
+        self.service.repository.active_snapshot = lambda: {"items": [ordinary, delisting, generic_risk]}
+        with patch("server.services.monitor_service.urlopen", side_effect=lambda *_args, **_kwargs: BytesIO(b"%PDF-1.7 test")) as fetch:
+            self.service._cache_active_pdfs([ordinary, delisting, generic_risk], today)
+
+        self.assertEqual(fetch.call_count, 2)
+        self.assertIsNotNone(self.service.announcement_pdf_path("ordinary-key"))
+        self.assertIsNotNone(self.service.announcement_pdf_path("delisting-key"))
+        self.assertIsNone(self.service.announcement_pdf_path("risk-key"))
+        self.assertTrue(self.service._pdf_path("ordinary-key").read_bytes().startswith(b"%PDF"))
+
+    def test_pdf_cache_removes_files_after_monitor_period_ends(self):
+        self.service.pdf_dir = Path(self.temp_dir.name) / "pdfs"
+        self.service.pdf_dir.mkdir()
+        self.service._clock = lambda: datetime(2026, 10, 29, 12, tzinfo=SHANGHAI_TZ)
+        expired = {
+            "monitorKey": "expired-key", "riskTone": "delisting-warning", "sourceType": "zts-risk-alert",
+            "title": "退市整理公告", "sourceUrl": "https://static.cninfo.com.cn/expired.pdf",
+            "monitorEndDate": "2026-10-28",
+        }
+        expired_path = self.service._pdf_path("expired-key")
+        expired_path.write_bytes(b"%PDF-old")
+        self.service.repository.active_snapshot = lambda: {"items": [expired]}
+
+        self.service._cache_active_pdfs([expired], "2026-10-29")
+
+        self.assertFalse(expired_path.exists())
+        self.assertIsNone(self.service.announcement_pdf_path("expired-key"))
+
+    def test_collapse_preserves_pdf_links_only_for_supported_notice_types(self):
+        items = [
+            {
+                "sourceId": "ordinary-primary", "symbol": "600825", "announcementDate": "2026-10-29",
+                "monitorStartDate": "2026-10-29", "monitorEndDate": "2026-11-12",
+                "riskTone": "ordinary", "sourceType": "broker-risk-alert",
+                "title": "股票交易异常波动风险提示", "sourceUrl": "", "sourcePriority": 1,
+            },
+            {
+                "sourceId": "ordinary", "symbol": "600825", "announcementDate": "2026-10-29",
+                "monitorStartDate": "2026-10-29", "monitorEndDate": "2026-11-12",
+                "riskTone": "ordinary", "sourceType": "issuer-disclosure",
+                "title": "股票交易异常波动公告", "sourceUrl": "https://static.cninfo.com.cn/ordinary.pdf",
+                "sourcePriority": 2,
+            },
+            {
+                "sourceId": "delisting", "symbol": "002731", "announcementDate": "2026-10-29",
+                "monitorStartDate": "2026-10-29", "monitorEndDate": "2026-11-12",
+                "riskTone": "delisting-warning", "sourceType": "zts-risk-alert",
+                "title": "进入退市整理期公告", "sourceUrl": "https://static.cninfo.com.cn/delisting.pdf",
+            },
+            {
+                "sourceId": "risk", "symbol": "600826", "announcementDate": "2026-10-29",
+                "monitorStartDate": "2026-10-29", "monitorEndDate": "2026-11-12",
+                "riskTone": "ordinary", "sourceType": "issuer-disclosure",
+                "title": "股票交易风险提示公告", "sourceUrl": "https://static.cninfo.com.cn/risk.pdf",
+            },
+        ]
+
+        collapsed = self.service._collapse_by_stock(items, "2026-10-29")
+        by_symbol = {item["symbol"]: item for item in collapsed}
+
+        self.assertEqual(by_symbol["600825"]["sourceUrl"], "https://static.cninfo.com.cn/ordinary.pdf")
+        self.assertEqual(by_symbol["002731"]["sourceUrl"], "https://static.cninfo.com.cn/delisting.pdf")
+        self.assertEqual(by_symbol["600826"]["sourceUrl"], "")
 
     def test_ordinary_rule_reset_requires_official_three_day_threshold_body(self):
         evidence = self.service._ordinary_reset_evidence(

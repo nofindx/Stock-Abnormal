@@ -39,6 +39,7 @@ from server.resets.decisions import (
     has_auditable_reset_evidence,
     monitor_reset_date,
 )
+from server.services.realtime import RealtimeCoordinator, build_realtime_key, quote_bucket
 from .realtime_quote import RealtimeQuoteClient
 from .market_calc_repository import MarketCalcRepository
 from .tushare_client import TushareClient, TushareUnavailable
@@ -202,6 +203,8 @@ class MarketService:
         self._intraday_refresh_lock = Lock()
         self._prediction_rebuild_lock = Lock()
         self._realtime = RealtimeQuoteClient()
+        # vNext coordination is additive; MySQL/legacy results remain the authority.
+        self._realtime_coordinator = RealtimeCoordinator()
         self._market_scheduler_stop = Event()
         self._market_scheduler: Optional[Thread] = None
         self._stock_basic_sync_thread: Optional[Thread] = None
@@ -413,7 +416,26 @@ class MarketService:
             if code and code not in seen:
                 requested.append(code)
                 seen.add(code)
-        quotes = self._realtime.fetch_many(requested)
+        source_policy = os.getenv("SOURCE_POLICY_HASH", "unfrozen")
+        bucket = quote_bucket()
+        singleflight_key = build_realtime_key(
+            "singleflight", ",".join(sorted(requested)), source_policy, "continuous", bucket,
+        )
+        coordination = "leader"
+        try:
+            with self._realtime_coordinator.lease(singleflight_key):
+                quotes = self._realtime.fetch_many(requested)
+                for code, quote in quotes.items():
+                    quote_key = build_realtime_key("quote", code, source_policy, bucket)
+                    self._realtime_coordinator.get_or_set(quote_key, quote, ttl_seconds=3)
+        except TimeoutError:
+            coordination = "queued"
+            quotes = {}
+            for code in requested:
+                quote_key = build_realtime_key("quote", code, source_policy, bucket)
+                cached = self._realtime_coordinator.get_or_set(quote_key)
+                if cached:
+                    quotes[code] = cached
         updated = [str(item.get("updatedAt") or "") for item in quotes.values() if item.get("updatedAt")]
         return {
             "quotes": quotes,
@@ -421,7 +443,39 @@ class MarketService:
             "returnedCount": len(quotes),
             "quoteUpdatedAt": max(updated, default=""),
             "persisted": False,
+            "coordination": coordination,
         }
+
+    def _fetch_realtime_many(self, ts_codes: Iterable[str]) -> Dict[str, Dict[str, Any]]:
+        """Fetch quotes through the vNext short-lived coordinator.
+
+        The returned values remain request-scoped.  A cached value is only a
+        best-effort source for joining callers and never becomes a formal
+        dataset or regulatory result.
+        """
+
+        codes = sorted({str(code).upper() for code in ts_codes if code})
+        if not codes:
+            return {}
+        policy_hash = os.getenv("SOURCE_POLICY_HASH", "unfrozen")
+        bucket = quote_bucket()
+        key = build_realtime_key("singleflight", ",".join(codes), policy_hash, "continuous", bucket)
+        try:
+            with self._realtime_coordinator.lease(key):
+                quotes = self._realtime.fetch_many(codes)
+                for code, quote in quotes.items():
+                    self._realtime_coordinator.get_or_set(
+                        build_realtime_key("quote", code, policy_hash, bucket), quote, ttl_seconds=3,
+                    )
+                return quotes
+        except TimeoutError:
+            return {
+                code: cached
+                for code in codes
+                if (cached := self._realtime_coordinator.get_or_set(
+                    build_realtime_key("quote", code, policy_hash, bucket),
+                ))
+            }
 
     def set_clock(self, clock: Any) -> None:
         """Inject a Shanghai-time clock for deterministic phase tests."""
@@ -2135,7 +2189,7 @@ class MarketService:
         forecast_index_vector = list(index_vector)
         board = BOARD_BY_MARKET.get(stock["board"], Board.MAIN)
         rule = BOARD_RULES[board]
-        quotes = self._realtime.fetch_many([stock["ts_code"], index_code])
+        quotes = self._fetch_realtime_many([stock["ts_code"], index_code])
         quote = quotes.get(stock["ts_code"].upper())
         index_quote = quotes.get(index_code.upper())
         realtime = self._quotes_share_snapshot(quote, index_quote)
@@ -3796,7 +3850,7 @@ class MarketService:
             stock = stocks.get(item.get("ts_code"))
             if stock:
                 codes.extend((item["ts_code"], _index_code_for_stock(stock)))
-        quotes = self._realtime.fetch_many(codes)
+        quotes = self._fetch_realtime_many(codes)
         output: List[Dict[str, Any]] = []
         for original in base_items:
             item = dict(original)
@@ -3884,7 +3938,7 @@ class MarketService:
         state = self._prediction_state()
         # 只有盘中刷新实时行情，而且只请求已生成的当日预测池；其他时段
         # 直接读取后台结果集。多个用户同时刷新时共享同一个 in-flight 请求。
-        if state.get("realtimeRefreshAllowed"):
+        if state.get("realtimeRefreshAllowed") and requested_scope == "today":
             # 盘中当日页映射到当前目标日的 next_day 数据集；只刷新该数据集已有卡片。
             source_scope = state["todaySourceScope"] if requested_scope == "today" else "next_day"
             with self._intraday_refresh_lock:
@@ -3926,4 +3980,10 @@ class MarketService:
                 "refreshing": False,
             })
             return result
-        return self.predictions(requested_scope)
+        result = self.predictions(requested_scope)
+        if state.get("realtimeRefreshAllowed") and requested_scope == "next_day":
+            result["refreshStatus"] = "not_allowed"
+            result["refresh_state"] = "ready"
+            result["result_state"] = "unavailable"
+            result["reasons"] = ["NEXT_DAY_REALTIME_REFRESH_NOT_ALLOWED"]
+        return result

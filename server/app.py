@@ -20,6 +20,9 @@ from .services.market_service import CalculationDataUnavailable, MarketService, 
 from .services.announcement_service import AnnouncementService
 from .services.monitor_service import OfficialMonitorService
 from .services.tushare_client import TushareUnavailable
+from .services.realtime import RealtimeCoordinator
+from .services.source_policy import load_source_policies, source_policy_gate
+from .services.context_service import ContextService, ContextExpired, IdempotencyConflict
 
 
 SERVICE = MarketService()
@@ -28,6 +31,29 @@ ANNOUNCEMENTS = AnnouncementService()
 OFFICIAL_MONITOR = OfficialMonitorService(SERVICE.client, ANNOUNCEMENTS)
 SERVICE.set_monitor_provider(OFFICIAL_MONITOR.repository.active_snapshot)
 OFFICIAL_MONITOR.set_snapshot_published_callback(SERVICE.rebuild_predictions_from_existing_bases)
+REALTIME = RealtimeCoordinator()
+_CONTEXT_SECRET = os.getenv("VNEXT_CONTEXT_SECRET", "")
+CONTEXTS = ContextService(_CONTEXT_SECRET) if len(_CONTEXT_SECRET.encode("utf-8")) >= 32 else None
+
+
+def _realtime_health() -> dict:
+    """Expose G26 and Redis readiness without making Redis authoritative."""
+
+    try:
+        policies = load_source_policies("continuous")
+        gate = source_policy_gate(policies)
+    except ValueError as exc:
+        gate = {"gateId": "G26", "status": "block", "count": 0, "errors": [str(exc)]}
+    return {"redisEnabled": REALTIME.redis_enabled, "redisPing": REALTIME.ping(), "sourcePolicyGate": gate}
+
+
+def _realtime_ready() -> bool:
+    health = _realtime_health()
+    return bool(
+        health.get("redisEnabled")
+        and health.get("redisPing")
+        and (health.get("sourcePolicyGate") or {}).get("status") == "pass"
+    )
 
 
 def _json_bytes(value):
@@ -213,6 +239,7 @@ class ApiHandler(BaseHTTPRequestHandler):
                         "tushare": SERVICE.client.health_stats(),
                         "realtime": SERVICE._realtime.health_stats(),
                     },
+                    "realtimeCoordination": _realtime_health(),
                     "prediction": prediction_health,
                     "monitor": monitor_health,
                     # 保留旧字段，兼容旧版小程序健康检查。
@@ -224,6 +251,63 @@ class ApiHandler(BaseHTTPRequestHandler):
                     self._respond_html(_health_ui(health_payload))
                 else:
                     self._respond(health_payload)
+                return
+            if parsed.path == "/api/v2/context":
+                if CONTEXTS is None:
+                    self._respond({"code": 50304, "data": None, "message": "vNext context 签名密钥未配置"}, status=503)
+                    return
+                page = query.get("page", [""])[0]
+                role = query.get("role", ["current"])[0]
+                entry_id = query.get("entry_id", [""])[0]
+                if page not in ("prediction", "stock", "monitor") or role not in ("current", "next") or not entry_id:
+                    raise ApiError(40001, "page、role、entry_id 参数无效", 400)
+                now = datetime.now(SHANGHAI_TZ)
+                try:
+                    health = SERVICE.prediction_health(SERVICE._is_trade_day(now.strftime("%Y%m%d")))
+                except Exception:
+                    # Context issuance is a read-contract operation. A source
+                    # outage must produce a context whose downstream result is
+                    # unavailable, not turn S1 into an unrelated 503.
+                    health = {}
+                role_state = health.get("today" if role == "current" else "next_day") or {}
+                target_date = str(role_state.get("targetTradeDate") or now.strftime("%Y%m%d"))
+                dataset_version = str(role_state.get("datasetVersion") or role_state.get("updatedAt") or "legacy")
+                request = {"page": page, "role": role, "security_id": query.get("security_id", [""])[0]}
+                context, token = CONTEXTS.build_context(
+                    dataset_id=dataset_version, dataset_version=dataset_version,
+                    pool_version=str(role_state.get("poolVersion") or dataset_version),
+                    pool_hash=str(role_state.get("poolHash") or "legacy"),
+                    pool_count=int(role_state.get("itemCount") or 0),
+                    rule_version=str(role_state.get("ruleVersion") or "legacy"),
+                    time_context_id=now.strftime("%Y%m%d%H%M"), target_date=target_date,
+                    role=role, query=request, next_switch_at=now.timestamp() + 300,
+                    stale_until=now.timestamp() + 300,
+                )
+                try:
+                    context, token = CONTEXTS.idempotent_context(entry_id, request, context)
+                except IdempotencyConflict as exc:
+                    raise ApiError(40901, str(exc), 409) from exc
+                self._respond({"code": 0, "data": {**context.as_payload(), "read_token": {"value": token, "expires_at": context.expires_at}, "entry_id": entry_id}, "message": "ok"})
+                return
+            if parsed.path == "/api/v2/predictions":
+                if CONTEXTS is None:
+                    self._respond({"code": 50304, "data": None, "message": "vNext context 签名密钥未配置"}, status=503)
+                    return
+                token = query.get("read_token", [""])[0]
+                try:
+                    context = CONTEXTS.verify(token)
+                except ContextExpired as exc:
+                    self._respond({"code": 40902, "data": None, "message": str(exc)}, status=409)
+                    return
+                role = query.get("role", [context.role])[0]
+                if role != context.role:
+                    raise ApiError(40001, "role 与 read_token 不一致", 400)
+                try:
+                    data = SERVICE.predictions("today" if role == "current" else "next_day")
+                except Exception as exc:
+                    data = {"items": [], "refresh_state": "ready", "result_state": "unavailable", "reasons": ["PUBLISHED_DATA_UNAVAILABLE"]}
+                data.update({"dataset_id": context.dataset_id, "dataset_version": context.dataset_version, "pool_version": context.pool_version, "pool_hash": context.pool_hash, "rule_version": context.rule_version, "time_context_id": context.time_context_id, "read_token": {"value": token, "expires_at": context.expires_at}})
+                self._respond({"code": 0, "data": data, "message": "ok"})
                 return
             if parsed.path == "/api/market/history-coverage":
                 try:
@@ -373,13 +457,22 @@ class ApiHandler(BaseHTTPRequestHandler):
                         seen.add(code)
                 if len(codes) >= 100:
                     raise ApiError(40001, "ts_codes 必须少于 100 个代码", 400)
+                if not _realtime_ready():
+                    self._respond({"code": 50303, "data": {"quotes": {}, "refresh_state": "failed", "result_state": "unavailable", "reasons": ["SOURCE_POLICY_OR_REDIS_NOT_READY"]}, "message": "实时行情策略或共享协调服务尚未通过发布门禁"}, status=503)
+                    return
                 self._respond({"code": 0, "data": SERVICE.realtime_quotes(codes), "message": "ok"})
                 return
             scope = query.get("scope", ["today"])[0]
             if scope not in ("today", "next_day"):
                 raise ApiError(40001, "scope 必须是 today 或 next_day", 400)
+            if scope == "today" and SERVICE._prediction_state().get("realtimeRefreshAllowed") and not _realtime_ready():
+                self._respond({"code": 50303, "data": {"items": [], "refresh_state": "failed", "result_state": "unavailable", "reasons": ["SOURCE_POLICY_OR_REDIS_NOT_READY"]}, "message": "实时行情策略或共享协调服务尚未通过发布门禁"}, status=503)
+                return
             data = SERVICE.refresh_predictions(scope)
-            data["refreshStatus"] = "applied" if data.get("phase") == "intraday" else "not_allowed"
+            applied = data.get("phase") == "intraday"
+            data["refreshStatus"] = "applied" if applied else "not_allowed"
+            data["refresh_state"] = "ready" if applied else "queued"
+            data["result_state"] = "fresh" if applied else "unavailable"
             self._respond({"code": 0, "data": data, "message": "ok"})
         except ApiError as exc:
             self._respond({"code": exc.code, "data": None, "message": str(exc)}, status=exc.status)

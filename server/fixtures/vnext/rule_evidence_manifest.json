@@ -1,0 +1,11 @@
+{
+  "manifest_version": "G21-20261029.1",
+  "status": "blocked_pending_review",
+  "entries": [
+    {"rule_key": "main_board_thresholds", "scope": "沪市主板/深市主板", "source_type": "official", "source_url": "", "effective_from": "", "review_status": "pending_verification"},
+    {"rule_key": "chinext_thresholds", "scope": "创业板", "source_type": "official", "source_url": "", "effective_from": "", "review_status": "pending_verification"},
+    {"rule_key": "star_thresholds", "scope": "科创板", "source_type": "official", "source_url": "", "effective_from": "", "review_status": "pending_verification"},
+    {"rule_key": "bse_thresholds", "scope": "北交所", "source_type": "official", "source_url": "https://www.bse.cn/jygl_list/200028217.html", "effective_from": "20260706", "review_status": "pending_verification"},
+    {"rule_key": "return_and_resume_policy", "scope": "四板块/停复牌/除权", "source_type": "official", "source_url": "", "effective_from": "", "review_status": "pending_verification"}
+  ]
+}

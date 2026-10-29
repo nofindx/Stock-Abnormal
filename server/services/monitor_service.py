@@ -13,6 +13,7 @@ import os
 from pathlib import Path
 import re
 import sqlite3
+import time
 from threading import Event, Lock, Thread
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlparse
@@ -53,6 +54,13 @@ ORDINARY_RESET_EVIDENCE_CODE = "official_ordinary_abnormality_body"
 # 巨潮正文短时不可读时，公告标题本身仍是官方事实证据。三日方向和
 # 阈值由行情模块按公告日期核验；正文补齐后会以正文证据替换该记录。
 ORDINARY_TITLE_EVIDENCE_CODE = "official_ordinary_abnormality_title_market"
+PDF_MONITOR_RISK_TONES = frozenset({"ordinary", "severe-10d", "severe-30d", "delisting-warning"})
+PDF_ORDINARY_SOURCE_TYPES = frozenset({"issuer-disclosure", "exchange-disclosure"})
+PDF_MAX_BYTES = 20 * 1024 * 1024
+PDF_CONNECT_TIMEOUT = 5
+PDF_READ_IDLE_TIMEOUT = 10
+PDF_TOTAL_TIMEOUT = 30
+PDF_ALLOWED_HOSTS = frozenset({"static.cninfo.com.cn", "www.cninfo.com.cn", "www.sse.com.cn", "www.szse.cn", "www.bse.cn"})
 
 
 class MonitorRepository:
@@ -190,7 +198,7 @@ class OfficialMonitorService:
         self.client = client
         self.announcements = announcements or AnnouncementService()
         self.repository = MonitorRepository()
-        # 只缓存当前严重异动期内且可直接下载的 PDF；默认使用容器临时盘，
+        # 只缓存当前监控期内且可直接下载的公告 PDF；默认使用容器临时盘，
         # 可通过 MONITOR_PDF_DIR 指向持久化卷。文件不进入 SQLite，也不写入小程序。
         self.pdf_dir = Path(os.getenv("MONITOR_PDF_DIR", "/tmp/stock-abnormal/monitor-pdf"))
         # Injectable clock keeps expiry and snapshot tests deterministic while
@@ -800,8 +808,21 @@ class OfficialMonitorService:
         safe_key = re.sub(r"[^a-zA-Z0-9_-]", "", str(monitor_key or ""))
         return self.pdf_dir / f"{safe_key}.pdf"
 
+    @staticmethod
+    def _pdf_eligible(item: Dict[str, Any]) -> bool:
+        risk_tone = str(item.get("riskTone") or "")
+        if risk_tone in PDF_MONITOR_RISK_TONES - {"ordinary"}:
+            return True
+        title = re.sub(r"\s+", "", str(item.get("title") or ""))
+        return (
+            risk_tone == "ordinary"
+            and item.get("sourceType") in PDF_ORDINARY_SOURCE_TYPES
+            and "异常波动公告" in title
+            and "风险提示" not in title
+        )
+
     def _cache_active_pdfs(self, items: List[Dict[str, Any]], today: str) -> None:
-        """缓存当前严重异动期 PDF，并清理已出监管或已不在当前快照的文件。"""
+        """缓存当前有效监控事实的 PDF，并清理已到期或已不在当前快照的文件。"""
 
         try:
             self.pdf_dir.mkdir(parents=True, exist_ok=True)
@@ -809,7 +830,7 @@ class OfficialMonitorService:
             return
         active_keys = set()
         for item in items:
-            if item.get("riskTone") not in ("severe-10d", "severe-30d"):
+            if not self._pdf_eligible(item):
                 continue
             end_date = str(item.get("monitorEndDate") or "")
             if end_date and end_date < today:
@@ -819,6 +840,9 @@ class OfficialMonitorService:
             source_url = next((url for url in source_candidates if re.search(r"\.pdf(?:$|[?#])", url, re.I)), "")
             if not monitor_key or not source_url or not re.search(r"\.pdf(?:$|[?#])", source_url, re.I):
                 continue
+            parsed_source = urlparse(source_url)
+            if parsed_source.scheme != "https" or parsed_source.hostname not in PDF_ALLOWED_HOSTS:
+                continue
             path = self._pdf_path(monitor_key)
             active_keys.add(path.name)
             if path.exists():
@@ -826,7 +850,21 @@ class OfficialMonitorService:
             temporary = path.with_suffix(".part")
             try:
                 request = Request(source_url, headers={"User-Agent": "Stock-Abnormal/1.0"})
-                content = urlopen(request, timeout=15).read()
+                started = time.monotonic()
+                response = urlopen(request, timeout=PDF_CONNECT_TIMEOUT)
+                chunks = []
+                total = 0
+                while True:
+                    if time.monotonic() - started > PDF_TOTAL_TIMEOUT:
+                        raise TimeoutError("PDF 下载超时")
+                    chunk = response.read(min(64 * 1024, PDF_MAX_BYTES - total + 1))
+                    if not chunk:
+                        break
+                    total += len(chunk)
+                    if total > PDF_MAX_BYTES:
+                        raise ValueError("PDF 文件超过大小限制")
+                    chunks.append(chunk)
+                content = b"".join(chunks)
                 if not content.startswith(b"%PDF"):
                     continue
                 temporary.write_bytes(content)
@@ -846,14 +884,14 @@ class OfficialMonitorService:
             pass
 
     def announcement_pdf_path(self, monitor_key: str) -> Optional[Path]:
-        """仅允许读取当前监控期内的严重异动 PDF。"""
+        """仅允许读取当前有效监控事实的 PDF。"""
 
         snapshot = self.repository.active_snapshot()
         if not snapshot:
             return None
         today = self._clock().strftime("%Y-%m-%d")
         item = next((row for row in snapshot.get("items", []) if row.get("monitorKey") == monitor_key), None)
-        if not item or item.get("riskTone") not in ("severe-10d", "severe-30d"):
+        if not item or not self._pdf_eligible(item):
             return None
         if self._is_expired(str(item.get("monitorEndDate") or ""), today):
             return None
@@ -883,6 +921,14 @@ class OfficialMonitorService:
                         urls.add(item["sourceUrl"])
                     same_date["sourceUrls"] = sorted(urls)
                     same_date["sourceCount"] = len(urls)
+                    # 同日主源可能只有摘要；若巨潮提供了正式普通异动公告，
+                    # 提升其为 PDF 主来源，保持冻结链路仍由后端代理下载。
+                    if self._pdf_eligible(item) and not self._pdf_eligible(same_date):
+                        for field in ("title", "source", "sourceUrl", "sourceType", "sourceRole",
+                                      "sourcePriority", "sourceLabel", "confirmationStatus",
+                                      "contentHash", "bodyReadMethod", "bodyReadConfidence"):
+                            if field in item:
+                                same_date[field] = item[field]
                     if item.get("ruleResetConfirmed"):
                         same_date["ruleResetConfirmed"] = True
                         same_date["ruleResetDate"] = item.get("ruleResetDate") or same_date.get("ruleResetDate", "")
@@ -961,8 +1007,9 @@ class OfficialMonitorService:
             severe["supportingFacts"] = support
         selected_items = merged_items
         for item in selected_items:
-            if item.get("riskTone") in ("ordinary", "delisting-warning"):
-                # 风险提示和退市整理风险警示只显示分类，不向小程序提供 PDF 入口。
+            if item.get("riskTone") == "ordinary" and not self._pdf_eligible(item):
+                # 普通风险提示不是正式异常波动公告，不向小程序提供 PDF 入口。
+                # 正式发行人异常波动公告保留 URL，由缓存器按冻结链路下载。
                 item["sourceUrl"] = ""
                 item["sourceUrls"] = []
                 item["sourceCount"] = 0
@@ -1151,7 +1198,7 @@ class OfficialMonitorService:
                     "monitorType": monitor_type, "riskTone": risk_tone,
                     "sourceRelation": self._risk_prompt_relation(title, body, risk_tone),
                     "isST": "ST" in announcement["stockName"].upper(),
-                    "source": announcement["source"], "sourceUrl": announcement["url"] if risk_tone != "ordinary" else "",
+                    "source": announcement["source"], "sourceUrl": announcement["url"],
                     "sourceType": "issuer-disclosure", "sourceRole": "issuer_disclosure_backup",
                     "sourcePriority": 2, "sourceLabel": "巨潮资讯备源",
                     "confirmationStatus": "issuer-disclosure-confirmed",
@@ -1432,7 +1479,7 @@ class OfficialMonitorService:
             # 页面展示“还剩几天”按自然日计算；monitorDates 仍保留用于审计监管交易日序列。
             remaining = self._remaining_natural_days(end_date, today)
             row = {**item, "ts_code": item.get("ts_code") or self._standard_ts_code(item.get("symbol", "")), "days": remaining}
-            if item.get("riskTone") in ("severe-10d", "severe-30d"):
+            if self._pdf_eligible(item):
                 row["pdfCached"] = bool(self.announcement_pdf_path(str(item.get("monitorKey") or "")))
             items.append(row)
         # 监管期按快照保存的交易日序列倒计时；未公开结束日的记录排在已确认日期之后。
