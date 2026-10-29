@@ -1,0 +1,14 @@
+{
+  "policy_version": "SOURCE-20261030.1",
+  "market_phase": "continuous",
+  "freshness_seconds": 5,
+  "stale_seconds": 30,
+  "max_quote_skew_seconds": 5,
+  "sources": ["tencent", "sina", "eastmoney"],
+  "entries": [
+    {"market_phase":"continuous","source_name":"tencent","version":"SOURCE-20261030.1","freshness_seconds":5,"stale_seconds":30,"max_quote_skew_seconds":5,"content_hash":"c53f043e1170f833e4c1696ebc754181fc10f992d984eac9e1c77052746a5fb5"},
+    {"market_phase":"continuous","source_name":"sina","version":"SOURCE-20261030.1","freshness_seconds":5,"stale_seconds":30,"max_quote_skew_seconds":5,"content_hash":"9420688b8169b78ebebd76192ca032e996b784a0ed6a1fa698e3e66d6405f986"},
+    {"market_phase":"continuous","source_name":"eastmoney","version":"SOURCE-20261030.1","freshness_seconds":5,"stale_seconds":30,"max_quote_skew_seconds":5,"content_hash":"9c33331e1f3339d34d010077c304f819df35039b46aee20829d932d2326e079e"}
+  ],
+  "aggregate_hash": "160daec9f2503eafc4cd710c2420c0ce6dcf494620425faaee99933615f47f87"
+}

@@ -11,7 +11,7 @@ from enum import Enum
 from typing import Optional
 
 
-RULE_VERSION = "RULE-2026-10-24.1"
+RULE_VERSION = "RULE-2026-10-30.1"
 
 
 class Board(str, Enum):

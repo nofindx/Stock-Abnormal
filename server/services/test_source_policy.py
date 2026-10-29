@@ -1,6 +1,7 @@
 import os
 import json
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 from .source_policy import load_source_policy, load_source_policies, policy_hash, source_policy_gate
@@ -61,6 +62,14 @@ class SourcePolicyTests(unittest.TestCase):
         }, clear=True):
             policies = load_source_policies()
         self.assertEqual([item.source_name for item in policies], ["tencent", "sina"])
+
+    def test_checked_in_continuous_policy_manifest_hashes_are_consistent(self):
+        path = Path(__file__).parents[1] / "fixtures" / "vnext" / "source_policy_continuous.json"
+        manifest = json.loads(path.read_text(encoding="utf-8"))
+        self.assertEqual(manifest["aggregate_hash"], policy_hash({"policies": manifest["entries"]}))
+        for entry in manifest["entries"]:
+            payload = {key: value for key, value in entry.items() if key != "content_hash"}
+            self.assertEqual(entry["content_hash"], policy_hash(payload))
 
 
 if __name__ == "__main__":

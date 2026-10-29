@@ -1,8 +1,8 @@
 {
-  "manifest_version": "G21-20261029.2",
+  "manifest_version": "G21-20261030.1",
   "status": "approved_by_product",
   "authority": "product_policy",
-  "policy_version": "PRD-NEXT-20261029.21",
+  "policy_version": "PRD-NEXT-20261030.22",
   "entries": [
     {"rule_key":"main_board_thresholds","scope":"沪市主板/深市主板","source_type":"product_policy","effective_from":"20261029","review_status":"approved_by_product","policy_basis":"四项异动规则：3日普通；10日同向、10日偏离、30日偏离严重；板块阈值由规则目录提供。","fixture_refs":["F-RULE-BOARD-MAIN"],"content_hash":"c0f7d1c5e3d1860196e4c0fde077341d17b7caf1b460461a91dbd981b2d59de7"},
     {"rule_key":"chinext_thresholds","scope":"创业板","source_type":"product_policy","effective_from":"20261029","review_status":"approved_by_product","policy_basis":"创业板适用产品规则目录与四项独立预警。","fixture_refs":["F-RULE-BOARD-CHINEXT"],"content_hash":"c4b7637ea430e6662cc2fa3b7500aee72c5753433787f50c947c2a96c3d89cfd"},
