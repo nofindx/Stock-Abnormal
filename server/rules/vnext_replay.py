@@ -38,6 +38,7 @@ def replay_same_direction(events: Iterable[Mapping[str, object]], *, target_date
     valid_dates = set(window_dates)
     parsed = []
     seen = set()
+    pending_direction = []
     for raw in events:
         fact_id = str(raw.get("fact_id") or raw.get("factId") or "")
         if not fact_id or fact_id in seen:
@@ -45,19 +46,25 @@ def replay_same_direction(events: Iterable[Mapping[str, object]], *, target_date
         fact_type = str(raw.get("fact_type") or raw.get("factType") or "ordinary_3d")
         direction = str(raw.get("direction") or "")
         end_date = str(raw.get("end_date") or raw.get("fact_end_date") or "")
-        if fact_type != "ordinary_3d" or direction not in {"up", "down"}:
+        if fact_type != "ordinary_3d":
             continue
         seen.add(fact_id)
-        parsed.append(ConfirmedEvent(fact_id, end_date, direction, fact_type))
+        if direction in {"up", "down"}:
+            parsed.append(ConfirmedEvent(fact_id, end_date, direction, fact_type))
+        elif not direction:
+            pending_direction.append(ConfirmedEvent(fact_id, end_date, "", fact_type))
 
     severe_dates = sorted(
         str(item.get("effective_date") or "") for item in boundaries
         if str(item.get("severity") or "") == "severe"
+        or str(item.get("reset_type") or "") in {"severe_announcement", "severe_pause_resume"}
     )
     clear_before = max((value for value in severe_dates if value <= target_date), default="")
     if clear_before:
         parsed = [item for item in parsed if item.end_date >= clear_before]
+        pending_direction = [item for item in pending_direction if item.end_date >= clear_before]
     parsed = [item for item in parsed if item.end_date in valid_dates and item.end_date <= target_date]
+    pending_direction = [item for item in pending_direction if item.end_date in valid_dates and item.end_date <= target_date]
     up = sum(item.direction == "up" for item in parsed)
     down = sum(item.direction == "down" for item in parsed)
     return {
@@ -68,15 +75,27 @@ def replay_same_direction(events: Iterable[Mapping[str, object]], *, target_date
         "up_triggered": up >= threshold,
         "down_triggered": down >= threshold,
         "event_ids": [item.fact_id for item in sorted(parsed, key=lambda value: (value.end_date, value.fact_id))],
-        "exact_count": True,
+        "pending_event_ids": [item.fact_id for item in sorted(pending_direction, key=lambda value: (value.end_date, value.fact_id))],
+        "exact_count": None if pending_direction else True,
     }
 
 
 def replay_reset_scope(boundaries: Iterable[Mapping[str, object]], target_date: str) -> Tuple[str, ...]:
-    """Return the metrics whose latest effective reset applies on target date."""
+    """Return reset metrics active from the latest effective policy boundary."""
 
     latest = [item for item in boundaries if str(item.get("effective_date") or "") <= target_date]
     if not latest:
         return ()
-    severe = any(str(item.get("severity") or "") == "severe" for item in latest)
-    return ("ordinary_deviation_3d", "same_direction_10d", "severe_deviation_10d", "severe_deviation_30d") if severe else ("ordinary_deviation_3d",)
+    latest_date = max(str(item.get("effective_date") or "") for item in latest)
+    same_date = [item for item in latest if str(item.get("effective_date") or "") == latest_date]
+    scopes = set()
+    for boundary in same_date:
+        reset_type = str(boundary.get("reset_type") or "")
+        if reset_type == "ordinary_pause_resume":
+            scopes.update(("ordinary_deviation_3d", "severe_deviation_10d", "severe_deviation_30d"))
+        elif reset_type in {"severe_announcement", "severe_pause_resume"} or str(boundary.get("severity") or "") == "severe":
+            scopes.update(("ordinary_deviation_3d", "same_direction_10d", "severe_deviation_10d", "severe_deviation_30d"))
+        else:
+            scopes.add("ordinary_deviation_3d")
+    ordered = ("ordinary_deviation_3d", "same_direction_10d", "severe_deviation_10d", "severe_deviation_30d")
+    return tuple(metric for metric in ordered if metric in scopes)

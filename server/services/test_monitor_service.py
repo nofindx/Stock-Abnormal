@@ -691,7 +691,7 @@ class MonitorWindowTests(unittest.TestCase):
 
     def test_monitor_read_adds_standard_ts_code_for_stock_detail_navigation(self):
         snapshot = {"snapshotId": "x", "snapshotDate": "2026-10-17", "updatedAt": "2026-10-17 00:00", "items": [{
-            "monitorKey": "x", "symbol": "600825", "name": "新华传媒", "monitorEndDate": "2026-10-29",
+            "monitorKey": "x", "symbol": "600825", "name": "新华传媒", "monitorEndDate": "2099-10-29",
             "riskTone": "ordinary", "monitorDates": [], "monitorType": "风险提示",
         }], "dataQuality": {}}
         self.service.repository.active_snapshot = lambda: snapshot

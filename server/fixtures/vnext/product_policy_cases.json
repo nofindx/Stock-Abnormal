@@ -1,17 +1,17 @@
 {
-  "fixture_version": "PRODUCT-POLICY-20261029.1",
+  "fixture_version": "PRODUCT-POLICY-20261029.2",
   "cases": [
-    {"id":"F-RULE-BOARD-MAIN","assert":"主板四项阈值和严重级别独立"},
-    {"id":"F-RULE-BOARD-CHINEXT","assert":"创业板四项阈值和严重级别独立"},
-    {"id":"F-RULE-BOARD-STAR","assert":"科创板四项阈值和严重级别独立"},
-    {"id":"F-RULE-BOARD-BSE","assert":"北交所四项阈值和严重级别独立"},
-    {"id":"F-RULE-INDEX-MAPPING","assert":"五类板块使用固定产品基准映射"},
-    {"id":"F-RETURN-RESET-BASELINE","assert":"收盘收益、交易日窗口、除权和重置后基线可重放"},
-    {"id":"F-Q2-ORDINARY-COUNT-RESET","assert":"普通公告方向计次并按effective_date重置3日"},
-    {"id":"F-Q2-DIRECTION-PENDING","assert":"方向待定不猜测且不重复建事件"},
-    {"id":"F-Q2-SEVERE-RESET-D1","assert":"严重公告D+1重置四项并清除旧同向事件"},
-    {"id":"F-RESET-ORDINARY-PAUSE","assert":"普通事项复牌保留10日同向，仅重置价格基线"},
-    {"id":"F-RESET-SEVERE-PAUSE","assert":"严重异动复牌清零10日同向并重置四项"},
-    {"id":"F-RETURN-RESUME-FIRST-DAY","assert":"复牌首个有效收益日按产品规则确定"}
+    {"id":"F-RULE-BOARD-MAIN","input":{"board":"MAIN","thresholds":[20,100,200,4]},"expected":{"ordinary_rule":"ordinary_3d","severe_rules":["same_direction_10d","severe_deviation_10d","severe_deviation_30d"]}},
+    {"id":"F-RULE-BOARD-CHINEXT","input":{"board":"CHINEXT","thresholds":[30,100,200,3]},"expected":{"ordinary_rule":"ordinary_3d","severe_rules":["same_direction_10d","severe_deviation_10d","severe_deviation_30d"]}},
+    {"id":"F-RULE-BOARD-STAR","input":{"board":"STAR","thresholds":[30,100,200,3]},"expected":{"ordinary_rule":"ordinary_3d","severe_rules":["same_direction_10d","severe_deviation_10d","severe_deviation_30d"]}},
+    {"id":"F-RULE-BOARD-BSE","input":{"board":"BSE","thresholds":[40,150,300,3]},"expected":{"ordinary_rule":"ordinary_3d","severe_rules":["same_direction_10d","severe_deviation_10d","severe_deviation_30d"]}},
+    {"id":"F-RULE-INDEX-MAPPING","input":{"index_by_board":{"沪市主板":"000002.SH","深市主板":"399107.SZ","创业板":"399102.SZ","科创板":"000688.SH","北交所":"899050.BJ"}},"expected":{"mapping_count":5}},
+    {"id":"F-RETURN-RESET-BASELINE","input":{"ordinary_reset":{"effective_date":"20261021"}},"expected":{"reset_scope":["ordinary_deviation_3d"]}},
+    {"id":"F-Q2-ORDINARY-COUNT-RESET","input":{"events":[{"fact_id":"o1","fact_end_date":"20261020","direction":"up"},{"fact_id":"o2","fact_end_date":"20261021","direction":"up"}],"boundary":{"effective_date":"20261022","reset_type":"ordinary_announcement"}},"expected":{"up_count":2,"reset_scope":["ordinary_deviation_3d"]}},
+    {"id":"F-Q2-DIRECTION-PENDING","input":{"events":[{"fact_id":"pending1","fact_end_date":"20261021","direction":null}]},"expected":{"exact_count":null,"direction_not_guessed":true}},
+    {"id":"F-Q2-SEVERE-RESET-D1","input":{"events":[{"fact_id":"before","fact_end_date":"20261020","direction":"up"},{"fact_id":"on_boundary","fact_end_date":"20261021","direction":"up"}],"boundary":{"effective_date":"20261021","reset_type":"severe_announcement"}},"expected":{"up_count":1,"reset_scope":["ordinary_deviation_3d","same_direction_10d","severe_deviation_10d","severe_deviation_30d"]}},
+    {"id":"F-RESET-ORDINARY-PAUSE","input":{"boundary":{"effective_date":"20261021","reset_type":"ordinary_pause_resume"}},"expected":{"reset_scope":["ordinary_deviation_3d","severe_deviation_10d","severe_deviation_30d"],"same_direction_continues":true}},
+    {"id":"F-RESET-SEVERE-PAUSE","input":{"events":[{"fact_id":"before","fact_end_date":"20261020","direction":"up"}],"boundary":{"effective_date":"20261021","reset_type":"severe_pause_resume"}},"expected":{"up_count":0,"reset_scope":["ordinary_deviation_3d","same_direction_10d","severe_deviation_10d","severe_deviation_30d"]}},
+    {"id":"F-RETURN-RESUME-FIRST-DAY","input":{"resume_date":"20261021","first_valid_return_date":"20261021"},"expected":{"baseline_starts_on_first_valid_return":true}}
   ]
 }
