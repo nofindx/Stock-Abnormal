@@ -300,8 +300,8 @@ class ApiHandler(BaseHTTPRequestHandler):
                     self._respond({"code": 40902, "data": None, "message": str(exc)}, status=409)
                     return
                 role = query.get("role", [context.role])[0]
-                if role != context.role:
-                    raise ApiError(40001, "role 与 read_token 不一致", 400)
+                if role not in ("current", "next") or not CONTEXTS.scope_matches(context, page="prediction", role=role):
+                    raise ApiError(40301, "read_token 不包含此预测读取范围", 403)
                 try:
                     data = SERVICE.predictions("today" if role == "current" else "next_day")
                 except Exception as exc:
@@ -320,8 +320,8 @@ class ApiHandler(BaseHTTPRequestHandler):
                     self._respond({"code": 40902, "data": None, "message": str(exc)}, status=409)
                     return
                 security_id = query.get("security_id", [""])[0]
-                if not security_id or context.role not in ("current", "next"):
-                    raise ApiError(40001, "security_id 参数无效", 400)
+                if not security_id or not CONTEXTS.scope_matches(context, page="stock", role="current", security_id=security_id):
+                    raise ApiError(40301, "read_token 不包含此单股读取范围", 403)
                 data = SERVICE.detail(security_id)
                 data.update({"dataset_id": context.dataset_id, "dataset_version": context.dataset_version,
                              "rule_version": context.rule_version, "time_context_id": context.time_context_id,
@@ -499,8 +499,9 @@ class ApiHandler(BaseHTTPRequestHandler):
                     self._respond({"code": 40902, "data": None, "message": str(exc)}, status=409)
                     return
                 scope = str(payload.get("scope") or ("today" if context.role == "current" else "next_day"))
-                if scope not in ("today", "next_day") or (scope == "next_day" and context.role != "next") or (scope == "today" and context.role != "current"):
-                    raise ApiError(40001, "scope 与 read_token 不一致", 400)
+                role = "next" if scope == "next_day" else "current"
+                if scope not in ("today", "next_day") or not CONTEXTS.scope_matches(context, page="prediction", role=role):
+                    raise ApiError(40301, "read_token 不包含此实时刷新范围", 403)
                 if scope == "today" and SERVICE._prediction_state().get("realtimeRefreshAllowed") and not _realtime_ready():
                     self._respond({"code": 50303, "data": {"items": [], "refresh_state": "failed", "result_state": "unavailable", "reasons": ["SOURCE_POLICY_OR_REDIS_NOT_READY"]}, "message": "实时行情策略或共享协调服务尚未通过发布门禁"}, status=503)
                     return

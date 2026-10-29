@@ -15,6 +15,7 @@ import threading
 import time
 import uuid
 from typing import Any, Dict, Iterator, Optional
+from urllib.parse import quote
 
 
 def build_realtime_key(kind: str, *parts: str) -> str:
@@ -65,7 +66,7 @@ class _MemoryBackend:
 
 class RealtimeCoordinator:
     def __init__(self, redis_url: Optional[str] = None, *, backend: Any = None, lease_seconds: int = 10) -> None:
-        self.redis_url = redis_url or os.getenv("REDIS_URL", "")
+        self.redis_url = redis_url or os.getenv("REDIS_URL", "") or self._redis_url_from_parts()
         self.lease_seconds = int(lease_seconds)
         self._memory = backend or _MemoryBackend()
         self._redis = None
@@ -75,6 +76,20 @@ class RealtimeCoordinator:
                 self._redis = redis.Redis.from_url(self.redis_url, decode_responses=True, socket_timeout=2)
             except Exception:
                 self._redis = None
+
+    @staticmethod
+    def _redis_url_from_parts() -> str:
+        """Accept the Tencent Cloud split-variable convention without logging secrets."""
+
+        host = str(os.getenv("REDIS_HOST", "")).strip()
+        if not host:
+            return ""
+        port = str(os.getenv("REDIS_PORT", "6379")).strip() or "6379"
+        db = str(os.getenv("REDIS_DB", "0")).strip() or "0"
+        password = os.getenv("REDIS_PASSWORD", "")
+        scheme = "rediss" if str(os.getenv("REDIS_SSL", "")).lower() in {"1", "true", "yes"} else "redis"
+        auth = f":{quote(password, safe='')}@" if password else ""
+        return f"{scheme}://{auth}{host}:{port}/{db}"
 
     @property
     def redis_enabled(self) -> bool:

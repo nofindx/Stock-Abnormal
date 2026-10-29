@@ -1,5 +1,6 @@
 import unittest
 import time
+from unittest.mock import patch
 from concurrent.futures import ThreadPoolExecutor
 
 from .coordinator import RealtimeCoordinator, build_realtime_key, quote_bucket
@@ -61,6 +62,11 @@ class RealtimeCoordinatorTests(unittest.TestCase):
         key = build_realtime_key("quote", "600000.SH", "source-v1", "q1")
         self.assertEqual(coordinator.get_or_set(key, {"price": "1"}), {"price": "1"})
         self.assertEqual(coordinator.get_or_set(key), {"price": "1"})
+
+    def test_split_redis_environment_is_supported_without_exposing_password(self):
+        with patch.dict("os.environ", {"REDIS_URL": "", "REDIS_HOST": "10.0.0.2", "REDIS_PORT": "6379", "REDIS_DB": "2", "REDIS_PASSWORD": "secret", "REDIS_SSL": "0"}, clear=False):
+            url = RealtimeCoordinator._redis_url_from_parts()
+        self.assertEqual(url, "redis://:secret@10.0.0.2:6379/2")
 
 
 if __name__ == "__main__":

@@ -77,6 +77,13 @@ class ContextService:
     def query_hash(query: Mapping[str, Any]) -> str:
         return hashlib.sha256(_canonical(dict(query))).hexdigest()
 
+    @classmethod
+    def scope_matches(cls, context: ReadContext, *, page: str, role: str, security_id: str = "") -> bool:
+        """Check that a valid token is bound to the exact read scope."""
+
+        expected = {"page": page, "role": role, "security_id": security_id}
+        return context.role == role and hmac.compare_digest(context.query_hash, cls.query_hash(expected))
+
     def issue(self, context: ReadContext) -> str:
         now = self.clock()
         payload = context.as_payload()

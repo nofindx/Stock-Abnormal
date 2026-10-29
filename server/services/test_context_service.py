@@ -39,6 +39,14 @@ class ContextServiceTests(unittest.TestCase):
         with self.assertRaises(IdempotencyConflict):
             self.service.idempotent_context("entry-1", {"page": "stock"}, context)
 
+    def test_token_scope_binds_page_role_and_security(self):
+        context, _token = self._context(
+            query={"page": "stock", "role": "current", "security_id": "600000.SH"}
+        )
+        self.assertTrue(self.service.scope_matches(context, page="stock", role="current", security_id="600000.SH"))
+        self.assertFalse(self.service.scope_matches(context, page="stock", role="current", security_id="000001.SZ"))
+        self.assertFalse(self.service.scope_matches(context, page="prediction", role="current"))
+
 
 if __name__ == "__main__":
     unittest.main()
