@@ -364,9 +364,10 @@ class ApiHandler(BaseHTTPRequestHandler):
             elif parsed.path == "/api/monitor/announcement":
                 # 严重异动期内的 PDF 由后端缓存并以内联方式返回；出监管后路径立即失效。
                 monitor_key = query.get("key", [""])[0]
-                # A CloudRun instance may not have the temporary file created by
-                # another instance. Fetch only on an explicit user click.
-                file_path = OFFICIAL_MONITOR.announcement_pdf_path(monitor_key, fetch_if_missing=True)
+                token = query.get("token", [""])[0]
+                # A signed source-bound token supports a request landing on a
+                # different instance without trusting a client-provided URL.
+                file_path = OFFICIAL_MONITOR.announcement_pdf_path_from_token(token) if token else OFFICIAL_MONITOR.announcement_pdf_path(monitor_key, fetch_if_missing=True)
                 if not file_path:
                     self._respond({"code": 40401, "data": None, "message": "公告文件不可用"}, status=404)
                     return
@@ -403,8 +404,12 @@ class ApiHandler(BaseHTTPRequestHandler):
                 public_base = os.getenv("MONITOR_PUBLIC_BASE_URL", "https://flask-9a5y-319926-10-1496305218.sh.run.tcloudbase.com").rstrip("/")
                 for item in data.get("items", []):
                     if item.get("pdfAvailable"):
-                        key = quote(str(item.get("monitorKey") or ""), safe="")
-                        item["sourceUrl"] = f"{public_base}/api/monitor/announcement?key={key}"
+                        token = OFFICIAL_MONITOR.create_pdf_token(item)
+                        if token:
+                            item["sourceUrl"] = f"{public_base}/api/monitor/announcement?token={quote(token, safe='')}"
+                        else:
+                            item["pdfAvailable"] = False
+                            item["pdfCached"] = False
             else:
                 self._respond({"code": 40401, "data": None, "message": "接口不存在"}, status=404)
                 return

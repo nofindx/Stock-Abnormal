@@ -363,6 +363,32 @@ class MonitorWindowTests(unittest.TestCase):
         self.assertTrue(result["items"][0]["pdfCached"])
         fetch.assert_not_called()
 
+    def test_signed_pdf_token_allows_another_instance_without_its_local_snapshot(self):
+        secret = "x" * 40
+        self.service.pdf_dir = Path(self.temp_dir.name) / "instance-a-pdfs"
+        self.service._clock = lambda: datetime(2026, 10, 29, 12, tzinfo=SHANGHAI_TZ)
+        item = {
+            "monitorKey": "ordinary-key", "riskTone": "ordinary", "sourceType": "issuer-disclosure",
+            "title": "股票交易异常波动公告", "sourceUrl": "https://static.cninfo.com.cn/ordinary.pdf",
+            "monitorEndDate": "2026-11-05",
+        }
+        self.service.repository.active_snapshot = lambda: {"items": [item]}
+        other_instance = OfficialMonitorService(client=object(), announcements=object())
+        other_instance.pdf_dir = Path(self.temp_dir.name) / "instance-b-pdfs"
+        other_instance._clock = lambda: datetime(2026, 10, 29, 12, tzinfo=SHANGHAI_TZ)
+        other_instance.repository.active_snapshot = lambda: None
+        try:
+            with patch.dict(os.environ, {"MONITOR_PDF_TOKEN_SECRET": secret}):
+                token = self.service.create_pdf_token(item)
+                with patch("server.services.monitor_service.urlopen", return_value=BytesIO(b"%PDF-1.7 token-fetch")) as fetch:
+                    path = other_instance.announcement_pdf_path_from_token(token)
+                self.assertIsNotNone(path)
+                self.assertTrue(path.read_bytes().startswith(b"%PDF"))
+                fetch.assert_called_once()
+                self.assertIsNone(other_instance.announcement_pdf_path_from_token(token + "x"))
+        finally:
+            other_instance.close()
+
     def test_pdf_cache_removes_files_after_monitor_period_ends(self):
         self.service.pdf_dir = Path(self.temp_dir.name) / "pdfs"
         self.service.pdf_dir.mkdir()

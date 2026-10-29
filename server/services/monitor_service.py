@@ -7,7 +7,9 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+import base64
 import hashlib
+import hmac
 import json
 import os
 from pathlib import Path
@@ -906,6 +908,67 @@ class OfficialMonitorService:
             return None
         path = self._pdf_path(monitor_key)
         if not path.is_file() and fetch_if_missing:
+            self._cache_active_pdfs([item], today, cleanup=False)
+        return path if path.is_file() else None
+
+    @staticmethod
+    def _pdf_token_secret() -> bytes:
+        return os.getenv("MONITOR_PDF_TOKEN_SECRET", "").encode("utf-8")
+
+    def create_pdf_token(self, item: Dict[str, Any], *, ttl_seconds: int = 300) -> str:
+        secret = self._pdf_token_secret()
+        source_url = self._trusted_pdf_url(item)
+        end_date = str(item.get("monitorEndDate") or "")
+        if len(secret) < 32 or not source_url or not end_date:
+            return ""
+        payload = {
+            "monitor_key": str(item.get("monitorKey") or ""),
+            "source_url": source_url,
+            "risk_tone": str(item.get("riskTone") or ""),
+            "source_type": str(item.get("sourceType") or ""),
+            "title": str(item.get("title") or ""),
+            "monitor_end_date": end_date,
+            "expires_at": int(time.time()) + min(max(int(ttl_seconds), 60), 300),
+        }
+        if not payload["monitor_key"]:
+            return ""
+        encoded = base64.urlsafe_b64encode(json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()).decode().rstrip("=")
+        signature = hmac.new(secret, encoded.encode(), hashlib.sha256).digest()
+        return f"v1.{encoded}.{base64.urlsafe_b64encode(signature).decode().rstrip('=')}"
+
+    def announcement_pdf_path_from_token(self, token: str) -> Optional[Path]:
+        secret = self._pdf_token_secret()
+        if len(secret) < 32:
+            return None
+        try:
+            version, encoded, signature = str(token or "").split(".", 2)
+            if version != "v1":
+                return None
+            expected = hmac.new(secret, encoded.encode(), hashlib.sha256).digest()
+            supplied = base64.urlsafe_b64decode(signature + "===")
+            if not hmac.compare_digest(expected, supplied):
+                return None
+            payload = json.loads(base64.urlsafe_b64decode(encoded + "===").decode("utf-8"))
+        except (ValueError, TypeError, UnicodeError, json.JSONDecodeError):
+            return None
+        if int(payload.get("expires_at") or 0) <= int(time.time()):
+            return None
+        today = self._clock().strftime("%Y-%m-%d")
+        end_date = str(payload.get("monitor_end_date") or "")
+        if not end_date or self._is_expired(end_date, today):
+            return None
+        item = {
+            "monitorKey": str(payload.get("monitor_key") or ""),
+            "sourceUrl": str(payload.get("source_url") or ""),
+            "riskTone": str(payload.get("risk_tone") or ""),
+            "sourceType": str(payload.get("source_type") or ""),
+            "title": str(payload.get("title") or ""),
+            "monitorEndDate": end_date,
+        }
+        if not item["monitorKey"] or not self._trusted_pdf_url(item):
+            return None
+        path = self._pdf_path(item["monitorKey"])
+        if not path.is_file():
             self._cache_active_pdfs([item], today, cleanup=False)
         return path if path.is_file() else None
 
