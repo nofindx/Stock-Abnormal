@@ -60,6 +60,23 @@ class PredictionHealthTests(unittest.TestCase):
         self.assertIn("当日预测", html)
         self.assertIn("3 条", html)
 
+    def test_health_ui_reports_vnext_and_source_policy_blockers(self):
+        from server.app import _health_ui
+
+        html = _health_ui({"data": {
+            "tushareConfigured": True,
+            "dataSources": {"tushare": {"totals": {"failures": 0}}, "realtime": {"totals": {"failures": 0}}},
+            "realtimeCoordination": {"sourcePolicyGate": {"status": "block", "errors": ["source_policy 未配置"]}},
+            "vnext": {"contextSigningConfigured": False, "pdfSigningConfigured": False},
+            "prediction": {"today": {}, "next_day": {}},
+            "monitor": {"available": True, "itemCount": 0},
+            "marketCalc": {"available": True, "stockBasicCoverage": {"complete": True}, "predictionMigration": {"compatReadEnabled": False}},
+        }})
+        self.assertIn("系统异常", html)
+        self.assertIn("G26 来源策略门禁阻断", html)
+        self.assertIn("vNext context 签名密钥未配置", html)
+        self.assertIn("PDF 阅读签名密钥未配置", html)
+
     def test_prediction_health_reports_age_and_count(self):
         service = MarketService()
         try:

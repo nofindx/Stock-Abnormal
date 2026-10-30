@@ -72,12 +72,22 @@ def _health_ui(payload: dict) -> str:
     sources = data.get("dataSources") or {}
     prediction = data.get("prediction") or {}
     monitor = data.get("monitor") or {}
+    coordination = data.get("realtimeCoordination") or {}
+    vnext = data.get("vnext") or {}
     coverage = market.get("stockBasicCoverage") or {}
     migration = market.get("predictionMigration") or {}
 
     issues = []
     if not data.get("tushareConfigured"):
         issues.append("Tushare 未配置")
+    if not vnext.get("contextSigningConfigured", False):
+        issues.append("vNext context 签名密钥未配置")
+    if not vnext.get("pdfSigningConfigured", False):
+        issues.append("PDF 阅读签名密钥未配置")
+    source_gate = coordination.get("sourcePolicyGate") or {}
+    if source_gate.get("status") != "pass":
+        errors = source_gate.get("errors") or []
+        issues.append("G26 来源策略门禁阻断" + (f"：{errors[0]}" if errors else ""))
     if market.get("lastErrorActive"):
         issues.append(market.get("lastError") or "基础行情任务失败")
     if coverage and coverage.get("complete") is False:
@@ -240,6 +250,10 @@ class ApiHandler(BaseHTTPRequestHandler):
                         "realtime": SERVICE._realtime.health_stats(),
                     },
                     "realtimeCoordination": _realtime_health(),
+                    "vnext": {
+                        "contextSigningConfigured": CONTEXTS is not None,
+                        "pdfSigningConfigured": len(os.getenv("MONITOR_PDF_TOKEN_SECRET", "").encode("utf-8")) >= 32,
+                    },
                     "prediction": prediction_health,
                     "monitor": monitor_health,
                     # 保留旧字段，兼容旧版小程序健康检查。
