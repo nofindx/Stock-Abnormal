@@ -48,7 +48,7 @@ MONITOR_PERIOD_TRADING_DAYS = {
 MONITOR_WINDOW_TRADING_DAYS = MONITOR_PERIOD_TRADING_DAYS
 # 公告分类口径变化时，启动任务主动重采一次当前快照；避免必须等到次日
 # 00:00 才让修复后的北交所严重异动进入重点监控。
-MONITOR_RULE_VERSION = "20261101-product-policy-v31"
+MONITOR_RULE_VERSION = "20261102-product-policy-v32"
 
 # 只有官方披露平台上的发行人/交易所事实，才有资格改变行情累计基线。
 # 可读正文优先；普通异动正文短时不可读时，官方标题只能作为待行情核验
@@ -548,13 +548,20 @@ class OfficialMonitorService:
             not official_host
             or "异常波动" not in title_text
             or ("严重异常波动" in title_text and "股票交易异常波动" not in title_text)
-            or re.search(r"风险提示|风险警示|退市整理|停牌核查", title_text)
         ):
+            return None
+        mixed_risk_title = bool(re.search(r"风险提示|风险警示|退市整理|停牌核查", title_text))
+        combined_ordinary_title = bool(re.search(r"股票交易异常波动(?:公告)?(?:暨|及|和)", title_text))
+        if mixed_risk_title and not combined_ordinary_title:
+            # A risk prompt that recounts historical abnormality is not a new
+            # ordinary announcement. Explicit combined notices remain eligible.
             return None
         # 标题已明确为普通《股票交易异常波动公告》时，正文暂时不可读
         # 也不能把这条官方事实丢掉。后续由行情模块用公告日期对应的三日
         # 股票/指数收盘数据确认阈值和方向；无法对齐时仍会显示待核验。
         if not text:
+            if mixed_risk_title:
+                return None
             return {
                 "code": ORDINARY_TITLE_EVIDENCE_CODE,
                 "sourceType": source_type,
@@ -580,6 +587,10 @@ class OfficialMonitorService:
             None,
         )
         if not ordinary_claim:
+            # A combined abnormality/risk notice can confirm an ordinary event
+            # in its body. A general risk title alone must not invent one.
+            if mixed_risk_title:
+                return None
             # 官方标题已经确认这是普通异动公告；正文格式差异不应让事实
             # 消失。后续仍以公告日期对应的三日行情核验阈值和方向。
             return {
@@ -1229,6 +1240,7 @@ class OfficialMonitorService:
             issuer_body_ocr_failed = 0
             issuer_reset_verified = 0
             issuer_unread_facts: List[Dict[str, Any]] = []
+            resolved_body_ids = set()
             body_results = {}
             if isinstance(self.announcements, AnnouncementService):
                 def read_body(url):
@@ -1253,6 +1265,12 @@ class OfficialMonitorService:
                 issuer_body_ocr_failed += int(str(body_result.get("error") or "").startswith("ocr_"))
                 if str(body or "").strip():
                     issuer_body_available += 1
+                    # Resolve earlier download failures by source identity,
+                    # including notices that parse as no new reset event and
+                    # combined titles whose pending/event identity differs.
+                    source_key = announcement.get("url") or f"{announcement.get('stockCode')}:{announcement.get('date')}:{title}"
+                    resolved_body_ids.update(hashlib.sha256(key.encode("utf-8")).hexdigest()[:24]
+                                             for key in (source_key, f"ordinary-reset:{source_key}"))
                 else:
                     # A failed正文 read is an unresolved official hit, not an
                     # empty fact set.  Keep it auditable for the next retry.
@@ -1507,6 +1525,7 @@ class OfficialMonitorService:
                 and str(item.get("announcementDate") or "").replace("-", "")[:8] >= start_date.replace("-", "")
                 and str(item.get("sourceId")) not in confirmed_fact_ids
                 and str(item.get("sourceId")) not in excluded_pending_source_ids
+                and str(item.get("sourceId")) not in resolved_body_ids
             }
             issuer_unread_facts = sorted(
                 pending_by_id.values(),

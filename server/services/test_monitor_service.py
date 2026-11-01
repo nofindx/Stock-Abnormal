@@ -764,7 +764,7 @@ class MonitorWindowTests(unittest.TestCase):
         self.assertEqual(OfficialMonitorService._severe_event_direction("严重异常波动，未披露方向"), "")
 
     def test_monitor_rule_version_requires_refresh_after_direction_change(self):
-        self.assertEqual("20261101-product-policy-v31", MONITOR_RULE_VERSION)
+        self.assertEqual("20261102-product-policy-v32", MONITOR_RULE_VERSION)
 
     def test_zts_risk_period_starts_on_announcement_date(self):
         dates = [
@@ -1149,6 +1149,53 @@ class MonitorWindowTests(unittest.TestCase):
         snapshot = self.service.repository.active_snapshot()
         self.assertEqual(snapshot["resetFacts"][0], original)
         self.assertEqual(snapshot["unresolvedFacts"], [])
+
+    def test_readable_body_resolves_prior_download_failure_without_inventing_an_event(self):
+        announcements = Mock()
+        announcements.query_broker_risk_alerts.return_value = {"available": True, "items": []}
+        announcements.query_zts_risk_alerts.return_value = {"available": True, "items": []}
+        announcements.query_market.return_value = {"available": True, "items": [{
+            "title": "股票交易风险提示公告", "date": "2026-10-30", "stockCode": "600825",
+            "stockName": "新华传媒", "source": "巨潮资讯", "url": "https://static.cninfo.com.cn/risk.pdf"}]}
+        self.service.announcements = announcements
+        self.service._clock = lambda: datetime(2026, 10, 30, 20, tzinfo=SHANGHAI_TZ)
+        announcements.extract_pdf_text.return_value = ""
+        self.assertNotIn("error", self.service.refresh())
+        self.assertEqual(len(self.service.repository.active_snapshot()["unresolvedFacts"]), 1)
+        original_result = announcements.query_market.return_value
+        announcements.query_market.return_value = {"available": True, "items": []}
+        self.service._clock = lambda: datetime(2026, 10, 30, 21, tzinfo=SHANGHAI_TZ)
+        self.assertNotIn("error", self.service.refresh())
+        self.assertEqual(len(self.service.repository.active_snapshot()["unresolvedFacts"]), 1)
+        announcements.query_market.return_value = original_result
+        announcements.extract_pdf_text.return_value = "敬请投资者注意投资风险，公司经营正常，本公告未披露新的异常波动事实。"
+        self.service._clock = lambda: datetime(2026, 10, 30, 22, tzinfo=SHANGHAI_TZ)
+        self.assertNotIn("error", self.service.refresh())
+        snapshot = self.service.repository.active_snapshot()
+        self.assertEqual(snapshot["unresolvedFacts"], [])
+        self.assertEqual(snapshot["resetFacts"], [])
+        self.assertEqual(snapshot["dataQuality"]["issuerBodyVerification"]["status"], "verified")
+
+    def test_combined_ordinary_risk_notice_counts_and_resolves_old_pending_identity(self):
+        announcements = Mock()
+        announcements.query_broker_risk_alerts.return_value = {"available": True, "items": []}
+        announcements.query_zts_risk_alerts.return_value = {"available": True, "items": []}
+        announcements.query_market.return_value = {"available": True, "items": [{
+            "title": "股票交易异常波动暨风险提示公告", "date": "2026-10-22", "stockCode": "002724",
+            "stockName": "海洋王", "source": "巨潮资讯", "url": "https://static.cninfo.com.cn/combined.pdf"}]}
+        self.service.announcements = announcements
+        self.service._clock = lambda: datetime(2026, 10, 23, 20, tzinfo=SHANGHAI_TZ)
+        announcements.extract_pdf_text.return_value = ""
+        self.assertNotIn("error", self.service.refresh())
+        self.assertEqual(len(self.service.repository.active_snapshot()["unresolvedFacts"]), 1)
+        announcements.extract_pdf_text.return_value = "公司股票连续2个交易日内（2026年10月20日、2026年10月21日）收盘价格涨幅偏离值累计超过20%，属于股票交易异常波动。"
+        self.service._clock = lambda: datetime(2026, 10, 23, 21, tzinfo=SHANGHAI_TZ)
+        self.assertNotIn("error", self.service.refresh())
+        snapshot = self.service.repository.active_snapshot()
+        self.assertEqual(snapshot["unresolvedFacts"], [])
+        self.assertEqual(len(snapshot["resetFacts"]), 1)
+        self.assertTrue(snapshot["resetFacts"][0]["countsForSameDirection"])
+        self.assertEqual(snapshot["resetFacts"][0]["eventDate"], "2026-10-21")
 
     def test_next_dated_severe_notice_preserves_independent_broker_card(self):
         announcements = Mock()
