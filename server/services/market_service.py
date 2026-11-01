@@ -306,9 +306,37 @@ class MarketService:
         Thread(target=self._rebuild_predictions_if_rule_changed, name="prediction-rebuild", daemon=True).start()
 
     def rebuild_formal_history(self) -> Dict[str, Any]:
-        """重抓最近 31 个有效收盘点并重建正式预测数据集。"""
+        """重抓最近 31 个有效收盘点，并按前一交易日到目标日顺序重建预测。"""
 
         completed_trade_date = self._latest_completed_trade_date()
+        completed_day = datetime.strptime(completed_trade_date, "%Y%m%d").date()
+        calendar = self.client.trade_cal(
+            (completed_day - timedelta(days=10)).strftime("%Y%m%d"), completed_trade_date,
+        )
+        prior_trade_date = max(
+            (
+                str(row.get("cal_date") or "")
+                for row in calendar.to_dict("records")
+                if int(row.get("is_open", 0)) == 1
+                and str(row.get("cal_date") or "") < completed_trade_date
+            ),
+            default="",
+        )
+        if not prior_trade_date:
+            return {"updated": False, "reason": "缺少目标交易日前一交易日，无法按时序重建当日预测"}
+
+        # Empty-database recovery must first seed the candidate set produced
+        # from the prior close. That set owns today's candidate identities.
+        prior = self.update_market_data(
+            data_stage="formal",
+            allow_non_trade_day=True,
+            force_history=True,
+            history_end_date=prior_trade_date,
+        )
+        if not prior.get("updated") or prior.get("tradeDate") != prior_trade_date:
+            return {"updated": False, "reason": f"前一交易日行情回建失败：{prior.get('reason') or prior.get('tradeDate') or '未知原因'}"}
+        self._generate_prediction_datasets("formal")
+
         result = self.update_market_data(
             data_stage="formal",
             allow_non_trade_day=True,
