@@ -71,6 +71,19 @@ class SourcePolicyTests(unittest.TestCase):
             payload = {key: value for key, value in entry.items() if key != "content_hash"}
             self.assertEqual(entry["content_hash"], policy_hash(payload))
 
+    def test_deployment_json_loads_through_production_loader(self):
+        root = Path(__file__).parents[1] / "fixtures" / "vnext"
+        manifest = json.loads((root / "source_policy_continuous.json").read_text(encoding="utf-8"))
+        raw = (root / "source_policy_continuous.env.json").read_text(encoding="utf-8")
+        self.assertEqual(json.loads(raw), manifest["entries"])
+        with patch.dict(os.environ, {
+            "SOURCE_POLICY_JSON": raw,
+            "SOURCE_POLICY_HASH": manifest["aggregate_hash"],
+        }, clear=True):
+            policies = load_source_policies()
+        self.assertEqual([item.source_name for item in policies], ["tencent", "sina", "eastmoney"])
+        self.assertEqual(source_policy_gate(policies)["status"], "pass")
+
 
 if __name__ == "__main__":
     unittest.main()
