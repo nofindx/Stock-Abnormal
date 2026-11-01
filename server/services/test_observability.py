@@ -198,6 +198,7 @@ class DetailDataQualityTests(unittest.TestCase):
             "000001.SZ": {"current": 11.0, "pctChg": 10.0, "updatedAt": "2026-09-30T10:00:00"},
             "399107.SZ": {"current": 101.0, "pctChg": 1.0, "updatedAt": "2026-09-30T10:00:00"},
         })
+        service._detail_realtime_allowed = lambda: True
         try:
             result = service._detail_from_repository(
                 service._stock_rows()[0],

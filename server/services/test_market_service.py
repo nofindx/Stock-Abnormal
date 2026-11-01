@@ -295,7 +295,7 @@ class MarketVectorTests(unittest.TestCase):
         result = service._detail_from_repository(stock, calc)
 
         self.assertEqual(result["dataQuality"]["commonDays"], 1)
-        self.assertFalse(result["dataQuality"]["isComplete"])
+        self.assertTrue(result["dataQuality"]["isComplete"])
         self.assertEqual(result["warnings"][0]["value"], "+1.00%")
         self.assertEqual(result["nextDayForecast"]["baseTradeDate"], "20261015")
         self.assertEqual(result["nextDayForecast"]["targetTradeDate"], "2026-10-16")
@@ -328,7 +328,7 @@ class MarketVectorTests(unittest.TestCase):
         result = service._detail_from_repository(stock, calc)
 
         self.assertEqual(result["dataQuality"]["commonDays"], 2)
-        self.assertFalse(result["dataQuality"]["isComplete"])
+        self.assertTrue(result["dataQuality"]["isComplete"])
         self.assertEqual(result["warnings"][0]["value"], "+3.02%")
         self.assertEqual(result["calculationInput"]["stock"][-1]["date"], "20260831")
         self.assertEqual(result["calculationInput"]["index"][-1]["date"], "20260831")
@@ -660,6 +660,7 @@ class MarketVectorTests(unittest.TestCase):
 
     def test_detail_quote_and_calculation_vectors_share_current_trade_date(self):
         service = self.service
+        service._detail_realtime_allowed = lambda: True
         service._calc_repository = SimpleNamespace(get_index=lambda _code: {
             "index_code": "399107.SZ",
             "latest_close": 100.0,
@@ -1378,6 +1379,7 @@ class MarketVectorTests(unittest.TestCase):
 
     def test_same_direction_is_a_prediction_card(self):
         service = self.service
+        service.set_monitor_provider(lambda: {"items": [], "dataQuality": {"sourceHealth": {"issuerBackup": "available"}}})
         vector = [{"date": f"2026-09-{index:02d}", "return": 0.0} for index in range(1, 11)]
         service._calc_repository = SimpleNamespace(
             available=True,
@@ -1388,7 +1390,7 @@ class MarketVectorTests(unittest.TestCase):
         service._realtime = SimpleNamespace(fetch_many=lambda _codes: {})
         service._vector_metrics = lambda *_args, **_kwargs: {"deviations": {3: None, 10: 0.0, 30: None}, "window_lengths": {3: None, 10: 10, 30: None}, "up": 4, "down": 0}
         items = service._compute_prediction_from_repository("today")
-        self.assertFalse(any(item["ruleKey"] == "same_direction_10d" for item in items))
+        self.assertTrue(any(item["ruleKey"] == "same_direction_10d" and item["triggered"] for item in items))
 
     def test_monitored_stock_adds_only_ordinary_short_window_prediction_card(self):
         service = self.service
@@ -1407,8 +1409,8 @@ class MarketVectorTests(unittest.TestCase):
         self.assertIn("ordinary_3d", keys)
         self.assertNotIn("same_direction_10d", keys)
 
-    def test_independent_risk_prompt_does_not_duplicate_ordinary_prediction_card(self):
-        """已有独立风险提示事实的严重监管股票不重复生成普通预测卡。"""
+    def test_independent_risk_prompt_keeps_ordinary_prediction_card(self):
+        """独立风险提示事实不抑制严重监管股票的普通预警卡。"""
         service = self.service
         service.set_clock(lambda: datetime(2026, 10, 19))
         dates = [f"2026-08-{index:02d}" for index in range(1, 11)]
@@ -1426,7 +1428,7 @@ class MarketVectorTests(unittest.TestCase):
             {"symbol": "600825", "riskTone": "ordinary", "sourceRelation": "ordinary-independent", "monitorDates": ["2026-10-19"], "monitorEndDate": "2026-10-29"},
         ]})
         keys = {item["ruleKey"] for item in service._compute_prediction_from_repository("today")}
-        self.assertNotIn("ordinary_3d", keys)
+        self.assertIn("ordinary_3d", keys)
 
     def test_same_dataset_merge_deduplicates_by_rule_and_target_date(self):
         merged = MarketService._merge_prediction_items(
@@ -1498,13 +1500,13 @@ class MarketVectorTests(unittest.TestCase):
         self.assertEqual(window, 23)
         self.assertAlmostEqual(value, 142.3258, places=3)
 
-    def test_severe_card_is_hidden_when_same_rule_is_in_monitor(self):
+    def test_today_severe_card_is_retained_when_same_rule_is_in_monitor(self):
         service = self.service
         service.set_monitor_provider(lambda: {"items": [{"symbol": "301190", "riskTone": "severe-10d"}]})
         monitored = service._monitored_rule_codes()
         severe = {"ts_code": "301190.SZ", "symbol": "301190", "ruleKey": "severe_10d"}
         ordinary = {"ts_code": "301190.SZ", "symbol": "301190", "ruleKey": "ordinary_3d"}
-        self.assertFalse(service._prediction_item_allowed(severe, monitored, "today"))
+        self.assertTrue(service._prediction_item_allowed(severe, monitored, "today"))
         self.assertTrue(service._prediction_item_allowed(ordinary, monitored, "today"))
 
     def test_seven_valid_days_can_trigger_ten_day_prediction(self):
@@ -1693,7 +1695,7 @@ class MarketVectorTests(unittest.TestCase):
         metrics = service._vector_metrics(
             stock, index, BOARD_RULES[Board.MAIN],
             ordinary_events=[{
-                "sourceId": "ordinary-pending", "eventDate": "20261003",
+                "sourceId": "ordinary-pending", "eventDate": "20261002",
                 "direction": "", "countsForSameDirection": True,
             }],
         )
@@ -2062,7 +2064,7 @@ class MarketVectorTests(unittest.TestCase):
         service = self.service
         service._calc_repository = SimpleNamespace(
             available=True,
-            get_prediction=lambda scope: {"scope": scope, "items": [{"ts_code": "001216.SZ", "ruleKey": "severe_10d", "predictionWindow": 10, "scope": "次日", "deviation": "10日 +95.00%", "currentPrice": "28.00", "change": "+1.00%", "trigger": "10日偏离达到 +100.00%", "triggerCondition": "10日偏离达到 +100.00%", "triggerValue": "+100.00%", "triggered": True, "cardTone": "triggered"}]},
+            get_prediction=lambda scope: {"scope": scope, "items": [{"ts_code": "001216.SZ", "ruleKey": "severe_10d", "predictionWindow": 10, "scope": "次日", "deviation": "10日 +95.00%", "currentPrice": "28.00", "change": "+1.00%", "trigger": "10日偏离达到 +100.00%", "triggerCondition": "10日偏离达到 +100.00%", "triggerValue": "+100.00%", "triggered": False, "cardTone": ""}]},
             all_calculations=lambda: {"001216.SZ": {"ts_code": "001216.SZ", "latest_close": 28.0, "stock_return_vector": [{"date": f"2026-09-{index:02d}", "return": 0.0} for index in range(1, 31)]}},
             all_indexes=lambda: {"399107.SZ": {"index_code": "399107.SZ", "latest_close": 10.0, "index_return_vector": [{"date": f"2026-09-{index:02d}", "return": 0.0} for index in range(1, 31)]}},
         )

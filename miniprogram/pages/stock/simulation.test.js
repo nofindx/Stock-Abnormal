@@ -15,7 +15,7 @@ assert.deepStrictEqual(resolveStatusBanner({ currentTriggered: true, summaryStat
 
 const forecastBase = { baseTradeDate: '20261016', targetTradeDate: '20261019', available: true }
 assert.deepStrictEqual(buildNextDayForecast({ ...forecastBase, rules: [] }), {
-  line: '按 2026-10-16 收盘数据预测 2026-10-19',
+  line: '按 20261016 收盘数据预测 20261019',
   text: '未发现下一交易日可触发的异动规则',
   summaryStatus: '暂无异动风险',
   summaryTone: 'safe'
@@ -26,7 +26,7 @@ assert.deepStrictEqual(buildNextDayForecast({ ...forecastBase, rules: [
   { ruleKey: 'severe_10d', direction: 'up', rule: '连续10个交易日内收盘价涨幅偏离值累计达到 +100%' },
   { ruleKey: 'severe_30d', direction: 'up', rule: '连续30个交易日内收盘价涨幅偏离值累计达到 +200%' }
 ] }), {
-  line: '按 2026-10-16 收盘数据预测 2026-10-19',
+  line: '按 20261016 收盘数据预测 20261019',
   text: '次日可能触发：10个交易日内出现4次下跌同向普通异动；连续10个交易日内收盘价涨幅偏离值累计达到 +100%；连续30个交易日内收盘价涨幅偏离值累计达到 +200%',
   summaryStatus: '存在异动风险',
   summaryTone: 'risk'
@@ -41,10 +41,10 @@ assert.deepStrictEqual(currentSevereRuleTexts([
 assert.deepStrictEqual(buildNextDayForecast({ ...forecastBase, rules: [] }, false, [
   '连续10个交易日内收盘价涨幅偏离值累计达到 +100%'
 ], '20261016'), {
-  line: '按 2026-10-16 收盘数据预测',
+  line: '按 20261016 收盘数据预测',
   text: '已触发：连续10个交易日内收盘价涨幅偏离值累计达到 +100%',
   notice: '将进入重点监控池，具体以官方公告为准。',
-  futureLine: '次日预测（按 2026-10-16 收盘数据预测 2026-10-19）',
+  futureLine: '次日预测（按 20261016 收盘数据预测 20261019）',
   futureText: '未发现下一交易日可触发的异动规则',
   summaryStatus: '当日已触发严重异动',
   summaryTone: 'risk',
@@ -176,12 +176,12 @@ assert.deepStrictEqual(summaryStatus({ nextDayForecast: { ...forecastBase, rules
 assert.deepStrictEqual(buildNextDayForecast(
   { baseTradeDate: '20261026', targetTradeDate: '20261027', available: true, rules: [] }, true, [], '20261026'
 ), {
-  line: '按 2026-10-26 收盘数据预测 2026-10-27',
+  line: '按 20261026 收盘数据预测 20261027',
   text: '未发现下一交易日可触发的异动规则',
   summaryStatus: '暂无异动风险',
   summaryTone: 'safe'
 })
-assert.strictEqual(formatMonthDay('2026-10-19'), '10/19')
+assert.strictEqual(formatMonthDay('2026-10-19'), '20261019')
 assert.strictEqual(monitoringRuleLabel({ riskTone: 'severe-30d', monitorType: '30日严重异动', symbol: '600825' }), '连续30个交易日内收盘价涨幅偏离值累计达到 +200%')
 assert.strictEqual(monitoringRuleLabel({ riskTone: 'severe-10d', monitorType: '10日严重异动', symbol: '920229' }), '连续10个交易日内收盘价涨幅偏离值累计达到 +150%')
 assert.strictEqual(monitoringRuleLabel({ riskTone: 'severe-10d', eventDirection: 'down', symbol: '600825' }), '连续10个交易日内收盘价跌幅偏离值累计达到 -50%')
@@ -191,7 +191,7 @@ assert.strictEqual(formatMonitoringSummary({ active: true, riskTone: 'delisting-
 assert.strictEqual(formatMonitoringSummary({ active: true, monitorType: '退市倒计时', monitorStartDate: '2026-09-30', monitorEndDate: '2026-10-27' }, '20261026').badgeText, '退市整理期')
 assert.strictEqual(formatMonitoringSummary({ active: true, riskTone: 'severe-10d', monitorStartDate: '2026-10-23', monitorEndDate: '2026-11-05' }, '20261026').badgeText, '已被重点监管')
 assert.deepStrictEqual(formatMonitoringSummary({ active: true, monitorStartDate: '2026-10-15', monitorEndDate: '2026-10-22', monitorDates: ['2026-10-16', '2026-10-19', '2026-10-20', '2026-10-21', '2026-10-22'], riskTone: 'severe-10d', days: 4 }, '20261018'), {
-  dateText: '10/15-10/22', badgeText: '已被重点监管', ruleText: '连续10个交易日内收盘价涨幅偏离值累计达到 +100%', remainingText: '4'
+  dateText: '20261015-20261022', badgeText: '已被重点监管', ruleText: '连续10个交易日内收盘价涨幅偏离值累计达到 +100%', remainingText: '4'
 })
 assert.strictEqual(remainingMonitoringDays({ monitorDates: ['2026-10-18', '2026-10-19', '2026-10-20'] }, '20261018'), '2')
 assert.strictEqual(remainingMonitoringDays({ monitorDates: ['2026-10-20', '2026-10-21'], monitorEndDate: '2026-10-21' }, '20261017'), '4')
@@ -267,7 +267,7 @@ assert.strictEqual(result[0].deviation30Window, 23)
 assert.notStrictEqual(result[1].deviation10, '--')
 assert.strictEqual(result[1].stock, '')
 assert.strictEqual(result[1].index, '')
-assert.strictEqual(createInputRows(1, ['2026-10-19'])[0].date, '10-19')
+assert.strictEqual(createInputRows(1, ['2026-10-19'])[0].date, '20261019')
 const blankResult = calculateSimulationRows(createInputRows(1), detail)
 assert.notStrictEqual(blankResult[0].deviation10, '--')
 

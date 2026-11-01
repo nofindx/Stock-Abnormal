@@ -119,6 +119,7 @@ def build_reset_context(facts: Iterable[Dict[str, Any]]) -> ResetContext:
                 "symbol": item.get("symbol", ""),
                 "startDate": item.get("eventDate", ""),
                 "endDate": item.get("eventDate", ""),
+                "windowDays": int(evidence.get("windowDays") or 3),
                 "direction": item.get("eventDirection", ""),
                 "riskTone": item.get("riskTone", "ordinary-abnormality"),
                 "sourceUrl": item.get("sourceUrl", ""),

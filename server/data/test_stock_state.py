@@ -46,7 +46,7 @@ class StockStateTests(unittest.TestCase):
 
         self.assertEqual(state["marketRiskState"], "incomplete")
         self.assertEqual(state["status"], "unknown")
-        self.assertEqual(state["dataState"], "partial")
+        self.assertEqual(state["dataState"], "unavailable")
 
     def test_partial_announcement_coverage_is_not_a_safe_summary(self):
         state = build_stock_state({}, facts_data_state="partial")

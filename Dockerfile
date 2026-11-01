@@ -18,4 +18,4 @@ COPY server ./server
 
 EXPOSE 80
 
-CMD ["python", "-m", "server.app"]
+CMD ["python", "-m", "server.release"]

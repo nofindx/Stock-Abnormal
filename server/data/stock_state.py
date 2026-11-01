@@ -58,7 +58,7 @@ def build_stock_state(
     if not data_available or "unavailable" in {market_data_state, facts_data_state}:
         data_state = "unavailable"
     elif market_data_state != "complete" or facts_data_state not in {"available", "complete"}:
-        data_state = "partial"
+        data_state = "unavailable"
     else:
         data_state = "available"
 

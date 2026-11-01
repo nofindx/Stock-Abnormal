@@ -634,6 +634,18 @@ class MarketCalcRepository:
             db.commit()
         return len(rows)
 
+    def update_derived_metrics(self, updates):
+        """Change only derived values, never market source data or metadata."""
+        with self.connection() as db:
+            with db.cursor() as cursor:
+                for item in updates:
+                    deviations = item["deviations"]
+                    cursor.execute("""UPDATE stock_calc_base SET deviation_3=%s,deviation_10=%s,deviation_30=%s,
+                        same_direction_up=COALESCE(%s,same_direction_up),same_direction_down=COALESCE(%s,same_direction_down)
+                        WHERE ts_code=%s AND as_of_trade_date=%s""",
+                        (deviations.get(3), deviations.get(10), deviations.get(30), item["up"], item["down"], item["ts_code"], item["date"]))
+            db.commit()
+
     def upsert_market(self, stocks: Iterable[Dict[str, Any]], calculations: Iterable[Dict[str, Any]], indexes: Iterable[Dict[str, Any]], trade_date: str, data_stage: str = "formal") -> None:
         """在一个事务内更新当前计算数据，不保留旧版本。"""
 

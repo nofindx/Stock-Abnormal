@@ -5,6 +5,35 @@ from server.services.announcement_service import AnnouncementService
 
 
 class PdfBodyExtractionTests(unittest.TestCase):
+    def test_full_range_is_split_instead_of_silently_truncated(self):
+        service = AnnouncementService()
+        service.keywords = ("股票交易异常波动",)
+        service.market_pages_per_range = 1
+        calls = []
+        def request(payload):
+            calls.append(dict(payload))
+            window = payload["seDate"]
+            return {"announcements": [{"announcementTitle": "股票交易异常波动公告", "secCode": "002724",
+                    "adjunctUrl": window + ".pdf"}], "hasMore": window == "2026-10-29~2026-10-30"}
+        service._request = request
+        result = service.query_market("20261029", "20261030")
+        self.assertTrue(result["coverage"]["complete"])
+        self.assertEqual(len(calls), 9)
+        self.assertEqual(len(result["items"]), 3)
+
+    def test_single_day_cap_is_reported_incomplete(self):
+        service = AnnouncementService()
+        service.keywords = ("股票交易异常波动",)
+        service.market_pages_per_day = 2
+        service._request = lambda p: {"announcements": [{"announcementTitle": "股票交易异常波动公告",
+            "secCode": "002724", "adjunctUrl": "same.pdf"}], "hasMore": True}
+        result = service.query_market("20261030", "20261030")
+        self.assertTrue(result["partial"])
+        self.assertFalse(result["available"])
+        self.assertFalse(result["coverage"]["complete"])
+        self.assertIn("pagination_incomplete", result["error"])
+        self.assertEqual(len(result["items"]), 1)
+
     def setUp(self):
         self.service = AnnouncementService()
 

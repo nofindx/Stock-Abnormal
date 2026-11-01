@@ -26,7 +26,11 @@ function request(options) {
           resolve(response.data)
           return
         }
-        reject(new Error((response.data && (response.data.message || response.data.errorMsg)) || `HTTP ${response.statusCode}`))
+        const error = new Error((response.data && (response.data.message || response.data.errorMsg)) || `HTTP ${response.statusCode}`)
+        error.statusCode = response.statusCode
+        error.code = response.data && response.data.code
+        error.data = response.data && response.data.data
+        reject(error)
       }
       const handleFail = (error) => {
         if (attempts <= retry) {

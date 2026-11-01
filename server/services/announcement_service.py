@@ -6,7 +6,7 @@ import json
 import gzip
 import os
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 from html.parser import HTMLParser
 from io import BytesIO
 from typing import Any, Dict, List, Optional
@@ -16,10 +16,13 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 
 class AnnouncementService:
+    market_pages_per_range = 8
+    market_pages_per_day = 200
+    market_request_budget = 2000
     endpoint = "https://www.cninfo.com.cn/new/hisAnnouncement/query"
     detail_prefix = "https://static.cninfo.com.cn/"
     # 只检索交易异动公告，避免把业绩、诉讼等普通风险公告误放入重点监控。
-    keywords = ("股票交易异常波动", "股票交易严重异常波动", "股票交易风险提示", "停牌核查")
+    keywords = ("股票交易异常波动", "股票交易严重异常波动", "股票交易风险提示", "停牌核查", "退市整理")
     broker_alert_list = "https://wap.18.cn/article/zygg"
     broker_alert_root = "https://wap.18.cn"
     # 来源优先级：18.cn 主源 > 巨潮资讯备源。
@@ -147,63 +150,77 @@ class AnnouncementService:
         errors: List[str] = []
         # 巨潮的 fulltext 查询按交易所栏目分别执行；北交所使用 bse，
         # 否则 8/4/9 开头的北交所股票（例如世纪数码 920229）会漏掉。
+        requests_left = self.market_request_budget
+        initial_start = datetime.strptime(start_date.replace("-", ""), "%Y%m%d")
+        initial_end = datetime.strptime(end_date.replace("-", ""), "%Y%m%d")
+        if initial_start > initial_end:
+            raise ValueError("公告日期区间倒置")
         for column in ("sse", "szse", "bse"):
             for keyword in self.keywords:
-                page = 1
-                while page <= 8:
-                    payload = {
-                        "pageNum": page, "pageSize": page_size, "column": column, "tabName": "fulltext",
-                        "plate": "", "stock": "", "searchkey": keyword, "secid": "", "category": "",
-                        "trade": "", "seDate": f"{start_date}~{end_date}",
-                    }
-                    try:
-                        response = self._request(payload)
-                    except Exception:
-                        errors.append(f"{column}:{keyword}")
-                        break
-                    rows = response.get("announcements") or []
-                    for row in rows:
-                        title = str(row.get("announcementTitle") or row.get("shortTitle") or "").strip()
-                        code = str(row.get("secCode") or "").strip()
-                        # 搜索结果可能包含相近词，最终仍以标题白名单过滤。
-                        if not code or not any(item in title for item in self.keywords):
-                            continue
-                        relative_url = str(row.get("adjunctUrl") or "")
-                        url = self.detail_prefix + relative_url.lstrip("/") if relative_url else ""
-                        key = url or f"{code}:{self._announcement_date(row)}:{title}"
-                        item = {
-                            "title": title,
-                            "date": self._announcement_date(row),
-                            "stockCode": code,
-                            "stockName": str(row.get("secName") or ""),
-                            "url": url,
-                            "source": "巨潮资讯",
-                            "exchangeColumn": column,
+                ranges = [(initial_start, initial_end)]
+                while ranges:
+                    range_start, range_end = ranges.pop()
+                    page_limit = self.market_pages_per_day if range_start == range_end else self.market_pages_per_range
+                    for page in range(1, page_limit + 1):
+                        if requests_left <= 0:
+                            errors.append(f"{column}:{keyword}:request_budget_exhausted")
+                            ranges.clear()
+                            break
+                        requests_left -= 1
+                        payload = {
+                            "pageNum": page, "pageSize": page_size, "column": column, "tabName": "fulltext",
+                            "plate": "", "stock": "", "searchkey": keyword, "secid": "", "category": "",
+                            "trade": "", "seDate": f"{range_start:%Y-%m-%d}~{range_end:%Y-%m-%d}",
                         }
-                        normalized_title = re.sub(r"\s+", "", title)
-                        is_inquiry_reply = (
-                            any(marker in normalized_title for marker in ("回函", "复函", "回复", "答复"))
-                            and any(marker in normalized_title for marker in ("征询函", "问询函", "异常波动"))
-                        )
-                        (supporting if is_inquiry_reply else found)[key] = item
-                    if not response.get("hasMore") or not rows:
-                        break
-                    page += 1
-        # ``status`` is deliberately distinct from item count: an empty but
-        # successful query means no matching facts, while a failed/partial
-        # query means the absence of facts is unknown.
+                        try:
+                            response = self._request(payload)
+                            if not isinstance(response, dict) or "announcements" not in response or "hasMore" not in response or not isinstance(response.get("announcements"), (list, type(None))):
+                                raise ValueError("invalid announcement response")
+                        except Exception:
+                            errors.append(f"{column}:{keyword}:{payload['seDate']}:source_failed")
+                            break
+                        rows = response.get("announcements") or []
+                        self._collect_market_rows(rows, column, found, supporting)
+                        if not response.get("hasMore"):
+                            break
+                        if not rows:
+                            errors.append(f"{column}:{keyword}:{payload['seDate']}:empty_page_has_more")
+                            break
+                        if page == page_limit:
+                            if range_start < range_end:
+                                middle = range_start + timedelta(days=(range_end - range_start).days // 2)
+                                ranges.extend([(middle + timedelta(days=1), range_end), (range_start, middle)])
+                            else:
+                                errors.append(f"{column}:{keyword}:{payload['seDate']}:pagination_incomplete")
         status = "unavailable" if not found and not supporting and errors else "partial" if errors else "available"
         return {
             "items": sorted(found.values(), key=lambda item: (item["date"], item["stockCode"]), reverse=True),
             "supportingItems": sorted(supporting.values(), key=lambda item: (item["date"], item["stockCode"]), reverse=True),
-            "available": not errors,
-            "partial": bool(errors),
-            "status": status,
+            "available": not errors, "partial": bool(errors), "status": status,
             "error": "; ".join(sorted(set(errors))) if errors else "",
-            "failedKeywords": sorted(set(errors)),
-            "source": "巨潮资讯",
-            "sourceUrl": self.endpoint,
+            "failedKeywords": sorted(set(errors)), "source": "巨潮资讯", "sourceUrl": self.endpoint,
+            "coverage": {"complete": not errors, "requests": self.market_request_budget - requests_left,
+                         "startDate": initial_start.strftime("%Y%m%d"), "endDate": initial_end.strftime("%Y%m%d")},
         }
+
+    def _collect_market_rows(self, rows, column, found, supporting):
+        """日期分片可能重复返回同一公告，始终按来源 URL 幂等合并。"""
+        for row in rows:
+            title = str(row.get("announcementTitle") or row.get("shortTitle") or "").strip()
+            code = str(row.get("secCode") or "").strip()
+            if not code or not any(item in title for item in self.keywords):
+                continue
+            relative_url = str(row.get("adjunctUrl") or "")
+            url = self.detail_prefix + relative_url.lstrip("/") if relative_url else ""
+            key = url or f"{code}:{self._announcement_date(row)}:{title}"
+            item = {"title": title, "date": self._announcement_date(row), "stockCode": code,
+                    "stockName": str(row.get("secName") or ""), "url": url,
+                    "source": "巨潮资讯", "exchangeColumn": column}
+            normalized_title = re.sub(r"\s+", "", title)
+            is_inquiry_reply = (any(marker in normalized_title for marker in ("回函", "复函", "回复", "答复"))
+                                and any(marker in normalized_title for marker in ("征询函", "问询函", "异常波动")))
+            (supporting if is_inquiry_reply else found)[key] = item
+
 
     @staticmethod
     def _extract_pdf_text_layer(content: bytes) -> str:

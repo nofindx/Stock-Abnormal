@@ -1,7 +1,8 @@
 """Explicit MySQL migration runner.
 
-The application must never call this module during startup or request handling.
-Migration SQL is applied only by an operator-controlled command. Statements in
+The API process must never call this module during request handling.
+Migration SQL is applied only by an operator-controlled command or the explicit
+container release process, before replacing it with the API process. Statements in
 this migration set must be restart-safe because MySQL DDL commits implicitly.
 """
 

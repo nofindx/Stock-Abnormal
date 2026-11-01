@@ -64,13 +64,14 @@ class ReadContext:
 
 
 class ContextService:
-    def __init__(self, secret: Optional[str] = None, *, clock=time.time, token_ttl=300, idempotency_ttl=86400):
+    def __init__(self, secret: Optional[str] = None, *, clock=time.time, token_ttl=300, idempotency_ttl=86400, store=None):
         self.secret = (secret or "").encode("utf-8")
         if len(self.secret) < 32:
             raise ValueError("context 签名密钥至少 32 字节")
         self.clock = clock
         self.token_ttl = int(token_ttl)
         self.idempotency_ttl = int(idempotency_ttl)
+        self.store = store
         self._idempotency: MutableMapping[str, tuple[str, ReadContext, float]] = {}
 
     @staticmethod
@@ -130,6 +131,12 @@ class ContextService:
     def idempotent_context(self, entry_id: str, request: Mapping[str, Any], context: ReadContext) -> tuple[ReadContext, str]:
         fingerprint = hashlib.sha256(_canonical(dict(request))).hexdigest()
         now = self.clock()
+        if self.store is not None:
+            stored = self.store.entry_context(str(entry_id), fingerprint, context.as_payload(), self.idempotency_ttl)
+            if stored["fingerprint"] != fingerprint:
+                raise IdempotencyConflict("entry_id 请求指纹不一致")
+            saved = ReadContext(**stored["context"])
+            return saved, self.issue(saved)
         old = self._idempotency.get(str(entry_id))
         if old and old[2] > now:
             if old[0] != fingerprint:

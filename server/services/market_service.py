@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta, timezone
+from copy import copy, deepcopy
 import os
 import re
 from concurrent.futures import ThreadPoolExecutor
@@ -60,7 +61,7 @@ SHANGHAI_TZ = ZoneInfo("Asia/Shanghai") if ZoneInfo else timezone(timedelta(hour
 # 版本变化会触发服务启动时从已确认收盘行情重建计算基础数据与预测集。
 # Keep the persisted identifier compact: existing production schemas use a
 # 40-character rule-version column; the human-readable rationale lives in docs.
-PREDICTION_RULE_VERSION = "v68"
+PREDICTION_RULE_VERSION = "v69"
 _has_auditable_reset_evidence = has_auditable_reset_evidence
 
 
@@ -224,7 +225,7 @@ class MarketService:
         """注入重点监控当前数据读取器，生成次日数据集时排除同规则状态。"""
         self._monitor_provider = provider
 
-    def _monitored_rule_codes(self) -> Dict[str, set]:
+    def _monitored_rule_codes(self, target_trade_date: str = "") -> Dict[str, set]:
         """返回当前重点监控中各规则对应的股票代码。
 
         `__severe_monitor__` 是产品层资格标记：股票进入 10 日或 30 日
@@ -237,13 +238,12 @@ class MarketService:
         try:
             snapshot = self._monitor_provider() or {}
             result: Dict[str, set] = {}
-            today = self._now().strftime("%Y-%m-%d")
+            today = self._date_key(target_trade_date) or self._now().strftime("%Y%m%d")
             for item in snapshot.get("items", []):
-                dates = item.get("monitorDates")
-                if isinstance(dates, list) and dates:
-                    if today not in {str(value)[:10] for value in dates}:
-                        continue
-                elif item.get("monitorEndDate") and str(item.get("monitorEndDate"))[:10] < today:
+                dates = sorted(self._date_key(value) for value in item.get("monitorDates", []) if value)
+                start = self._date_key(item.get("monitorStartDate")) or (dates[0] if dates else "")
+                end = self._date_key(item.get("monitorEndDate")) or (dates[-1] if dates else "")
+                if (start and today < start) or (end and today > end):
                     continue
                 tone = str(item.get("riskTone") or "")
                 rule_keys = {
@@ -268,22 +268,13 @@ class MarketService:
 
     def _prediction_item_allowed(self, item: Dict[str, Any], monitored_codes: Dict[str, set], scope: str = "") -> bool:
         rule_key = str(item.get("ruleKey") or "")
-        # 同向次数仍参与单股状态判断，但不再生成或展示预测卡片。
-        if rule_key == "same_direction_10d":
-            return False
-        if rule_key in {"severe_10d", "severe_30d"}:
-            # 已进入对应严重异动监管期后，该严重规则由重点监控承接；
-            # 预测页仅追加普通/同向卡，避免同一规则重复展示。
-            if scope in {"today", "next_day"} and self._prediction_code_tokens(item) & monitored_codes.get(rule_key, set()):
+        if rule_key in {"severe_10d", "severe_30d", "same_direction_10d"}:
+            if scope == "next_day" and rule_key in {"severe_10d", "same_direction_10d"} and item.get("triggered"):
                 return False
             return True
         if rule_key == "ordinary_3d":
             tokens = self._prediction_code_tokens(item)
-            return bool(tokens & monitored_codes.get("__severe_monitor__", set())) and not bool(
-                tokens & monitored_codes.get("__ordinary_monitor__", set())
-            )
-        if rule_key == "same_direction_10d":
-            return False
+            return bool(tokens & monitored_codes.get("__severe_monitor__", set()))
         return False
 
     def start_scheduler(self) -> None:
@@ -415,18 +406,95 @@ class MarketService:
             except Exception as exc:  # noqa: BLE001 - 重建失败不影响旧数据读取
                 self._prediction_last_error["today"] = f"预测规则重建失败：{exc}"
 
-    def rebuild_predictions_from_existing_bases(self) -> None:
+    def rebuild_predictions_from_existing_bases(self) -> bool:
         """Rebuild derived datasets after a new official-fact snapshot is published."""
 
         if not self._calc_repository.available:
-            return
+            return False
         with self._prediction_rebuild_lock:
             try:
                 latest_date, stage = self._latest_data_stage_date()
                 if latest_date:
+                    self._recalculate_stored_metrics()
                     self._generate_prediction_datasets(stage)
+                    return not any(scope in self._prediction_last_error for scope in ("today", "next_day"))
+                return False
             except Exception as exc:  # noqa: BLE001 - keep API serving existing data
                 self._prediction_last_error["today"] = f"公告快照后预测重建失败：{exc}"
+                raise
+
+    def _recalculate_stored_metrics(self):
+        """Refresh derived columns after facts change, preserving source vectors."""
+        repository = self._calc_repository
+        if not hasattr(repository, "update_derived_metrics"):
+            return
+        service = copy(self)
+        snapshot = self._monitor_provider() if self._monitor_provider else {}
+        service._monitor_provider = lambda: snapshot
+        calculations = repository.all_calculations() or {}
+        indexes = repository.all_indexes() or {}
+        updates = []
+        for stock in self._stock_rows():
+            code = stock["ts_code"]
+            calc, index = calculations.get(code), indexes.get(_index_code_for_stock(stock))
+            if not calc or not index:
+                continue
+            sv, iv, context, _ = service._rule_vectors_for_stock(stock,
+                self._vector_entries(calc.get("stock_return_vector")),
+                self._vector_entries(index.get("index_return_vector")))
+            metrics = self._vector_metrics(sv, iv, BOARD_RULES[BOARD_BY_MARKET.get(stock["board"], Board.MAIN)],
+                ordinary_reset_dates=context.get("ordinaryResetDates"),
+                severe_reset_date=context.get("severeResetDate", ""),
+                severe_reset_dates=context.get("severeResetDates"), ordinary_events=context.get("ordinaryEvents"))
+            quality = context.get("ruleFactsQuality") or {}
+            count_available = quality.get("status") == "available" and not metrics.get("unresolved_same_direction_events")
+            updates.append({"ts_code": code, "date": self._date_key(calc.get("as_of_trade_date")),
+                "deviations": metrics["deviations"],
+                "up": metrics["up"] if count_available else None, "down": metrics["down"] if count_available else None})
+        repository.update_derived_metrics(updates)
+
+    def _repair_prior_candidates(self, source, target_date):
+        """Replay a previous close under this rule version, without refetching prices.
+
+        A version upgrade must not perpetuate candidates selected by the old
+        bug. Quotes after the prior base date are excluded from this replay.
+        """
+        repository = self._calc_repository
+        if not repository.available or (source or {}).get("rule_version") == PREDICTION_RULE_VERSION:
+            return source
+        calculations, indexes = repository.all_calculations() or {}, repository.all_indexes() or {}
+        common = sorted({self._date_key(point.get("date")) for row in indexes.values()
+                         for point in self._vector_entries(row.get("index_return_vector"))
+                         if self._date_key(point.get("date")) < target_date})
+        base = self._date_key((source or {}).get("base_trade_date")) or (common[-1] if common else "")
+        if not base or base >= target_date:
+            return source
+        def truncate(rows, key):
+            result = {}
+            for code, row in rows.items():
+                vector = [point for point in self._vector_entries(row.get(key)) if self._date_key(point.get("date")) <= base]
+                if not vector or self._vector_latest_date(vector) != base:
+                    continue
+                result[code] = dict(deepcopy(row), **{key: vector, "as_of_trade_date": base})
+            return result
+        prior_calcs, prior_indexes = truncate(calculations, "stock_return_vector"), truncate(indexes, "index_return_vector")
+        if not prior_calcs or not prior_indexes:
+            return source
+        service = copy(self)
+        snapshot = self._monitor_provider() if self._monitor_provider else {}
+        service._monitor_provider = lambda: snapshot
+        service._prediction_generation_stats = {}
+        service._calc_repository = SimpleNamespace(all_calculations=lambda: prior_calcs, all_indexes=lambda: prior_indexes)
+        items = service._compute_prediction_from_repository("next_day", target_trade_date=target_date)
+        if items is None:
+            return source
+        repaired = dict(source or {}, items=items, base_trade_date=base, target_trade_date=target_date,
+                        rule_version=PREDICTION_RULE_VERSION, dataset_quote_complete=True, status="ready")
+        repository.save_prediction("next_day", base, items, self._now(), data_stage="formal", data_quality="confirmed",
+            rule_version=PREDICTION_RULE_VERSION, target_trade_date=target_date, base_trade_date=base,
+            dataset_quote_as_of=base, dataset_quote_updated_at=f"{base[:4]}-{base[4:6]}-{base[6:]} 15:00:00", dataset_quote_source="tushare",
+            dataset_quote_complete=True, exclusion_stats=service._prediction_generation_stats.get("next_day", {}), status="ready")
+        return repaired
 
     def close(self) -> None:
         """停止每日更新和预测线程池。"""
@@ -1403,6 +1471,11 @@ class MarketService:
             elif pending_count:
                 status = "pending_verification"
                 message = "存在公告命中但正文待核验"
+            elif str(source_health.get("issuerBackup") or "") == "available":
+                # Ordinary deviation facts are covered by the issuer source;
+                # an optional broker failure does not invalidate that coverage.
+                status = "available"
+                message = "发行人公告覆盖完整"
             elif any(value in {"degraded", "unavailable", "failed"} for value in health_values):
                 status = "partial"
                 message = "部分公告源不可用，事实覆盖可能不完整"
@@ -1612,7 +1685,7 @@ class MarketService:
         if not dates:
             return None
         horizon = int(rule_window or actual_window)
-        if rule_reset_date and (reset_window is None or horizon <= reset_window):
+        if rule_reset_date and not (forecast_scope == "today" and rule_reset_date > cls._date_key(dates[-1])) and (reset_window is None or horizon <= reset_window):
             stock = [item for item in stock if cls._date_key(item.get("date")) >= rule_reset_date]
             index = [item for item in index if cls._date_key(item.get("date")) >= rule_reset_date]
             stock_map = {item.get("date"): float(item.get("return")) for item in stock if item.get("date")}
@@ -1877,8 +1950,8 @@ class MarketService:
                 window_index = [item for item in index if cls._date_key(item.get("date")) >= reset_date]
             deviations[window], window_lengths[window] = cls._best_vector_deviation(window_stock, window_index, window)
             pairs = cls._vector_deviation_values(window_stock, window_index, window)
-            up_pair = max((item for item in pairs if item[0] > 0), default=(None, None), key=lambda item: item[0])
-            down_pair = min((item for item in pairs if item[0] < 0), default=(None, None), key=lambda item: item[0])
+            up_pair = max(pairs, default=(None, None), key=lambda item: item[0])
+            down_pair = min(pairs, default=(None, None), key=lambda item: item[0])
             up_deviations[window], up_window_lengths[window] = up_pair
             down_deviations[window], down_window_lengths[window] = down_pair
 
@@ -1975,7 +2048,7 @@ class MarketService:
             }
             for item in consolidated_events
         ]
-        def market_direction_for_event(event_date: str) -> tuple[str, Optional[float]]:
+        def market_direction_for_event(event: Dict[str, Any], event_date: str) -> tuple[str, Optional[float]]:
             """Resolve an ambiguous notice direction from its 3-day fact window.
 
             Issuer notices often say only ``涨跌幅偏离值``.  The notice still
@@ -1987,21 +2060,17 @@ class MarketService:
             if not key or key not in common_dates:
                 return "", None
             end_index = common_dates.index(key)
-            if end_index < 2:
+            length = int(event.get("windowDays") or 3)
+            if end_index < length - 1:
                 return "", None
-            window_dates = common_dates[end_index - 2:end_index + 1]
-            if any(
-                window_dates[0] < ordinary_reset <= window_dates[-1]
-                for ordinary_reset in active_ordinary_resets
-            ) or (severe_reset_date and window_dates[0] < severe_reset_date):
-                return "", None
+            window_dates = common_dates[end_index - length + 1:end_index + 1]
             deviation = (
                 cls._compound(stock_map[day] for day in window_dates)
                 - cls._compound(index_map[day] for day in window_dates)
             )
-            if deviation >= rule.ordinary_deviation:
+            if deviation > 0:
                 return "up", deviation
-            if deviation <= -rule.ordinary_deviation:
+            if deviation < 0:
                 return "down", deviation
             return "", deviation
 
@@ -2009,11 +2078,15 @@ class MarketService:
         unresolved_events = []
         for item in ordinary_events or ():
             event_date = cls._date_key(item.get("endDate") or item.get("eventDate"))
+            # Expired, future and pre-severe-reset events are outside this
+            # counter. They must not turn an otherwise known count into unknown.
+            if not event_date or event_date > latest_data_date or (recent_start and event_date < recent_start) or (severe_reset_date and event_date < severe_reset_date):
+                continue
             direction = str(item.get("direction") or "")
             direction_source = "announcement" if direction in {"up", "down"} else ""
             market_deviation = None
             if direction not in {"up", "down"} and event_date:
-                direction, market_deviation = market_direction_for_event(event_date)
+                direction, market_deviation = market_direction_for_event(item, event_date)
                 if direction:
                     direction_source = "market-calculation"
             if direction not in {"up", "down"} and event_date:
@@ -2040,7 +2113,7 @@ class MarketService:
                     "startDate": event_date,
                     "endDate": event_date,
                     "direction": direction,
-                    "windowDays": 3,
+                    "windowDays": int(item.get("windowDays") or 3),
                     "deviation": None,
                     "contentHash": item.get("contentHash", ""),
                     "bodyHash": item.get("bodyHash", ""),
@@ -2055,7 +2128,7 @@ class MarketService:
                     "direction": "",
                     "directionSource": "pending_verification",
                     "directionStatus": "pending_verification",
-                    "reason": "aligned_three_day_market_window_unavailable_or_below_threshold",
+                    "reason": "aligned_three_day_market_window_or_direction_unavailable",
                     "marketDeviation": round(market_deviation, 6) if market_deviation is not None else None,
                 })
         # With monitor metadata, the formal count is announcement-backed;
@@ -2186,7 +2259,7 @@ class MarketService:
         self._generate_prediction_datasets("initial")
         return True
 
-    def _detail_from_repository(self, stock: Dict[str, Any], calc: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    def _detail_from_repository(self, stock: Dict[str, Any], calc: Dict[str, Any], *, use_realtime: bool = True) -> Optional[Dict[str, Any]]:
         index_code = _index_code_for_stock(stock)
         try:
             index = self._calc_repository.get_index(index_code)
@@ -2217,7 +2290,7 @@ class MarketService:
         forecast_index_vector = list(index_vector)
         board = BOARD_BY_MARKET.get(stock["board"], Board.MAIN)
         rule = BOARD_RULES[board]
-        quotes = self._fetch_realtime_many([stock["ts_code"], index_code])
+        quotes = self._fetch_realtime_many([stock["ts_code"], index_code]) if use_realtime and self._detail_realtime_allowed() else {}
         quote = quotes.get(stock["ts_code"].upper())
         index_quote = quotes.get(index_code.upper())
         realtime = self._quotes_share_snapshot(quote, index_quote)
@@ -2324,6 +2397,10 @@ class MarketService:
             self._single_warning(30, metrics["up_deviations"][30], down_deviations[30], metrics["up_window_lengths"][30], metrics["down_window_lengths"][30], rule.severe_30d_threshold.up, rule.severe_30d_threshold.down),
         ]
         rule_facts_quality = suspension.get("ruleFactsQuality") or {}
+        same_available = not metrics.get("unresolved_same_direction_events") and rule_facts_quality.get("status") not in {"partial", "unavailable", "not_configured", "pending_verification"}
+        warnings[1].update({"availability": "available" if same_available else "unavailable", "exact_count": same_count if same_available else None})
+        if not same_available:
+            warnings[1].update({"up": None, "down": None, "className": "unknown", "reasons": ["ANNOUNCEMENT_COVERAGE_OR_DIRECTION_UNAVAILABLE"]})
         projection_facts = [item for item in [monitoring, *suspension.get("ordinaryEvents", [])] if item]
         facts_status = str(rule_facts_quality.get("status") or "unknown")
         # 公告源的其他股票正文读取失败，不能把当前股票误投影成未知；
@@ -2341,7 +2418,7 @@ class MarketService:
             projection_facts,
             data_available=projection_available,
             data_error=rule_facts_quality.get("message", ""),
-            market_data_state="complete" if common_days >= 30 else "partial" if common_days else "unavailable",
+            market_data_state="complete" if common_days else "unavailable",
             facts_data_state=facts_status,
         )
         # The simulation editor represents the current, already-published
@@ -2421,7 +2498,12 @@ class MarketService:
                 "intraday": realtime,
                 "realtime": realtime,
                 "fallback": not realtime,
-                "isComplete": common_days >= 30,
+                # A reset starts a valid shorter baseline. Thirty rows are not
+                # a prerequisite for displaying the available calculations.
+                "isComplete": bool(common_days) and all(
+                    warning.get("upValue") not in (None, "--") and warning.get("downValue") not in (None, "--")
+                    for warning in (warnings[0], warnings[2], warnings[3])
+                ),
                 "commonDays": common_days,
                 "requiredCommonDays": 30,
                 "suspensionResetDate": suspension.get("resetDate", ""),
@@ -2452,8 +2534,8 @@ class MarketService:
         down_triggered = down_value is not None and down_value <= down_threshold
         # Zero is a valid post-reset baseline.  Keep it visible as 0.00%
         # instead of treating it as a missing positive-side value.
-        display_value = up_value if up_value is not None and up_value >= 0 else None
-        display_down_value = down_value if down_value is not None and down_value < 0 else None
+        display_value = up_value
+        display_down_value = down_value
         return {
             "title": f"{days} 日偏离",
             "value": _pct(display_value),
@@ -2881,7 +2963,7 @@ class MarketService:
             return {"updated": True, "tradeDate": today, "dataStage": "initial", "calculationCount": len(calculations)}
 
     def _generate_prediction_datasets(self, data_stage: str) -> None:
-        """按目标交易日归档预测集；today 必须沿用前一交易日生成的候选集。"""
+        """盘中沿用已发布池；收盘归档补齐当日正式计算进入范围的卡片。"""
         base_trade_date = self._latest_data_stage_date()[0] or self._confirmed_market_trade_date()
         if not base_trade_date:
             return
@@ -2902,6 +2984,7 @@ class MarketService:
                     # The prior-day next_day set determines candidate identities;
                     # the target-day vectors determine every displayed calculation.
                     source = self._prediction_record("next_day", target_trade_date)
+                    source = self._repair_prior_candidates(source, target_trade_date)
                     source_target = str((source or {}).get("target_trade_date") or "")
                     source_base = str((source or {}).get("base_trade_date") or "")
                     if (
@@ -2919,7 +3002,7 @@ class MarketService:
                     # only the prior-day candidate identities.
                     source_items = [
                         item for item in (source.get("items") or [])
-                        if self._prediction_item_allowed(item, self._monitored_rule_codes(), "today")
+                        if self._prediction_item_allowed(item, self._monitored_rule_codes(target_trade_date), "today")
                     ]
                     candidate_keys = {
                         (str(item.get("ts_code") or ""), str(item.get("ruleKey") or ""))
@@ -2927,7 +3010,7 @@ class MarketService:
                     }
                     items = self._compute_prediction_from_repository(
                         "today", use_realtime=False, target_trade_date=target_trade_date,
-                        candidate_keys=candidate_keys,
+                        candidate_keys=candidate_keys, include_close_candidates=True,
                     ) or []
                     recalculated_keys = {
                         (str(item.get("ts_code") or ""), str(item.get("ruleKey") or ""))
@@ -2938,6 +3021,7 @@ class MarketService:
                         raise RuntimeError(
                             f"{target_trade_date} 有 {len(missing_candidates)} 张前序候选卡片未能按目标日重算，拒绝发布不完整或过期数据"
                         )
+                    candidate_keys |= recalculated_keys
                     for item in items:
                         item["targetTradeDate"] = target_trade_date
                         item["scope"] = "当日"
@@ -3079,7 +3163,7 @@ class MarketService:
                         )
                     self._calc_repository.fail_prediction(scope, str(exc))
 
-    def detail(self, ts_code: str) -> Dict[str, Any]:
+    def detail(self, ts_code: str, *, use_realtime: bool = True) -> Dict[str, Any]:
         """返回单股当前状态、四项预警和模拟计算基础数据。"""
 
         if not self._calc_repository.available:
@@ -3097,7 +3181,7 @@ class MarketService:
         ):
             raise CalculationDataUnavailable("数据库中缺少该股票的历史收益向量，单股计算已停止")
         try:
-            result = self._detail_from_repository(stock, stored)
+            result = self._detail_from_repository(stock, stored, use_realtime=use_realtime)
         except Exception as exc:  # noqa: BLE001 - 不允许静默切换到另一套历史数据
             self._market_update_error = f"MySQL 读取失败：{exc}"
             raise CalculationDataUnavailable("MySQL 计算数据读取失败，单股计算已停止") from exc
@@ -3125,15 +3209,24 @@ class MarketService:
         use_realtime: bool = False,
         target_trade_date: str = "",
         candidate_keys: Optional[set] = None,
+        _facts_pinned: bool = False,
+        include_close_candidates: bool = False,
     ) -> Optional[List[Dict[str, Any]]]:
         """从统一行情规则计算普通、同向和严重异动预测卡。"""
+
+        if self._monitor_provider and not _facts_pinned:
+            service = copy(self)
+            snapshot = self._monitor_provider() or {}
+            service._monitor_provider = lambda: snapshot
+            return service._compute_prediction_from_repository(scope, use_realtime, target_trade_date,
+                candidate_keys, _facts_pinned=True, include_close_candidates=include_close_candidates)
 
         calculations = self._calc_repository.all_calculations()
         indexes = self._calc_repository.all_indexes()
         if calculations is None or indexes is None or not calculations or not indexes:
             return None
         stocks = {item["ts_code"]: item for item in self._stock_rows()}
-        monitored_codes = self._monitored_rule_codes()
+        monitored_codes = self._monitored_rule_codes(target_trade_date)
         stats = {"excludedByTriggered": 0, "excludedByMonitor": 0, "excludedBySpecialStock": 0,
                  "excludedByDataQuality": 0, "excludedByLimit": 0}
         self._prediction_generation_stats[scope] = stats
@@ -3143,7 +3236,7 @@ class MarketService:
                 rule_key for candidate_code, rule_key in (candidate_keys or set())
                 if candidate_code == ts_code
             }
-            if candidate_keys is not None and not candidate_rule_keys:
+            if candidate_keys is not None and not candidate_rule_keys and not include_close_candidates:
                 continue
             stock = stocks.get(ts_code)
             if not stock:
@@ -3187,25 +3280,55 @@ class MarketService:
             # 普通短窗口卡只对已进入 10 日或 30 日监管期的股票开放。
             stock_keys = {str(stock.get("symbol") or ""), ts_code.split(".")[0]}
             severe_monitored = bool(stock_keys & monitored_codes.get("__severe_monitor__", set()))
-            independent_ordinary_monitor = bool(stock_keys & monitored_codes.get("__ordinary_monitor__", set()))
             rules = [
+                ("same_direction_10d", 3, board_rule.severe_same_direction_count, "count", board_rule.ordinary_deviation),
                 ("severe_10d", 10, board_rule.severe_10d_threshold.up, "deviation", board_rule.severe_10d_threshold.up),
                 ("severe_30d", 30, board_rule.severe_30d_threshold.up, "deviation", board_rule.severe_30d_threshold.up),
             ]
-            if (severe_monitored and not independent_ordinary_monitor) or (
-                "ordinary_3d" in candidate_rule_keys and not independent_ordinary_monitor
-            ):
+            if severe_monitored or "ordinary_3d" in candidate_rule_keys:
                 rules.insert(0, ("ordinary_3d", 3, board_rule.ordinary_deviation, "deviation", board_rule.ordinary_deviation))
-            if candidate_keys is not None:
+            if candidate_keys is not None and not include_close_candidates:
                 rules = [option for option in rules if option[0] in candidate_rule_keys]
             rule_options: List[Dict[str, Any]] = []
             for rule_key, rule_window, threshold, kind, target in rules:
-                if candidate_keys is None and scope in {"today", "next_day"} and (stock.get("symbol") in monitored_codes.get(rule_key, set()) or ts_code.split(".")[0] in monitored_codes.get(rule_key, set())):
-                    stats["excludedByMonitor"] += 1
+                if kind == "count":
+                    count = int(metrics.get("up", 0) or 0)
+                    facts_quality = suspension.get("ruleFactsQuality") or {}
+                    if metrics.get("unresolved_same_direction_events") or facts_quality.get("status") in {"partial", "unavailable", "not_configured", "pending_verification"}:
+                        stats["excludedByDataQuality"] += 1
+                        continue
+                    triggered = count >= threshold
+                    if scope == "next_day" and triggered:
+                        continue
+                    distance = self._required_up_percent(
+                        stock_vector, index_vector, 3, target, forecast_scope=scope, rule_window=3,
+                        rule_reset_date=max(suspension.get("ordinaryResetDates") or [], default=""), reset_window=3,
+                    )
+                    if not triggered:
+                        # An official event is never manufactured by projection.
+                        # Only one possible NEW ordinary event may be forecast.
+                        end_date = self._date_key(target_trade_date) or stock_as_of
+                        if scope == "next_day" and end_date > stock_as_of:
+                            projected = self._vector_metrics(
+                                stock_vector + [{"date": end_date, "return": 0.0}],
+                                index_vector + [{"date": end_date, "return": 0.0}], board_rule,
+                                ordinary_reset_dates=suspension.get("ordinaryResetDates"),
+                                severe_reset_dates=suspension.get("severeResetDates"),
+                                severe_reset_date=suspension.get("severeResetDate", ""),
+                                ordinary_events=suspension.get("ordinaryEvents"),
+                            )
+                            count = int(projected.get("up", 0) or 0)
+                        confirmed_today = any(self._date_key(e.get("endDate")) == end_date for e in metrics.get("same_direction_events", []))
+                        if count + (0 if confirmed_today else 1) < threshold or distance is None or distance > limit:
+                            continue
+                    rule_options.append({"ruleKey": rule_key, "ruleWindow": 3, "actualWindow": 10,
+                        "deviation": count, "threshold": threshold, "distance": 0.0 if triggered else distance,
+                        "kind": kind, "triggered": triggered})
                     continue
                 deviation = metrics["deviations"].get(rule_window)
                 actual_window = metrics.get("window_lengths", {}).get(rule_window)
-                if deviation is None or actual_window is None or (deviation <= 0 and candidate_keys is None):
+                retained_candidate = rule_key in candidate_rule_keys
+                if deviation is None or actual_window is None or (deviation <= 0 and not retained_candidate):
                     stats["excludedByDataQuality"] += 1
                     continue
                 distance = self._required_up_percent(
@@ -3236,7 +3359,7 @@ class MarketService:
                 if scope == "next_day" and rule_key == "severe_10d" and triggered:
                     stats["excludedByTriggered"] += 1
                     continue
-                if not triggered and distance > limit and candidate_keys is None:
+                if not triggered and distance > limit and not retained_candidate:
                     stats["excludedByLimit"] += 1
                     continue
                 rule_options.append({"ruleKey": rule_key, "ruleWindow": rule_window, "actualWindow": actual_window, "deviation": deviation, "threshold": threshold, "distance": distance, "kind": kind, "triggered": triggered})
@@ -3245,13 +3368,15 @@ class MarketService:
                 triggered = bool(option["triggered"])
                 kind = option["kind"]
                 deviation = option.get("deviation")
-                deviation_label = f"{option['actualWindow']}日 {_pct(deviation)}"
+                deviation_label = (f"10日 +{int(deviation)}次" if kind == "count" else f"{option['actualWindow']}日 {_pct(deviation)}")
                 # 触发条件展示目标日实际还需上涨的距离；已经触发时通常为 0，
                 # 规则阈值只保留在 rule 文案，不能覆盖触发距离。
                 display_distance = max(0.0, float(option["distance"]))
                 trigger_value = f"+{display_distance:.2f}%"
                 trigger_condition = f"涨幅达 {display_distance:.2f}%"
-                if option["ruleKey"] == "ordinary_3d":
+                if kind == "count":
+                    rule_text = f"连续10个交易日内出现{int(option['threshold'])}次同向普通异动"
+                elif option["ruleKey"] == "ordinary_3d":
                     rule_text = f"连续3个交易日内收盘价涨幅偏离值累计达到 +{option['threshold']:.0f}%"
                 elif option["ruleKey"] == "severe_30d":
                     rule_text = f"连续30个交易日内收盘价涨幅偏离值累计达到 +{option['threshold']:.0f}%"
@@ -3328,7 +3453,8 @@ class MarketService:
                         ordinary_events=item.get("ordinaryEvents"),
                         severe_reset_dates=item.get("severeResetDates"),
                     )
-                    deviation = metric["deviations"].get(rule_window)
+                    is_count = item.get("_trigger_kind") == "count"
+                    deviation = metric.get("up") if is_count else metric["deviations"].get(rule_window)
                     actual_window = metric["window_lengths"].get(rule_window)
                     if deviation is not None:
                         item["_deviation"] = deviation
@@ -3337,11 +3463,13 @@ class MarketService:
                         item["deviationLabel"] = item["deviation"]
                         item["deviationPercent"] = float(deviation)
                         item["triggered"] = deviation >= threshold
+                        if is_count:
+                            item["deviation"] = item["deviationLabel"] = f"10日 +{int(deviation)}次"
                         distance = self._required_up_percent(
                             stock_vector,
                             index_vector,
                             actual_window or item["_window"],
-                            threshold,
+                            BOARD_RULES[BOARD_BY_MARKET.get(item.get("board"), Board.MAIN)].ordinary_deviation if is_count else threshold,
                             forecast_scope=scope,
                             rule_window=rule_window,
                             rule_reset_date=(
@@ -3469,6 +3597,17 @@ class MarketService:
         self._prediction_cache[scope] = (self._now(), output)
         self._prediction_trade_date[scope] = latest
         return output
+
+    def _detail_realtime_allowed(self) -> bool:
+        now = self._now()
+        if now.weekday() >= 5 or (now.hour, now.minute) < (9, 15) or now.hour >= 15:
+            return False
+        try:
+            return bool(self._prediction_state().get("realtimeRefreshAllowed"))
+        except Exception:
+            # A calendar-source failure cannot make a valid stored calculation
+            # fail, nor authorize realtime fetching on an unknown trading day.
+            return False
 
     def _prediction_state(self) -> Dict[str, Any]:
         """按上海交易日和时钟决定预测页的显示状态。
@@ -3794,7 +3933,7 @@ class MarketService:
         if scope == "today" and source_scope == "next_day" and not dataset_matches_target:
             items = []
         # 普通/同向卡只有在股票仍处于 10 日或 30 日重点监控期时才展示。
-        monitored_codes = self._monitored_rule_codes()
+        monitored_codes = self._monitored_rule_codes(display_target_date)
         items = [item for item in items if self._prediction_item_allowed(item, monitored_codes, scope)]
         items = self._sort_prediction_items(self._normalize_prediction_items(items))
         # 交易时段 today 允许复用上一交易日的 next_day 候选池；对外展示范围
@@ -3870,7 +4009,8 @@ class MarketService:
             self._prediction_cache.get(source_scope, (self._now(), []))[1],
         ))
         # 旧数据集可能残留短窗口卡；只有当前仍在严重异动监管期才放行。
-        base_items = [item for item in base_items if self._prediction_item_allowed(item, self._monitored_rule_codes(), source_scope)]
+        target = str((persistent or {}).get("target_trade_date") or "")
+        base_items = [item for item in base_items if self._prediction_item_allowed(item, self._monitored_rule_codes(target), forecast_scope)]
         if not base_items:
             return []
         calculations = self._calc_repository.all_calculations() if self._calc_repository.available else {}
@@ -3944,6 +4084,15 @@ class MarketService:
                     item["deviationLabel"] = item["deviation"]
                     item["deviationPercent"] = float(deviation)
                     item["triggered"] = (int(metrics.get("same", 0) or 0) >= rule.severe_same_direction_count) if rule_key == "same_direction_10d" else deviation >= threshold
+                    if rule_key == "same_direction_10d":
+                        count = int(metrics.get("up", 0) or 0)
+                        item["deviation"] = item["deviationLabel"] = f"10日 +{count}次"
+                        item["deviationPercent"] = count
+                        item["triggered"] = count >= rule.severe_same_direction_count
+                        item["exactCount"] = None if metrics.get("unresolved_same_direction_events") else count
+                        if (suspension.get("ruleFactsQuality") or {}).get("status") != "available":
+                            item["exactCount"] = None
+                            item["availability"] = "unavailable"
                     if distance is not None:
                         item["triggerValue"] = f"+{max(0.0, float(distance)):.2f}%"
                         item["triggerCondition"] = f"涨幅达 {max(0.0, float(distance)):.2f}%"

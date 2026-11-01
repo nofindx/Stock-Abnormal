@@ -1,12 +1,13 @@
 """公开公告驱动的重点监控服务。
 
-前端查询只读取 SQLite 中最近一次成功快照。公告采集、正文识别和快照替换只由后台任务执行，
+前端查询只读取共享 MySQL 中最近一次成功数据集（本地测试可使用 SQLite）。公告采集、正文识别和快照替换只由后台任务执行，
 不会因为用户打开页面或点击刷新而启动。
 """
 
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from concurrent.futures import ThreadPoolExecutor
 import base64
 import hashlib
 import hmac
@@ -23,6 +24,8 @@ from urllib.request import Request, urlopen
 
 from .announcement_service import AnnouncementService
 from server.data.fact_ledger import FactLedger
+from server.data.publication_store import PublicationStore
+from .market_calc_repository import MarketCalcRepository
 from .tushare_client import TushareClient
 
 try:
@@ -45,7 +48,7 @@ MONITOR_PERIOD_TRADING_DAYS = {
 MONITOR_WINDOW_TRADING_DAYS = MONITOR_PERIOD_TRADING_DAYS
 # 公告分类口径变化时，启动任务主动重采一次当前快照；避免必须等到次日
 # 00:00 才让修复后的北交所严重异动进入重点监控。
-MONITOR_RULE_VERSION = "2026-10-zts-effective-date-cninfo-product-policy-v29"
+MONITOR_RULE_VERSION = "20261101-product-policy-v30"
 
 # 只有官方披露平台上的发行人/交易所事实，才有资格改变行情累计基线。
 # 可读正文优先；普通异动正文短时不可读时，官方标题只能作为待行情核验
@@ -67,6 +70,13 @@ PDF_ALLOWED_HOSTS = frozenset({"static.cninfo.com.cn", "www.cninfo.com.cn", "www
 
 class MonitorRepository:
     """用事务保存公告元数据和当前监控快照，不保存公告文件或正文。"""
+
+    def __new__(cls, path=None):
+        repository = MarketCalcRepository()
+        if path is None and repository.available:
+            # Configured production MySQL is authoritative; no SQLite fallback.
+            return PublicationStore(repository)
+        return super().__new__(cls)
 
     def __init__(self, path: Optional[str] = None) -> None:
         value = path or os.getenv("MONITOR_DB_PATH", "/tmp/stock-abnormal/monitor.db")
@@ -165,6 +175,7 @@ class MonitorRepository:
             db.execute("INSERT OR REPLACE INTO monitor_state VALUES ('active_snapshot_id', ?)", (snapshot["snapshotId"],))
             db.execute("INSERT OR REPLACE INTO monitor_state VALUES ('last_status', 'success')")
             db.execute("INSERT OR REPLACE INTO monitor_state VALUES ('last_failure_date', '')")
+            db.execute("INSERT OR REPLACE INTO monitor_state VALUES ('outbox_pending', '1')")
             # 只保留当前成功快照和当前来源元数据；不保留历史监控快照。
             db.execute("DELETE FROM monitor_snapshot WHERE snapshot_id != ?", (snapshot["snapshotId"],))
             source_ids = [item["sourceId"] for item in announcements if item.get("sourceId")]
@@ -182,6 +193,14 @@ class MonitorRepository:
     def rebuild_facts(self, symbol: Optional[str] = None, since: Optional[str] = None) -> List[Dict[str, Any]]:
         """从持久化账本重建公告事实，不依赖当前监控快照。"""
         return self.fact_ledger.rebuild(symbol=symbol, since=since)
+
+    def dispatch(self, callback):
+        if not callback or self.states().get("outbox_pending") != "1":
+            return False
+        if callback() is False:
+            return False
+        self.set_state("outbox_pending", "0")
+        return True
 
     def record_failure(self, run_id: str, started_at: str, message: str) -> None:
         with self._lock, self._connect() as db:
@@ -278,9 +297,13 @@ class OfficialMonitorService:
                 now = self._clock()
                 today = now.strftime("%Y-%m-%d")
                 state = self.repository.states()
+                self.repository.dispatch(self._snapshot_published_callback)
+                if hasattr(self.repository, "prune_expired_reads"):
+                    self.repository.prune_expired_reads()
                 last_attempt_date = state.get("last_attempt_date", "")
+                coverage_retry = state.get("coverage_retry_after", "")
                 # 无当前快照时冷启动立即补采；有当前快照时每天 00:00 后只尝试一次。
-                if state.get("monitor_rule_version") != MONITOR_RULE_VERSION or (
+                if (coverage_retry and now.strftime("%Y%m%d%H%M") >= coverage_retry) or state.get("monitor_rule_version") != MONITOR_RULE_VERSION or (
                     not self.repository.active_snapshot() and not last_attempt_date
                 ) or (
                     now.hour == 0 and last_attempt_date != today
@@ -524,7 +547,7 @@ class OfficialMonitorService:
         if (
             not official_host
             or "异常波动" not in title_text
-            or "严重异常波动" in title_text
+            or ("严重异常波动" in title_text and "股票交易异常波动" not in title_text)
             or re.search(r"风险提示|风险警示|退市整理|停牌核查", title_text)
         ):
             return None
@@ -609,7 +632,8 @@ class OfficialMonitorService:
                 )
             except ValueError:
                 turnover_confirmed = False
-        if not deviation_confirmed and not turnover_confirmed:
+        deviation_claim = "偏离值" in period_fragment
+        if not deviation_claim and not turnover_confirmed:
             return None
         return {
             "code": ORDINARY_RESET_EVIDENCE_CODE,
@@ -619,7 +643,9 @@ class OfficialMonitorService:
             "bodyHash": hashlib.sha256(normalized.encode("utf-8")).hexdigest(),
             "verifiedRiskTone": "ordinary-abnormality",
             "signals": [f"连续{ordinary_claim.group(1)}个交易日异常波动", "板块普通偏离阈值" if deviation_confirmed else "主板换手率条件"],
-            "countsForSameDirection": bool(deviation_confirmed and ordinary_claim.group(1) == "3"),
+            "countsForSameDirection": deviation_claim,
+            "windowDays": int(ordinary_claim.group(1)),
+            "marketCheckRequired": deviation_claim and not deviation_confirmed,
         }
 
     @staticmethod
@@ -763,6 +789,8 @@ class OfficialMonitorService:
         if not body or not announcement_date:
             return ""
         text = re.sub(r"\s+", "", str(body)).replace("／", "/")
+        for word, number in (("三十个", "30个"), ("三个", "3个"), ("两个", "2个"), ("十个", "10个")):
+            text = text.replace(word, number)
 
         def parse_fragment(fragment: str) -> str:
             match = re.search(r"(?:(20\d{2})年)?(\d{1,2})月(\d{1,2})日?", fragment)
@@ -778,6 +806,24 @@ class OfficialMonitorService:
             return value if value <= announcement_date else ""
 
         candidates: List[str] = []
+        # Ordinary and severe notices list fact dates before the period or
+        # in parentheses, frequently abbreviating the repeated year/month.
+        fragments = []
+        fragments.extend(m.group(1) for m in re.finditer(r"连续\d+个交易日(?:内)?[（(]([^）)]{1,180})[）)]", text))
+        fragments.extend(m.group(1) for m in re.finditer(r"(?:于|自|在)([^。；;]{1,180}?)连续\d+个交易日", text))
+        for fragment in fragments:
+            year, month = int(announcement_date[:4]), None
+            for match in re.finditer(r"(?:(20\d{2})年)?(?:(\d{1,2})月)?(\d{1,2})日", fragment):
+                year = int(match.group(1) or year)
+                month = int(match.group(2)) if match.group(2) else month
+                if month is None:
+                    continue
+                try:
+                    value = datetime(year, month, int(match.group(3))).strftime("%Y-%m-%d")
+                except ValueError:
+                    continue
+                if value <= announcement_date:
+                    candidates.append(value)
         # 公告最稳定的事实口径：区间末日紧邻“连续 N 个交易日”。
         for match in re.finditer(
             r"((?:20\d{2}年)?\d{1,2}月\d{1,2}日?)连续\d+个交易日",
@@ -813,6 +859,7 @@ class OfficialMonitorService:
     @staticmethod
     def _pdf_eligible(item: Dict[str, Any]) -> bool:
         risk_tone = str(item.get("riskTone") or "")
+        item = item.get("pdfEvidence") or item
         if risk_tone in PDF_MONITOR_RISK_TONES - {"ordinary"}:
             return True
         title = re.sub(r"\s+", "", str(item.get("title") or ""))
@@ -826,6 +873,7 @@ class OfficialMonitorService:
     def _trusted_pdf_url(cls, item: Dict[str, Any]) -> str:
         if not cls._pdf_eligible(item):
             return ""
+        item = item.get("pdfEvidence") or item
         for candidate in [str(item.get("sourceUrl") or "")] + [str(url) for url in item.get("sourceUrls", [])]:
             parsed = urlparse(candidate)
             if parsed.scheme == "https" and parsed.hostname in PDF_ALLOWED_HOSTS and re.search(r"\.pdf(?:$|[?#])", candidate, re.I):
@@ -925,8 +973,8 @@ class OfficialMonitorService:
             "monitor_key": str(item.get("monitorKey") or ""),
             "source_url": source_url,
             "risk_tone": str(item.get("riskTone") or ""),
-            "source_type": str(item.get("sourceType") or ""),
-            "title": str(item.get("title") or ""),
+            "source_type": str((item.get("pdfEvidence") or item).get("sourceType") or ""),
+            "title": str((item.get("pdfEvidence") or item).get("title") or ""),
             "monitor_end_date": end_date,
             "expires_at": int(time.time()) + min(max(int(ttl_seconds), 60), 300),
         }
@@ -1115,7 +1163,12 @@ class OfficialMonitorService:
             zts_partial = bool(zts_result.get("partial"))
             # 两种来源都尝试：18.cn 成功时作为主源，18.cn 失败而巨潮成功时由巨潮接替主源。
             try:
-                result = self.announcements.query_market(start_date, now.strftime("%Y-%m-%d"))
+                # Issuers routinely predate an evening disclosure with the
+                # following calendar day's date (including Sunday -> Monday).
+                # Search one extra date; only notices actually returned by the
+                # public source can become facts, and body dates govern effect.
+                disclosure_end = (now + timedelta(days=1)).strftime("%Y-%m-%d")
+                result = self.announcements.query_market(start_date, disclosure_end)
             except Exception as exc:  # noqa: BLE001 - 备源错误进入四态决策
                 result = {"items": [], "available": False, "partial": True, "error": str(exc)}
             # A source may return usable official rows together with failures
@@ -1147,10 +1200,22 @@ class OfficialMonitorService:
             issuer_body_ocr_failed = 0
             issuer_reset_verified = 0
             issuer_unread_facts: List[Dict[str, Any]] = []
+            body_results = {}
+            if isinstance(self.announcements, AnnouncementService):
+                def read_body(url):
+                    try:
+                        return url, self.announcements.extract_pdf_body(url)
+                    except Exception as exc:
+                        return url, {"text": "", "method": "unavailable", "error": type(exc).__name__}
+                # Bound source concurrency; a long backfill must not serialize
+                # hundreds of independent PDF downloads or block API reads.
+                urls = sorted({item["url"] for item in issuer_items if item.get("url")})
+                with ThreadPoolExecutor(max_workers=4, thread_name_prefix="notice-body") as reader:
+                    body_results = dict(reader.map(read_body, urls))
             for announcement in issuer_items if (issuer_available or issuer_has_rows) else []:
                 title = announcement["title"]
                 if isinstance(self.announcements, AnnouncementService):
-                    body_result = self.announcements.extract_pdf_body(announcement["url"])
+                    body_result = body_results.get(announcement["url"]) or {"text": "", "method": "unavailable"}
                 else:  # compatibility for injected test and legacy readers
                     body_result = {"text": self.announcements.extract_pdf_text(announcement["url"]), "method": "text_layer"}
                 body = str(body_result.get("text") or "")
@@ -1194,6 +1259,9 @@ class OfficialMonitorService:
                     )
                     if ordinary_evidence:
                         event_end_date = self._event_end_date(announcement["date"], body)
+                        if not event_end_date:
+                            lookback = (datetime.strptime(announcement["date"], "%Y-%m-%d") - timedelta(days=14)).strftime("%Y-%m-%d")
+                            event_end_date = max((day for day in self._trade_dates(lookback, 15) if day <= announcement["date"]), default="")
                         if event_end_date:
                             reset_dates = self._monitor_period_dates(
                                 event_end_date, "issuer-disclosure", "ordinary",
@@ -1227,8 +1295,7 @@ class OfficialMonitorService:
                                 "bodyReadConfidence": body_result.get("confidence"),
                                 "countsForSameDirection": bool(ordinary_evidence.get("countsForSameDirection")),
                                 "ruleResetDate": reset_dates[0].replace("-", ""),
-                                # 官方普通异动公告本身确认 3 日基线重置；
-                                # 同向次数仍由行情模块单独核验，不由标题直接 +1。
+                                # 公告事实决定计次/重置，行情仅核验差异。
                                 "ruleResetConfirmed": True,
                                 "riskTone": "ordinary-abnormality",
                                 "sourceType": "issuer-disclosure",
@@ -1432,6 +1499,25 @@ class OfficialMonitorService:
             # 部分抓取把闽东、天普等仍在监管期内的卡片清空。
             merge_items = parsed_events + previous_items
             parsed = self._collapse_by_stock(merge_items, now.strftime("%Y-%m-%d"))
+            # Keep regulatory identity independent from its reading attachment.
+            # Broker prompts may carry no PDF; attach a verified issuer notice
+            # for the same stock/category while preserving the original fact.
+            for item in parsed:
+                if self._trusted_pdf_url(item):
+                    continue
+                eligible = [fact for fact in [*parsed_events, *reset_facts]
+                            if fact.get("symbol") == item.get("symbol")
+                            and (fact.get("riskTone") == item.get("riskTone")
+                                 or (item.get("riskTone") == "ordinary" and fact.get("riskTone") == "ordinary-abnormality"))
+                            and fact.get("sourceType") in PDF_ORDINARY_SOURCE_TYPES
+                            and fact.get("sourceUrl")
+                            and str(fact.get("announcementDate") or "") <= str(item.get("monitorEndDate") or "9999-12-31")[:10]
+                            and str(fact.get("ruleResetDate") or fact.get("announcementDate") or "") >= str(item.get("announcementDate") or item.get("monitorStartDate") or "")[:10]]
+                if eligible:
+                    candidate = max(eligible, key=lambda fact: str(fact.get("announcementDate") or ""))
+                    evidence = {**candidate, "riskTone": item.get("riskTone")}
+                    if self._trusted_pdf_url(evidence):
+                        item["pdfEvidence"] = evidence
             self._cache_active_pdfs(parsed, now.strftime("%Y-%m-%d"))
             updated_at = self._clock().strftime("%Y-%m-%d %H:%M")
             active_source = "broker_primary" if broker_available else ("zts_primary" if zts_available else "issuer_disclosure_backup")
@@ -1461,6 +1547,7 @@ class OfficialMonitorService:
                         "brokerError": str(broker_result.get("error") or "") if broker_partial else ("" if broker_available else "18.cn 未完整返回"),
                         "issuerError": "" if issuer_available else str(result.get("error") or "巨潮资讯未完整返回"),
                         "issuerStatus": str(result.get("status") or ("available" if issuer_available else ("partial" if issuer_has_rows else "unavailable"))),
+                        "issuerCoverage": result.get("coverage") or {"complete": issuer_available},
                         "ztsSource": "degraded" if zts_partial or not zts_available else "available",
                         "zts": "degraded" if zts_partial or not zts_available else "available",
                         "ztsError": str(zts_result.get("error") or "") if zts_partial or not zts_available else "",
@@ -1503,16 +1590,23 @@ class OfficialMonitorService:
             }
             raw_announcements.extend(parsed_events)
             raw_announcements.extend(parsed_reset_facts)
-            self.repository.publish(snapshot, raw_announcements, run_id)
+            published = self.repository.publish(snapshot, raw_announcements, run_id)
+            if published is False:
+                return {"started": True, "refreshing": False, "superseded": True}
             self.repository.set_state("monitor_rule_version", MONITOR_RULE_VERSION)
+            # Partial search/body reads remain retryable; success from another
+            # source must not conceal a capped or unread issuer search.
+            self.repository.set_state("coverage_retry_after",
+                (now + timedelta(minutes=30)).strftime("%Y%m%d%H%M") if not issuer_available or issuer_unread_facts else "")
             self.last_error = ""
             callback = self._snapshot_published_callback
             if callback:
-                Thread(
-                    target=callback,
-                    name="prediction-facts-rebuild",
-                    daemon=True,
-                ).start()
+                # The outbox survives worker termination. A failed derived
+                # rebuild is retried by the scheduler and never marked delivered.
+                try:
+                    self.repository.dispatch(callback)
+                except Exception as exc:
+                    self.last_error = f"公告已持久化，派生重建待重试：{type(exc).__name__}"
             return {"started": True, "refreshing": False, "count": len(parsed)}
         except Exception as exc:
             self.last_error = str(exc)
@@ -1556,7 +1650,7 @@ class OfficialMonitorService:
             if self._pdf_eligible(item):
                 # Availability is source-based; cache state is local to this instance.
                 row["pdfAvailable"] = bool(self._trusted_pdf_url(item))
-                row["pdfCached"] = row["pdfAvailable"]
+                row["pdfCached"] = self._pdf_path(str(item.get("monitorKey") or "")).is_file()
             items.append(row)
         # 监管期按快照保存的交易日序列倒计时；未公开结束日的记录排在已确认日期之后。
         items.sort(key=lambda item: (item.get("days") is None, item.get("days") if item.get("days") is not None else 9999, item.get("announcementDate", "")))

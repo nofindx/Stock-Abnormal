@@ -11,12 +11,16 @@ from __future__ import annotations
 import json
 import os
 import re
+from dataclasses import replace
 from html import escape
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, quote, urlparse
 
-from .services.market_service import CalculationDataUnavailable, MarketService, SHANGHAI_TZ
+from .services.market_service import CalculationDataUnavailable, MarketService, SHANGHAI_TZ, PREDICTION_RULE_VERSION
+from .data.publication_store import PublicationStore, PublicationUnavailable
+from .services.read_publications import ReadPublications
+from .services.read_refresh_jobs import ReadRefreshJobs
 from .services.announcement_service import AnnouncementService
 from .services.monitor_service import OfficialMonitorService
 from .services.tushare_client import TushareUnavailable
@@ -33,7 +37,10 @@ SERVICE.set_monitor_provider(OFFICIAL_MONITOR.repository.active_snapshot)
 OFFICIAL_MONITOR.set_snapshot_published_callback(SERVICE.rebuild_predictions_from_existing_bases)
 REALTIME = RealtimeCoordinator()
 _CONTEXT_SECRET = os.getenv("VNEXT_CONTEXT_SECRET", "")
-CONTEXTS = ContextService(_CONTEXT_SECRET) if len(_CONTEXT_SECRET.encode("utf-8")) >= 32 else None
+PUBLICATIONS = PublicationStore(SERVICE._calc_repository)
+CONTEXTS = ContextService(_CONTEXT_SECRET, store=PUBLICATIONS) if len(_CONTEXT_SECRET.encode("utf-8")) >= 32 else None
+READS = ReadPublications(SERVICE, PUBLICATIONS)
+READ_JOBS = ReadRefreshJobs(READS, PUBLICATIONS)
 
 
 def _realtime_health() -> dict:
@@ -57,7 +64,15 @@ def _realtime_ready() -> bool:
 
 
 def _json_bytes(value):
-    return json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    def business_dates(item):
+        if isinstance(item, dict):
+            return {key: business_dates(child) for key, child in item.items()}
+        if isinstance(item, list):
+            return [business_dates(child) for child in item]
+        if isinstance(item, str) and re.fullmatch(r"\d{4}-\d{2}-\d{2}", item):
+            return item.replace("-", "")
+        return item
+    return json.dumps(business_dates(value), ensure_ascii=False, separators=(",", ":")).encode("utf-8")
 
 
 def _html_bytes(value: str) -> bytes:
@@ -185,6 +200,49 @@ class ApiHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(encoded)
 
+    def _issue_context(self, query):
+        if CONTEXTS is None:
+            raise ApiError(50304, "vNext context 签名密钥未配置", 503)
+        page = query.get("page", [""])[0]
+        role = query.get("role", ["current"])[0]
+        entry_id = query.get("entry_id", [""])[0]
+        security_id = query.get("security_id", [""])[0]
+        if page not in ("prediction", "stock", "monitor") or role not in ("current", "next") or not entry_id:
+            raise ApiError(40001, "page、role、entry_id 参数无效", 400)
+        if page == "stock" and (role != "current" or not re.fullmatch(r"\d{6}\.(?:SH|SZ|BJ)", security_id)):
+            raise ApiError(40001, "单股读取范围无效", 400)
+        request = {"page": page, "role": role, "security_id": security_id}
+        identity, saved, pool_hash, count = READS.capture(request)
+        now = datetime.now(SHANGHAI_TZ)
+        data = saved["data"]
+        target = SERVICE._date_key(data.get("targetTradeDate") or data.get("tradeDate"))
+        context, token = CONTEXTS.build_context(
+            dataset_id=identity, dataset_version=identity, pool_version=pool_hash,
+            pool_hash=pool_hash, pool_count=count, rule_version=PREDICTION_RULE_VERSION,
+            time_context_id=now.strftime("%Y%m%d%H%M"), target_date=target,
+            role=role, query=request, next_switch_at=READS.next_boundary(now),
+            stale_until=now.timestamp() + 300,
+        )
+        try:
+            context, token = CONTEXTS.idempotent_context(entry_id, request, context)
+        except IdempotencyConflict as exc:
+            raise ApiError(40901, str(exc), 409) from exc
+        self._respond({"code": 0, "data": {**context.as_payload(), "read_token": {"value": token, "expires_at": context.expires_at}, "entry_id": entry_id}, "message": "ok"})
+
+    def _respond_read_job(self, context, job):
+        if job["status"] == "ready":
+            context = replace(context, realtime_view_id=job["view_id"])
+            token = CONTEXTS.issue(context)
+            data = READS.get(context)["data"]
+            data.update(dataset_id=context.dataset_id, dataset_version=context.dataset_version,
+                        pool_hash=context.pool_hash, pool_version=context.pool_version,
+                        rule_version=context.rule_version, time_context_id=context.time_context_id,
+                        read_token={"value": token, "expires_at": context.expires_at})
+            self._respond({"code": 0, "data": data, "message": "ok"})
+        else:
+            self._respond({"code": 0, "data": {"job_id": job["job_id"], "refresh_state": "queued",
+                "result_state": "stale", "retry_after_ms": 500, "reasons": ["REALTIME_REFRESH_PENDING"]}, "message": "queued"}, status=202)
+
     def do_OPTIONS(self):
         self.send_response(204)
         self.send_header("Access-Control-Allow-Origin", "*")
@@ -223,6 +281,10 @@ class ApiHandler(BaseHTTPRequestHandler):
                         market_calc_error = market_calc_error or str(exc)[:160]
                 monitor_health = OFFICIAL_MONITOR.health_stats(today_is_trade_day)
                 prediction_health = SERVICE.prediction_health(today_is_trade_day)
+                try:
+                    publication_health = PUBLICATIONS.health()
+                except Exception as exc:
+                    publication_health = {"available": False, "backend": "mysql", "errorType": type(exc).__name__}
                 health_payload = {"code": 0, "data": {
                     "service": "ok",
                     "tushareConfigured": SERVICE.client.available,
@@ -253,6 +315,7 @@ class ApiHandler(BaseHTTPRequestHandler):
                     "vnext": {
                         "contextSigningConfigured": CONTEXTS is not None,
                         "pdfSigningConfigured": len(os.getenv("MONITOR_PDF_TOKEN_SECRET", "").encode("utf-8")) >= 32,
+                        "publications": publication_health,
                     },
                     "prediction": prediction_health,
                     "monitor": monitor_health,
@@ -267,41 +330,14 @@ class ApiHandler(BaseHTTPRequestHandler):
                     self._respond(health_payload)
                 return
             if parsed.path == "/api/v2/context":
+                self._issue_context(query)
+                return
+            if re.fullmatch(r"/api/v2/jobs/[a-f0-9]{64}", parsed.path):
                 if CONTEXTS is None:
-                    self._respond({"code": 50304, "data": None, "message": "vNext context 签名密钥未配置"}, status=503)
-                    return
-                page = query.get("page", [""])[0]
-                role = query.get("role", ["current"])[0]
-                entry_id = query.get("entry_id", [""])[0]
-                if page not in ("prediction", "stock", "monitor") or role not in ("current", "next") or not entry_id:
-                    raise ApiError(40001, "page、role、entry_id 参数无效", 400)
-                now = datetime.now(SHANGHAI_TZ)
-                try:
-                    health = SERVICE.prediction_health(SERVICE._is_trade_day(now.strftime("%Y%m%d")))
-                except Exception:
-                    # Context issuance is a read-contract operation. A source
-                    # outage must produce a context whose downstream result is
-                    # unavailable, not turn S1 into an unrelated 503.
-                    health = {}
-                role_state = health.get("today" if role == "current" else "next_day") or {}
-                target_date = str(role_state.get("targetTradeDate") or now.strftime("%Y%m%d"))
-                dataset_version = str(role_state.get("datasetVersion") or role_state.get("updatedAt") or "legacy")
-                request = {"page": page, "role": role, "security_id": query.get("security_id", [""])[0]}
-                context, token = CONTEXTS.build_context(
-                    dataset_id=dataset_version, dataset_version=dataset_version,
-                    pool_version=str(role_state.get("poolVersion") or dataset_version),
-                    pool_hash=str(role_state.get("poolHash") or "legacy"),
-                    pool_count=int(role_state.get("itemCount") or 0),
-                    rule_version=str(role_state.get("ruleVersion") or "legacy"),
-                    time_context_id=now.strftime("%Y%m%d%H%M"), target_date=target_date,
-                    role=role, query=request, next_switch_at=now.timestamp() + 300,
-                    stale_until=now.timestamp() + 300,
-                )
-                try:
-                    context, token = CONTEXTS.idempotent_context(entry_id, request, context)
-                except IdempotencyConflict as exc:
-                    raise ApiError(40901, str(exc), 409) from exc
-                self._respond({"code": 0, "data": {**context.as_payload(), "read_token": {"value": token, "expires_at": context.expires_at}, "entry_id": entry_id}, "message": "ok"})
+                    raise ApiError(50304, "读取上下文尚未配置", 503)
+                context = CONTEXTS.verify(query.get("read_token", [""])[0])
+                READS.get(context)  # validates the still-available saved scope
+                self._respond_read_job(context, READ_JOBS.request(context, parsed.path.rsplit("/", 1)[-1]))
                 return
             if parsed.path == "/api/v2/predictions":
                 if CONTEXTS is None:
@@ -316,10 +352,7 @@ class ApiHandler(BaseHTTPRequestHandler):
                 role = query.get("role", [context.role])[0]
                 if role not in ("current", "next") or not CONTEXTS.scope_matches(context, page="prediction", role=role):
                     raise ApiError(40301, "read_token 不包含此预测读取范围", 403)
-                try:
-                    data = SERVICE.predictions("today" if role == "current" else "next_day")
-                except Exception as exc:
-                    data = {"items": [], "refresh_state": "ready", "result_state": "unavailable", "reasons": ["PUBLISHED_DATA_UNAVAILABLE"]}
+                data = READS.get(context)["data"]
                 data.update({"dataset_id": context.dataset_id, "dataset_version": context.dataset_version, "pool_version": context.pool_version, "pool_hash": context.pool_hash, "rule_version": context.rule_version, "time_context_id": context.time_context_id, "read_token": {"value": token, "expires_at": context.expires_at}})
                 self._respond({"code": 0, "data": data, "message": "ok"})
                 return
@@ -336,7 +369,7 @@ class ApiHandler(BaseHTTPRequestHandler):
                 security_id = query.get("security_id", [""])[0]
                 if not security_id or not CONTEXTS.scope_matches(context, page="stock", role="current", security_id=security_id):
                     raise ApiError(40301, "read_token 不包含此单股读取范围", 403)
-                data = SERVICE.detail(security_id)
+                data = READS.get(context)["data"]
                 data.update({"dataset_id": context.dataset_id, "dataset_version": context.dataset_version,
                              "rule_version": context.rule_version, "time_context_id": context.time_context_id,
                              "read_token": {"value": token, "expires_at": context.expires_at}})
@@ -447,6 +480,8 @@ class ApiHandler(BaseHTTPRequestHandler):
                 self._respond({"code": 40401, "data": None, "message": "接口不存在"}, status=404)
                 return
             self._respond({"code": 0, "data": data, "message": "ok"})
+        except (PublicationUnavailable, ContextExpired) as exc:
+            self._respond({"code": 40902, "data": None, "message": "读取版本已失效，请重新获取上下文"}, status=409)
         except ApiError as exc:
             self._respond({"code": exc.code, "data": None, "message": str(exc)}, status=exc.status)
         except TushareUnavailable as exc:
@@ -464,7 +499,7 @@ class ApiHandler(BaseHTTPRequestHandler):
         """处理不落盘的盘中行情透传和已有预测池刷新。"""
 
         parsed = urlparse(self.path)
-        if parsed.path not in ("/api/predictions/refresh", "/api/quotes/realtime", "/api/v2/realtime/refresh"):
+        if parsed.path not in ("/api/predictions/refresh", "/api/quotes/realtime", "/api/v2/realtime/refresh", "/api/v2/context"):
             self._respond({"code": 40401, "data": None, "message": "接口不存在"}, status=404)
             return
         query = parse_qs(parsed.query)
@@ -482,6 +517,9 @@ class ApiHandler(BaseHTTPRequestHandler):
             self._respond({"code": 40001, "data": None, "message": "请求参数格式错误"}, status=400)
             return
         try:
+            if parsed.path == "/api/v2/context":
+                self._issue_context(query)
+                return
             if parsed.path == "/api/quotes/realtime":
                 raw_codes = payload.get("ts_codes") if isinstance(payload, dict) else None
                 if not isinstance(raw_codes, list) or not raw_codes:
@@ -512,18 +550,19 @@ class ApiHandler(BaseHTTPRequestHandler):
                 except ContextExpired as exc:
                     self._respond({"code": 40902, "data": None, "message": str(exc)}, status=409)
                     return
-                scope = str(payload.get("scope") or ("today" if context.role == "current" else "next_day"))
-                role = "next" if scope == "next_day" else "current"
-                if scope not in ("today", "next_day") or not CONTEXTS.scope_matches(context, page="prediction", role=role):
+                page = str(payload.get("page") or "prediction")
+                if page == "stock":
+                    allowed = CONTEXTS.scope_matches(context, page="stock", role="current", security_id=str(payload.get("security_id") or ""))
+                else:
+                    scope = str(payload.get("scope") or ("today" if context.role == "current" else "next_day"))
+                    role = "next" if scope == "next_day" else "current"
+                    allowed = page == "prediction" and scope in ("today", "next_day") and CONTEXTS.scope_matches(context, page="prediction", role=role)
+                if not allowed:
                     raise ApiError(40301, "read_token 不包含此实时刷新范围", 403)
-                if scope == "today" and SERVICE._prediction_state().get("realtimeRefreshAllowed") and not _realtime_ready():
+                if context.role == "current" and SERVICE._detail_realtime_allowed() and not _realtime_ready():
                     self._respond({"code": 50303, "data": {"items": [], "refresh_state": "failed", "result_state": "unavailable", "reasons": ["SOURCE_POLICY_OR_REDIS_NOT_READY"]}, "message": "实时行情策略或共享协调服务尚未通过发布门禁"}, status=503)
                     return
-                data = SERVICE.refresh_predictions(scope)
-                data.update({"dataset_id": context.dataset_id, "dataset_version": context.dataset_version,
-                             "rule_version": context.rule_version, "time_context_id": context.time_context_id,
-                             "read_token": {"value": token, "expires_at": context.expires_at}})
-                self._respond({"code": 0, "data": data, "message": "ok"})
+                self._respond_read_job(context, READ_JOBS.request(context, wait_seconds=1))
                 return
             scope = query.get("scope", ["today"])[0]
             if scope not in ("today", "next_day"):
@@ -537,6 +576,8 @@ class ApiHandler(BaseHTTPRequestHandler):
             data["refresh_state"] = "ready" if applied else "queued"
             data["result_state"] = "fresh" if applied else "unavailable"
             self._respond({"code": 0, "data": data, "message": "ok"})
+        except (PublicationUnavailable, ContextExpired) as exc:
+            self._respond({"code": 40902, "data": None, "message": "读取版本已失效，请重新获取上下文"}, status=409)
         except ApiError as exc:
             self._respond({"code": exc.code, "data": None, "message": str(exc)}, status=exc.status)
         except TushareUnavailable as exc:
@@ -562,6 +603,7 @@ def main() -> None:
         server.serve_forever()
     finally:
         OFFICIAL_MONITOR.close()
+        READ_JOBS.close()
         SERVICE.close()
 
 

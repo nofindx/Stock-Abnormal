@@ -1,7 +1,5 @@
 // 异动预测页面：只请求后端批量快照，不在前端逐票扫描或模拟刷新。
 const { getPredictions, refreshPredictions } = require('../../utils/api')
-// 只记录“首次成功拿到盘中实时结果”，避免把非交易时段回退误记为完成。
-const FIRST_OPEN_REFRESH_KEY = 'predictionFirstOpenRealtime:v2'
 
 function isIntradayRefreshResult(result = {}) {
   const quality = result.dataQuality || {}
@@ -13,6 +11,7 @@ function normalizeItems(items = [], scope = 'today') {
     severe_30d: '30日异动',
     severe_10d: '10日异动',
     ordinary_3d: '普通异动',
+    same_direction_10d: '10日同向',
   }
   return items.map((item, index) => {
     const rawChange = item.change == null || item.change === '' ? '' : String(item.change)
@@ -40,21 +39,16 @@ function preserveItemOrder(currentItems, nextItems) {
 Page({
   data: { scope: 'today', items: [], refreshing: false, loading: false, error: '', quoteUpdatedAt: '', dataQuality: {}, dataUnavailable: false, nextDayAvailable: true, nextDayReason: '', nextDayNoticeVisible: false },
   onLoad() {
-    let firstOpen = false
-    try { firstOpen = !wx.getStorageSync(FIRST_OPEN_REFRESH_KEY) } catch (error) { firstOpen = true }
-    if (!firstOpen) {
-      this.loadData()
-      return
-    }
-    this.refresh().then((result) => {
-      if (!this.data.error && isIntradayRefreshResult(result)) {
-        try { wx.setStorageSync(FIRST_OPEN_REFRESH_KEY, '1') } catch (error) {}
-      }
-    })
+    // Each page entry reads the published pool first (S1), then refreshes
+    // quotes (S2) only while trading. A device-wide flag misses later entries.
   },
   onShow() {
     const tabBar = this.getTabBar && this.getTabBar()
     if (tabBar) tabBar.setData({ selected: 2 })
+    this.loadData().then((result) => {
+      if (result && result.realtimeRefreshAllowed && this.data.scope === 'today') return this.refresh()
+      return result
+    })
   },
   switchScope(event) {
     const scope = event.currentTarget.dataset.scope
@@ -76,26 +70,36 @@ Page({
     this.setData({ scope, items: [], error: '' }, () => this.loadData())
   },
   loadData() {
-    if (this.data.loading) return Promise.resolve()
+    const scope = this.data.scope
+    const requestId = this.readRequestId = (this.readRequestId || 0) + 1
     this.setData({ loading: true, error: '' })
-    return getPredictions(this.data.scope).then((result) => {
+    return getPredictions(scope).then((result) => {
+      if (requestId !== this.readRequestId || scope !== this.data.scope) return null
+      this.readResult = result
       const quoteUpdatedAt = formatUpdatedAt(result.quoteUpdatedAt)
       this.setData({ items: normalizeItems(result.items, this.data.scope), quoteUpdatedAt, dataQuality: result.dataQuality || {}, dataUnavailable: Boolean(result.dataUnavailable), loading: false, refreshing: false, error: result.error || '', nextDayAvailable: result.nextDayAvailable !== false, nextDayReason: result.nextDayReason || '' })
       getApp().globalData.lastPredictionRefresh = result.quoteUpdatedAt || null
+      return result
     }).catch(() => {
+      if (requestId !== this.readRequestId || scope !== this.data.scope) return
       this.setData({ loading: false, error: '预测数据暂时不可用，请稍后重试' })
     })
   },
   refresh() {
     if (this.data.refreshing || this.data.loading) return Promise.resolve()
     this.setData({ refreshing: true, error: '' })
-    return refreshPredictions(this.data.scope).then((result) => {
+    const scope = this.data.scope
+    const requestId = this.readRequestId
+    return refreshPredictions(scope, this.readResult).then((result) => {
+      if (requestId !== this.readRequestId || scope !== this.data.scope) return null
+      this.readResult = result
       const items = preserveItemOrder(this.data.items, normalizeItems(result.items, this.data.scope))
       const quoteUpdatedAt = formatUpdatedAt(result.quoteUpdatedAt)
       this.setData({ refreshing: false, items, quoteUpdatedAt, dataQuality: result.dataQuality || {}, dataUnavailable: Boolean(result.dataUnavailable), error: result.error || '', nextDayAvailable: result.nextDayAvailable !== false, nextDayReason: result.nextDayReason || '' })
       getApp().globalData.lastPredictionRefresh = result.quoteUpdatedAt || null
       return result
     }).catch(() => {
+      if (requestId !== this.readRequestId || scope !== this.data.scope) return null
       this.setData({ refreshing: false, error: '刷新失败，请稍后重试' })
       return { refreshStatus: 'failed' }
     })

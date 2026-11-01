@@ -76,7 +76,7 @@ class MigrationRunnerTests(unittest.TestCase):
 
     def test_repository_migrations_are_utf8_and_nonempty(self):
         migrations = discover_migrations(Path(__file__).parent)
-        self.assertEqual([item.name for item in migrations], ["001_vnext_foundation.sql", "002_vnext_core.sql"])
+        self.assertEqual([item.name for item in migrations], ["001_vnext_foundation.sql", "002_vnext_core.sql", "003_shared_publications.sql"])
         self.assertTrue(all(item.statements for item in migrations))
 
 

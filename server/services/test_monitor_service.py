@@ -360,7 +360,8 @@ class MonitorWindowTests(unittest.TestCase):
         with patch("server.services.monitor_service.urlopen") as fetch:
             result = self.service.read("current", "all")
 
-        self.assertTrue(result["items"][0]["pdfCached"])
+        self.assertTrue(result["items"][0]["pdfAvailable"])
+        self.assertFalse(result["items"][0]["pdfCached"])
         fetch.assert_not_called()
 
     def test_signed_pdf_token_allows_another_instance_without_its_local_snapshot(self):
@@ -760,7 +761,7 @@ class MonitorWindowTests(unittest.TestCase):
         self.assertEqual(OfficialMonitorService._severe_event_direction("严重异常波动，未披露方向"), "")
 
     def test_monitor_rule_version_requires_refresh_after_direction_change(self):
-        self.assertIn("zts-effective-date", MONITOR_RULE_VERSION)
+        self.assertEqual("20261101-product-policy-v30", MONITOR_RULE_VERSION)
 
     def test_zts_risk_period_starts_on_announcement_date(self):
         dates = [
@@ -1118,6 +1119,40 @@ class MonitorWindowTests(unittest.TestCase):
             self.assertEqual(snapshot["unresolvedFacts"][0]["factType"], "ordinary-abnormality")
         finally:
             service.close()
+
+    def test_ocean_king_two_day_notice_is_one_confirmed_ordinary_event(self):
+        body = "公司股票连续2个交易日内（2026年10月20日、2026年10月21日）收盘价格涨幅偏离值累计超过20%，属于股票交易异常波动。"
+        evidence = self.service._ordinary_reset_evidence("股票交易异常波动公告", body, "002724",
+            "issuer-disclosure", "https://static.cninfo.com.cn/finalpage/2026-10-22/1225614919.PDF")
+        self.assertTrue(evidence["countsForSameDirection"])
+        self.assertEqual(evidence["windowDays"], 2)
+        self.assertEqual(self.service._event_end_date("2026-10-22", body), "2026-10-21")
+
+    def test_next_dated_severe_notice_preserves_independent_broker_card(self):
+        announcements = Mock()
+        announcements.query_broker_risk_alerts.return_value = {"available": True, "items": [{
+            "title": "关于海洋王股票交易风险提示的公告", "stockCode": "002724", "stockName": "海洋王",
+            "date": "2026-10-30", "url": "https://wap.18.cn/article/detail/818/3650", "source": "18.cn",
+            "sourceType": "broker-risk-alert", "sourceRole": "broker_primary",
+            "sourcePriority": 1, "sourceLabel": "18.cn 主源",
+            "body": "交易所将对以上证券的异常交易行为进行从严认定。"}]}
+        announcements.query_zts_risk_alerts.return_value = {"available": True, "items": []}
+        announcements.query_market.return_value = {"available": True, "items": [{
+            "title": "关于股票交易严重异常波动的公告", "stockCode": "002724", "stockName": "海洋王",
+            "date": "2026-11-02", "url": "https://static.cninfo.com.cn/finalpage/2026-11-02/1225650401.PDF", "source": "巨潮资讯"}]}
+        announcements.extract_pdf_text.return_value = "公司股票连续10个交易日内（2026年10月19日至10月30日）收盘价格涨幅偏离值累计超过100%，属于股票交易严重异常波动。"
+        self.service.announcements = announcements
+        self.service._clock = lambda: datetime(2026, 11, 1, 22, tzinfo=SHANGHAI_TZ)
+        days = [(date(2026, 10, 15) + timedelta(days=i)).strftime("%Y-%m-%d") for i in range(45)
+                if (date(2026, 10, 15) + timedelta(days=i)).weekday() < 5]
+        self.service._trade_dates = lambda *_: days
+        self.service._cache_active_pdfs = lambda *_: None
+        self.assertNotIn("error", self.service.refresh())
+        announcements.query_market.assert_called_once_with("2026-08-03", "2026-11-02")
+        snapshot = self.service.repository.active_snapshot()
+        self.assertEqual({x["riskTone"] for x in snapshot["items"]}, {"ordinary", "severe-10d"})
+        severe = next(x for x in snapshot["resetFacts"] if x["riskTone"] == "severe-10d")
+        self.assertEqual(severe["ruleResetDate"], "20261102")
 
 
 if __name__ == "__main__":

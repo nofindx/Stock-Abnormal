@@ -384,8 +384,8 @@ def confirmed_same_direction_event_ledger(confirmed_events: Iterable[Any]) -> Tu
         ).replace("-", "")[:8]
         direction = str(_record_field(item, "direction") or "")
         content_hash = str(
-            _record_field(item, "content_hash") or _record_field(item, "contentHash")
-            or _record_field(item, "body_hash") or _record_field(item, "bodyHash") or ""
+            _record_field(item, "body_hash") or _record_field(item, "bodyHash")
+            or _record_field(item, "content_hash") or _record_field(item, "contentHash") or ""
         ).lower()
         stable_hash = len(content_hash) == 64 and all(char in "0123456789abcdef" for char in content_hash)
         # Cross-source copies are the same fact only when a stable announcement

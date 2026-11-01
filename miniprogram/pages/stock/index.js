@@ -1,12 +1,12 @@
 // 单股查询页：基础行情与当前状态来自后端，未来假设输入在本地即时重算。
-const { searchStocks, getStockDetail, getMonitor } = require('../../utils/api')
+const { searchStocks, getStockDetail, refreshStockDetail } = require('../../utils/api')
 
 function formatSimulationDate(value) {
   const text = String(value == null ? '' : value).trim()
-  const dateMatch = text.match(/^\d{4}([\/-])(\d{1,2})[\/-](\d{1,2})/)
-  if (dateMatch) return `${String(dateMatch[2]).padStart(2, '0')}${dateMatch[1]}${String(dateMatch[3]).padStart(2, '0')}`
+  const dateMatch = text.match(/^(\d{4})[\/-](\d{1,2})[\/-](\d{1,2})/)
+  if (dateMatch) return `${dateMatch[1]}${String(dateMatch[2]).padStart(2, '0')}${String(dateMatch[3]).padStart(2, '0')}`
   const digits = text.replace(/[^\d]/g, '')
-  if (digits.length >= 8) return `${digits.slice(4, 6)}-${digits.slice(6, 8)}`
+  if (digits.length >= 8) return digits.slice(0, 8)
   return text
 }
 
@@ -91,7 +91,7 @@ function formatUpdatedAt(value) {
 function formatMonthDay(value) {
   const text = String(value == null ? '' : value).trim()
   const digits = text.replace(/[^\d]/g, '')
-  if (digits.length >= 8) return `${digits.slice(4, 6)}/${digits.slice(6, 8)}`
+  if (digits.length >= 8) return digits.slice(0, 8)
   const match = text.match(/^(\d{1,2})[/-](\d{1,2})$/)
   if (match) return `${String(match[1]).padStart(2, '0')}/${String(match[2]).padStart(2, '0')}`
   return '--/--'
@@ -295,7 +295,7 @@ function buildNextDayForecast(forecast = {}, monitoringActive = false, currentSe
   const currentSevereIsForFutureSession = Boolean(currentDate && nextTradeDate > currentDate)
   if (currentSevereIsForFutureSession && currentSevereRules.length) {
     const futureLine = forecast.available && nextTradeDate
-      ? `次日预测（按 ${tradeDate.slice(0, 4)}-${tradeDate.slice(4, 6)}-${tradeDate.slice(6)} 收盘数据预测 ${nextTradeDate.slice(0, 4)}-${nextTradeDate.slice(4, 6)}-${nextTradeDate.slice(6)}）`
+      ? `次日预测（按 ${tradeDate} 收盘数据预测 ${nextTradeDate}）`
       : '次日预测'
     const futureUnavailable = !forecast.available || !nextTradeDate || candidates.some(item => !String(item.rule || '').trim())
     const futureText = futureUnavailable
@@ -304,7 +304,7 @@ function buildNextDayForecast(forecast = {}, monitoringActive = false, currentSe
         ? '未发现下一交易日可触发的异动规则'
         : `次日可能触发：${ruleText}`
     return {
-      line: `按 ${tradeDate.slice(0, 4)}-${tradeDate.slice(4, 6)}-${tradeDate.slice(6)} 收盘数据预测`,
+      line: `按 ${tradeDate} 收盘数据预测`,
       text: `已触发：${currentSevereRules.join('；')}`,
       notice: '将进入重点监控池，具体以官方公告为准。',
       futureLine,
@@ -315,7 +315,7 @@ function buildNextDayForecast(forecast = {}, monitoringActive = false, currentSe
     }
   }
   if (!forecast.available || !nextTradeDate) return unavailable()
-  const line = `按 ${tradeDate.slice(0, 4)}-${tradeDate.slice(4, 6)}-${tradeDate.slice(6)} 收盘数据预测 ${nextTradeDate.slice(0, 4)}-${nextTradeDate.slice(4, 6)}-${nextTradeDate.slice(6)}`
+  const line = `按 ${tradeDate} 收盘数据预测 ${nextTradeDate}`
   if (candidates.some(item => !String(item.rule || '').trim())) return unavailable()
   const text = assessment.tone === 'safe'
     ? '未发现下一交易日可触发的异动规则'
@@ -467,6 +467,9 @@ function presentWarnings(warnings = [], options = {}) {
   }
   const presented = warnings.map((item) => {
     if (item.title === '10 日同向') {
+      if (item.availability === 'unavailable' || item.exact_count === null) {
+        return { ...item, currentText: '待核验', currentNumber: '待核验', currentUnit: '', currentFontSize: 22, remainingText: '公告覆盖或方向待核验', ringText: '--', ringValueClass: '', progress: 0, tone: 'unknown', labelTone: 'unknown', toneColor: colors.unknown, valueClass: '' }
+      }
       const up = Number(item.up || 0)
       const match = String(item.target || '').match(/(\d+(?:\.\d+)?)\s*次/)
       const limit = match ? Number(match[1]) : 0
@@ -600,11 +603,22 @@ Page({
     this.detailRequestId = (this.detailRequestId || 0) + 1
     const requestId = this.detailRequestId
     this.setData({ selected: stock, detail: null, detailLoading: true, detailError: '', dataUpdatedAt: '', nextDayForecastLine: '', nextDayForecastText: '正在核对下一交易日预测…', nextDayForecastNotice: '', query: stock.name === '正在加载' ? stock.ts_code : `${stock.name} ${stock.symbol}`, suggestions: [], suggestionHint: false, inputRows, matrixGroups: buildMatrixGroups(inputRows), simulationExpanded: false, visibleDays: 2 })
-    Promise.all([
-      getStockDetail(stock.ts_code),
-      // 详情页读取未去杂的监管快照；监控接口失败不影响行情详情展示。
-      getMonitor({ status: 'current', type: 'all' }).catch(() => ({ items: [] }))
-    ]).then(([detail, monitorSnapshot]) => {
+    const render = detail => {
+      this.renderStockDetail(detail, { items: detail.monitoringFacts || [] }, stock, requestId)
+      return detail
+    }
+    getStockDetail(stock.ts_code).then(render).then(detail => {
+      if (requestId !== this.detailRequestId || !detail.realtimeRefreshAllowed) return
+      return refreshStockDetail(stock.ts_code, detail).then(render)
+        .catch(() => { /* S2 failure retains the visible, confirmed S1. */ })
+    }).catch((error) => {
+      if (requestId !== this.detailRequestId) return
+      const message = error && error.message ? String(error.message) : ''
+      const isDataError = /数据库|收益向量|基线|交易区间|共同交易/.test(message)
+      this.setData({ detailLoading: false, detailError: isDataError ? message : '行情暂时不可用，请稍后重试' })
+    })
+  },
+  renderStockDetail(detail, monitorSnapshot, stock, requestId) {
       if (requestId !== this.detailRequestId) return
       const stockCode = detail.ts_code || stock.ts_code
       // The endpoint may choose a severe event as its primary monitoring fact;
@@ -612,7 +626,7 @@ Page({
       // management is not mislabeled as severe monitoring on retired stocks.
       const monitoring = selectStockMonitoring(
         detail.monitoring,
-        monitorSnapshot.items,
+        Array.isArray(detail.monitoringFacts) ? detail.monitoringFacts : monitorSnapshot.items,
         stockCode,
         detail.symbol || stock.symbol,
         detail.tradeDate
@@ -624,7 +638,7 @@ Page({
       const rows = calculateSimulationRows(createInputRows(2, futureTradeDates), detailWithMonitoring)
       const ruleFactsStatus = String((detailWithMonitoring.dataQuality && detailWithMonitoring.dataQuality.ruleFacts || {}).status || 'unknown')
       const marketDataAvailable = (
-        (!detailWithMonitoring.stockState || detailWithMonitoring.stockState.dataAvailable !== false)
+        (!detailWithMonitoring.stockState || detailWithMonitoring.stockState.marketDataState !== 'unavailable')
         && (!detailWithMonitoring.dataQuality || detailWithMonitoring.dataQuality.isComplete !== false)
       )
       const displayDetail = {
@@ -638,7 +652,7 @@ Page({
           nextDayRules: detailWithMonitoring.nextDayForecast && detailWithMonitoring.nextDayForecast.available
             ? (detailWithMonitoring.nextDayForecast.rules || [])
             : [],
-          forceUnknown: ruleFactsStatus !== 'available' || !marketDataAvailable
+          forceUnknown: !marketDataAvailable
         }),
         alerts: presentAlerts(detailWithMonitoring.alerts),
         monitoringSummary: formatMonitoringSummary(monitoring && {
@@ -669,12 +683,6 @@ Page({
       const recentStocks = [{ ts_code: detailWithMonitoring.ts_code || stock.ts_code, symbol: detailWithMonitoring.symbol || stock.symbol || stock.ts_code.split('.')[0], name: detailWithMonitoring.name || stock.name || stock.ts_code }, ...(this.data.recentStocks || []).filter(item => item.ts_code !== (detailWithMonitoring.ts_code || stock.ts_code))].slice(0, 8)
       wx.setStorageSync(STOCK_HISTORY_KEY, recentStocks)
       this.setData({ selected: { ...stock, ...detailWithMonitoring }, detail: displayDetail, detailLoading: false, detailError: '', dataUpdatedAt, recentStocks, futureTradeDates, inputRows: rows, matrixGroups: buildMatrixGroups(rows), query: `${detailWithMonitoring.name} ${detailWithMonitoring.symbol}`, nextDayForecastLine: forecast.line, nextDayForecastText: forecast.text, nextDayForecastNotice: forecast.notice || '' })
-    }).catch((error) => {
-      if (requestId !== this.detailRequestId) return
-      const message = error && error.message ? String(error.message) : ''
-      const isDataError = /数据库|收益向量|基线|交易区间|共同交易/.test(message)
-      this.setData({ detailLoading: false, detailError: isDataError ? message : '行情暂时不可用，请稍后重试' })
-    })
   },
   expandSimulation() {
     if (this.data.simulationExpanded) return
