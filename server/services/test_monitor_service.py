@@ -17,6 +17,9 @@ class MonitorWindowTests(unittest.TestCase):
         self.temp_dir = tempfile.TemporaryDirectory()
         self.previous_db_path = os.environ.get("MONITOR_DB_PATH")
         os.environ["MONITOR_DB_PATH"] = os.path.join(self.temp_dir.name, "monitor.db")
+        self.window_patch = patch.object(OfficialMonitorService, "_announcement_window_start", return_value="2026-09-01")
+        self.window_patch.start()
+        self.addCleanup(self.window_patch.stop)
         self.service = OfficialMonitorService(client=object(), announcements=object())
 
     def tearDown(self):
@@ -761,7 +764,7 @@ class MonitorWindowTests(unittest.TestCase):
         self.assertEqual(OfficialMonitorService._severe_event_direction("严重异常波动，未披露方向"), "")
 
     def test_monitor_rule_version_requires_refresh_after_direction_change(self):
-        self.assertEqual("20261101-product-policy-v30", MONITOR_RULE_VERSION)
+        self.assertEqual("20261101-product-policy-v31", MONITOR_RULE_VERSION)
 
     def test_zts_risk_period_starts_on_announcement_date(self):
         dates = [
@@ -1167,11 +1170,50 @@ class MonitorWindowTests(unittest.TestCase):
         self.service._trade_dates = lambda *_: days
         self.service._cache_active_pdfs = lambda *_: None
         self.assertNotIn("error", self.service.refresh())
-        announcements.query_market.assert_called_once_with("2026-08-03", "2026-11-02")
+        announcements.query_market.assert_called_once_with("2026-09-01", "2026-11-02")
         snapshot = self.service.repository.active_snapshot()
         self.assertEqual({x["riskTone"] for x in snapshot["items"]}, {"ordinary", "severe-10d"})
         severe = next(x for x in snapshot["resetFacts"] if x["riskTone"] == "severe-10d")
         self.assertEqual(severe["ruleResetDate"], "20261102")
+
+
+class AnnouncementLookbackTests(unittest.TestCase):
+    def service(self, rows):
+        service = OfficialMonitorService.__new__(OfficialMonitorService)
+        service.client = Mock()
+        service.client.trade_cal.return_value = rows
+        service.repository = Mock()
+        service.repository.active_snapshot.return_value = {}
+        return service
+
+    def test_thirty_completed_sessions_not_ninety_natural_days(self):
+        dates = [date(2026, 9, 1) + timedelta(days=i) for i in range(70)]
+        # Explicit fake exchange holiday: weekdays are not automatically open.
+        closed = {date(2026, 10, day) for day in range(1, 8)}
+        opens = [day for day in dates if day.weekday() < 5 and day not in closed]
+        service = self.service([{"cal_date": day.strftime("%Y%m%d"), "is_open": 1} for day in opens])
+        now = datetime(2026, 11, 1, 23, tzinfo=SHANGHAI_TZ)
+        expected = [day for day in opens if day <= now.date()][-30]
+        self.assertEqual(service._announcement_window_start(now), expected.strftime("%Y-%m-%d"))
+
+    def test_before_close_does_not_count_unfinished_today(self):
+        opens = [date(2026, 9, 1) + timedelta(days=i) for i in range(80)]
+        opens = [day for day in opens if day.weekday() < 5]
+        service = self.service([{"cal_date": day.strftime("%Y%m%d"), "is_open": 1} for day in opens])
+        now = datetime(2026, 11, 2, 9, tzinfo=SHANGHAI_TZ)
+        expected = [day for day in opens if day < now.date()][-30]
+        self.assertEqual(service._announcement_window_start(now), expected.strftime("%Y-%m-%d"))
+
+    def test_missing_calendar_does_not_invent_weekday_coverage(self):
+        service = self.service([])
+        with self.assertRaisesRegex(RuntimeError, "交易日历"):
+            service._announcement_window_start(datetime(2026, 11, 1))
+
+    def test_calendar_outage_reuses_previous_complete_coverage_boundary(self):
+        service = self.service([])
+        service.repository.active_snapshot.return_value = {"dataQuality": {"sourceHealth": {
+            "issuerCoverage": {"complete": True, "startDate": "20260914"}}}}
+        self.assertEqual(service._announcement_window_start(datetime(2026, 11, 1)), "2026-09-14")
 
 
 if __name__ == "__main__":

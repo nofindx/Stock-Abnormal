@@ -142,7 +142,7 @@ class AnnouncementService:
         except (TypeError, ValueError, OSError):
             return ""
 
-    def query_market(self, start_date: str, end_date: str, page_size: int = 50) -> Dict[str, Any]:
+    def query_market(self, start_date: str, end_date: str, page_size: int = 30) -> Dict[str, Any]:
         """按日期批量获取全市场异动相关公告，并按公告原文 URL 去重。"""
 
         found: Dict[str, Dict[str, Any]] = {}
@@ -151,6 +151,10 @@ class AnnouncementService:
         # 巨潮的 fulltext 查询按交易所栏目分别执行；北交所使用 bse，
         # 否则 8/4/9 开头的北交所股票（例如世纪数码 920229）会漏掉。
         requests_left = self.market_request_budget
+        # The live endpoint repeats page 1 when pageSize=50.  Its supported
+        # pagination size is 30; a larger client request must not silently
+        # invalidate coverage or spend 200 requests on the same page.
+        page_size = max(1, min(int(page_size), 30))
         initial_start = datetime.strptime(start_date.replace("-", ""), "%Y%m%d")
         initial_end = datetime.strptime(end_date.replace("-", ""), "%Y%m%d")
         if initial_start > initial_end:
@@ -161,6 +165,8 @@ class AnnouncementService:
                 while ranges:
                     range_start, range_end = ranges.pop()
                     page_limit = self.market_pages_per_day if range_start == range_end else self.market_pages_per_range
+                    seen_pages = set()
+                    seen_rows = set()
                     for page in range(1, page_limit + 1):
                         if requests_left <= 0:
                             errors.append(f"{column}:{keyword}:request_budget_exhausted")
@@ -171,6 +177,7 @@ class AnnouncementService:
                             "pageNum": page, "pageSize": page_size, "column": column, "tabName": "fulltext",
                             "plate": "", "stock": "", "searchkey": keyword, "secid": "", "category": "",
                             "trade": "", "seDate": f"{range_start:%Y-%m-%d}~{range_end:%Y-%m-%d}",
+                            "sortName": "time", "sortType": "desc", "isHLtitle": "false",
                         }
                         try:
                             response = self._request(payload)
@@ -180,8 +187,29 @@ class AnnouncementService:
                             errors.append(f"{column}:{keyword}:{payload['seDate']}:source_failed")
                             break
                         rows = response.get("announcements") or []
+                        identities = tuple(sorted(
+                            f"{row.get('announcementId', '')}:{row.get('secCode', '')}:" +
+                            str(row.get("adjunctUrl") or json.dumps(row, ensure_ascii=False, sort_keys=True))
+                            for row in rows))
+                        repeated = bool(rows) and identities in seen_pages
+                        seen_pages.add(identities)
+                        seen_rows.update(identities)
                         self._collect_market_rows(rows, column, found, supporting)
+                        if repeated:
+                            if range_start < range_end:
+                                middle = range_start + timedelta(days=(range_end - range_start).days // 2)
+                                ranges.extend([(middle + timedelta(days=1), range_end), (range_start, middle)])
+                            else:
+                                errors.append(f"{column}:{keyword}:{payload['seDate']}:pagination_incomplete:repeated_page")
+                            break
                         if not response.get("hasMore"):
+                            expected = int(response.get("totalAnnouncement") or 0)
+                            if expected > len(seen_rows):
+                                if range_start < range_end:
+                                    middle = range_start + timedelta(days=(range_end - range_start).days // 2)
+                                    ranges.extend([(middle + timedelta(days=1), range_end), (range_start, middle)])
+                                else:
+                                    errors.append(f"{column}:{keyword}:{payload['seDate']}:pagination_incomplete:total_mismatch")
                             break
                         if not rows:
                             errors.append(f"{column}:{keyword}:{payload['seDate']}:empty_page_has_more")
@@ -219,7 +247,8 @@ class AnnouncementService:
             normalized_title = re.sub(r"\s+", "", title)
             is_inquiry_reply = (any(marker in normalized_title for marker in ("回函", "复函", "回复", "答复"))
                                 and any(marker in normalized_title for marker in ("征询函", "问询函", "异常波动")))
-            (supporting if is_inquiry_reply else found)[key] = item
+            is_inquiry_letter = bool(re.search(r"(?:问询函|征询函|询证函)(?:的公告)?$", normalized_title)) and "股票交易异常波动公告" not in normalized_title
+            (supporting if is_inquiry_reply or is_inquiry_letter else found)[key] = item
 
 
     @staticmethod
@@ -461,7 +490,7 @@ class AnnouncementService:
             return {"items": [], "source": "巨潮资讯", "sourceUrl": self.endpoint, "available": True}
         column = "bse" if symbol.startswith(("4", "8", "9")) else "szse" if symbol.startswith(("0", "2", "3")) else "sse"
         payload = {
-            "pageNum": 1, "pageSize": max(20, min(int(limit) * 5, 50)),
+            "pageNum": 1, "pageSize": max(20, min(int(limit) * 5, 30)),
             "column": column,
             "tabName": "fulltext", "plate": "", "stock": "", "searchkey": symbol,
             "secid": "", "category": "", "trade": "", "seDate": "",

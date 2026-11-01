@@ -5,6 +5,88 @@ from server.services.announcement_service import AnnouncementService
 
 
 class PdfBodyExtractionTests(unittest.TestCase):
+    def test_live_compatible_page_size_and_sorting_retrieve_second_page(self):
+        service = AnnouncementService()
+        service.keywords = ("股票交易异常波动",)
+        calls = []
+        def request(payload):
+            calls.append(payload)
+            self.assertEqual(payload["pageSize"], 30)
+            self.assertEqual(payload["sortType"], "desc")
+            page = payload["pageNum"]
+            return {"announcements": [{"announcementTitle": "股票交易异常波动公告", "secCode": "002724",
+                     "adjunctUrl": f"page-{page}.pdf"}], "hasMore": page == 1, "totalAnnouncement": 2}
+        service._request = request
+        result = service.query_market("20260805", "20260805", page_size=50)
+        self.assertTrue(result["coverage"]["complete"])
+        self.assertEqual(len(result["items"]), 2)
+        self.assertEqual(len(calls), 6)
+
+    def test_repeated_page_stops_without_using_entire_daily_budget(self):
+        service = AnnouncementService()
+        service.keywords = ("股票交易异常波动",)
+        calls = []
+        def request(payload):
+            calls.append(payload)
+            return {"announcements": [{"announcementTitle": "股票交易异常波动公告", "secCode": "002724",
+                     "adjunctUrl": "same.pdf"}], "hasMore": True}
+        service._request = request
+        result = service.query_market("20260805", "20260805")
+        self.assertFalse(result["coverage"]["complete"])
+        self.assertIn("repeated_page", result["error"])
+        self.assertEqual(len(calls), 6)
+
+    def test_total_count_mismatch_is_not_complete_coverage(self):
+        service = AnnouncementService()
+        service.keywords = ("股票交易异常波动",)
+        service._request = lambda _: {"announcements": [], "hasMore": False, "totalAnnouncement": 42}
+        result = service.query_market("20260805", "20260805")
+        self.assertFalse(result["coverage"]["complete"])
+        self.assertIn("total_mismatch", result["error"])
+
+    def test_multi_day_total_mismatch_is_retried_as_date_partitions(self):
+        service = AnnouncementService()
+        service.keywords = ("股票交易异常波动",)
+        calls = []
+
+        def request(payload):
+            calls.append(dict(payload))
+            window = payload["seDate"]
+            return {"announcements": [{"announcementTitle": "股票交易异常波动公告",
+                    "secCode": "002724", "adjunctUrl": window + ".pdf"}],
+                    "hasMore": False, "totalAnnouncement": 2 if window == "2026-10-29~2026-10-30" else 1}
+
+        service._request = request
+        result = service.query_market("20261029", "20261030")
+        self.assertTrue(result["coverage"]["complete"])
+        self.assertEqual(len(calls), 9)
+
+    def test_repeated_multi_day_page_is_retried_as_date_partitions(self):
+        service = AnnouncementService()
+        service.keywords = ("股票交易异常波动",)
+        calls = []
+
+        def request(payload):
+            calls.append(dict(payload))
+            window = payload["seDate"]
+            return {"announcements": [{"announcementTitle": "股票交易异常波动公告",
+                    "secCode": "002724", "adjunctUrl": window + ".pdf"}],
+                    "hasMore": window == "2026-10-29~2026-10-30"}
+
+        service._request = request
+        result = service.query_market("20261029", "20261030")
+        self.assertTrue(result["coverage"]["complete"])
+        self.assertEqual(len(calls), 12)
+
+    def test_board_inquiry_letter_is_supporting_material_not_an_event(self):
+        service = AnnouncementService()
+        service.keywords = ("股票交易异常波动",)
+        service._request = lambda _: {"announcements": [{"announcementTitle": "宝泰隆新材料股份有限公司董事会关于股票交易异常波动问询函",
+            "secCode": "601011", "adjunctUrl": "finalpage/2026-08-21/inquiry.PDF"}], "hasMore": False}
+        result = service.query_market("20260821", "20260821")
+        self.assertEqual(result["items"], [])
+        self.assertEqual(len(result["supportingItems"]), 1)
+
     def test_full_range_is_split_instead_of_silently_truncated(self):
         service = AnnouncementService()
         service.keywords = ("股票交易异常波动",)

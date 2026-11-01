@@ -48,7 +48,7 @@ MONITOR_PERIOD_TRADING_DAYS = {
 MONITOR_WINDOW_TRADING_DAYS = MONITOR_PERIOD_TRADING_DAYS
 # 公告分类口径变化时，启动任务主动重采一次当前快照；避免必须等到次日
 # 00:00 才让修复后的北交所严重异动进入重点监控。
-MONITOR_RULE_VERSION = "20261101-product-policy-v30"
+MONITOR_RULE_VERSION = "20261101-product-policy-v31"
 
 # 只有官方披露平台上的发行人/交易所事实，才有资格改变行情累计基线。
 # 可读正文优先；普通异动正文短时不可读时，官方标题只能作为待行情核验
@@ -1137,6 +1137,34 @@ class OfficialMonitorService:
                 item["sourceCount"] = 0
         return selected_items
 
+    def _announcement_window_start(self, now: datetime) -> str:
+        """Cover the longest calculation horizon, using completed sessions.
+
+        Existing active monitoring records and the durable fact ledger survive
+        outside this *acquisition* window; it is not their expiry condition.
+        """
+        try:
+            frame = self.client.trade_cal((now - timedelta(days=120)).strftime("%Y%m%d"), now.strftime("%Y%m%d"))
+            rows = frame.to_dict("records") if hasattr(frame, "to_dict") else frame
+            last_completed = now.date() if now.hour >= 15 else (now - timedelta(days=1)).date()
+            dates = sorted({
+                datetime.strptime(str(row.get("cal_date", "")).replace("-", ""), "%Y%m%d").date()
+                for row in rows or [] if int(row.get("is_open", 0)) == 1
+            })
+            completed = [day for day in dates if day <= last_completed]
+            if len(completed) >= 30:
+                return completed[-30].strftime("%Y-%m-%d")
+        except Exception:
+            pass
+        # A previous verified coverage boundary is conservative on a calendar
+        # outage. Never invent 30 sessions from weekdays/natural-day arithmetic.
+        snapshot = self.repository.active_snapshot() or {}
+        coverage = ((snapshot.get("dataQuality") or {}).get("sourceHealth") or {}).get("issuerCoverage") or {}
+        previous_start = str(coverage.get("startDate") or "").replace("-", "")
+        if coverage.get("complete") and len(previous_start) == 8:
+            return datetime.strptime(previous_start, "%Y%m%d").strftime("%Y-%m-%d")
+        raise RuntimeError("正式交易日历不可用，无法确定公告最近30个交易日的采集边界")
+
     def refresh(self) -> Dict[str, Any]:
         """后台调用：公告源完整可用且快照校验通过后才原子发布。"""
 
@@ -1150,8 +1178,9 @@ class OfficialMonitorService:
         run_id = now.strftime("%Y%m%d%H%M%S%f")
         self.repository.set_state("last_attempt_date", now.strftime("%Y-%m-%d"))
         try:
-            # 覆盖最长 30 个交易日判定回看窗口及其后 30 个自然日的公告校验窗口。
-            start_date = (now - timedelta(days=90)).strftime("%Y-%m-%d")
+            # Only the longest current calculation horizon needs backfill.
+            # Monitoring expiry and durable evidence retention are independent.
+            start_date = self._announcement_window_start(now)
             broker_result = self.announcements.query_broker_risk_alerts(start_date, now.strftime("%Y-%m-%d"))
             broker_available = bool(broker_result.get("available"))
             broker_partial = bool(broker_result.get("partial"))
@@ -1463,7 +1492,7 @@ class OfficialMonitorService:
                 else item for item in parsed_reset_facts
             ]
             # 正文读取失败的官方命中不能因下一次关键词分页变化而消失。
-            # 保留 90 日内未被同源正式正文事实替换的 pending 记录；正文
+            # 保留采集窗口内未被同源正式正文事实替换的 pending 记录；正文
             # 恢复后使用相同 sourceId 写入正式事实时自动移除。
             confirmed_fact_ids = {
                 str(item.get("sourceId") or "")
@@ -1475,7 +1504,7 @@ class OfficialMonitorService:
                 str(item.get("sourceId") or ""): item
                 for item in [*(previous_snapshot.get("unresolvedFacts") or []), *issuer_unread_facts]
                 if item.get("sourceId")
-                and str(item.get("announcementDate") or "") >= start_date
+                and str(item.get("announcementDate") or "").replace("-", "")[:8] >= start_date.replace("-", "")
                 and str(item.get("sourceId")) not in confirmed_fact_ids
                 and str(item.get("sourceId")) not in excluded_pending_source_ids
             }
@@ -1490,7 +1519,7 @@ class OfficialMonitorService:
                 for item in [*(previous_snapshot.get("resetFacts") or []), *parsed_reset_facts]
                 if item.get("sourceId")
             }
-            reset_cutoff = (now - timedelta(days=60)).strftime("%Y%m%d")
+            reset_cutoff = start_date.replace("-", "")
             reset_facts = [
                 item for item in reset_by_id.values()
                 if str(item.get("ruleResetDate") or "").replace("-", "") >= reset_cutoff
