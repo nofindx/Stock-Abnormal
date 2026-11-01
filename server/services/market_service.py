@@ -3000,6 +3000,7 @@ class MarketService:
                         )
                     self._prediction_cache[scope] = (updated_at, items)
                     self._prediction_trade_date[scope] = target_trade_date
+                    self._prediction_last_error.pop(scope, None)
                     continue
                 items = self._compute_prediction_from_repository(scope, use_realtime=False, target_trade_date=target_trade_date) or []
                 for item in items:
@@ -3056,6 +3057,8 @@ class MarketService:
                         exclusion_stats=self._prediction_generation_stats.get(scope, {}),
                         status="ready" if snapshot_complete else "incomplete",
                     )
+                if not self._calc_repository.available or snapshot_complete:
+                    self._prediction_last_error.pop(scope, None)
             except Exception as exc:  # noqa: BLE001 - 保留上一份成功数据并记录任务失败
                 self._prediction_last_error[scope] = str(exc)
                 if self._calc_repository.available:

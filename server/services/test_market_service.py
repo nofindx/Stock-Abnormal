@@ -115,6 +115,7 @@ class MarketVectorTests(unittest.TestCase):
 
     def test_today_dataset_recomputes_candidate_fields_from_target_day_baseline(self):
         service = self.service
+        service._prediction_last_error = {"today": "previous failure", "next_day": "previous failure"}
         archived_forecast = {
             "scope": "next_day", "target_trade_date": "20261016", "base_trade_date": "20261015",
             "items": [{"ts_code": "002242.SZ", "ruleKey": "severe_10d", "deviationLabel": "9日 +94.43%"}],
@@ -158,6 +159,35 @@ class MarketVectorTests(unittest.TestCase):
         self.assertEqual(today_items[0]["targetTradeDate"], "20261016")
         self.assertEqual(today_items[0]["scope"], "当日")
         self.assertEqual(service._prediction_trade_date["today"], "20261016")
+        self.assertEqual(service._prediction_last_error, {})
+
+    def test_successful_retry_clears_missing_candidate_failure(self):
+        service = self.service
+        service._calc_repository = SimpleNamespace(available=False)
+        service._latest_data_stage_date = lambda: ("20261016", "formal")
+        service.client.trade_cal = lambda *_args: SimpleNamespace(to_dict=lambda *_args, **_kwargs: [
+            {"cal_date": "20261016", "is_open": 1}, {"cal_date": "20261019", "is_open": 1},
+        ])
+        service._prediction_record = lambda *_args, **_kwargs: None
+        service._compute_prediction_from_repository = lambda *_args, **_kwargs: []
+
+        service._generate_prediction_datasets("formal")
+
+        self.assertIn("缺少 20261016", service._prediction_last_error["today"])
+        self.assertNotIn("today", service._prediction_cache)
+        source = {
+            "scope": "next_day", "target_trade_date": "20261016", "base_trade_date": "20261015",
+            "items": [], "status": "ready", "dataset_quote_complete": True,
+        }
+        service._prediction_record = lambda scope, target_trade_date="": (
+            source if scope == "next_day" and target_trade_date == "20261016" else None
+        )
+
+        service._generate_prediction_datasets("formal")
+
+        self.assertIn("today", service._prediction_cache)
+        self.assertEqual(service._prediction_trade_date["today"], "20261016")
+        self.assertEqual(service._prediction_last_error, {})
 
     def test_today_dataset_refuses_partial_candidate_recalculation(self):
         service = self.service
