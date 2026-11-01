@@ -1,4 +1,9 @@
 const assert = require('assert')
+const fs = require('fs')
+const path = require('path')
+const template = fs.readFileSync(path.join(__dirname, 'index.wxml'), 'utf8')
+assert(template.includes('item.pdfAvailable && item.sourceUrl'))
+assert(!template.includes('item.pdfCached && item.sourceUrl'))
 
 global.Page = () => {}
 const { isVisibleMonitorItem } = require('./index')
