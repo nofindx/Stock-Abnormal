@@ -5,7 +5,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
 
-from server.services.market_service import MarketService
+from server.services.market_service import MarketService, PREDICTION_RULE_VERSION
 
 
 class ProductionRegressionTests(unittest.TestCase):
@@ -70,6 +70,46 @@ class ProductionRegressionTests(unittest.TestCase):
         self.assertNotIn(("688836.SH", "severe_10d"), keys)
         self.assertEqual(repaired["base_trade_date"], "20261029")
         self.assertEqual(repaired["rule_version"], "v69")
+
+    def test_incomplete_current_version_candidates_are_rebuilt_from_prior_close(self):
+        self.service._calc_repository.save_prediction = Mock()
+        source = {"rule_version": PREDICTION_RULE_VERSION, "base_trade_date": "20261030",
+            "target_trade_date": "20261030", "items": [], "status": "incomplete",
+            "dataset_quote_complete": False}
+        repaired = self.service._repair_prior_candidates(source, "20261030")
+        self.assertEqual(repaired["base_trade_date"], "20261029")
+        self.assertEqual(repaired["target_trade_date"], "20261030")
+        self.assertEqual(repaired["rule_version"], PREDICTION_RULE_VERSION)
+        self.assertEqual(repaired["status"], "ready")
+        self.assertTrue(repaired["dataset_quote_complete"])
+        self.service._calc_repository.save_prediction.assert_called_once()
+
+    def test_missing_prior_candidates_are_rebuilt_from_persisted_history(self):
+        self.service._calc_repository.save_prediction = Mock()
+        repaired = self.service._repair_prior_candidates(None, "20261030")
+        self.assertIsNotNone(repaired)
+        self.assertEqual(repaired["base_trade_date"], "20261029")
+        self.assertEqual(repaired["target_trade_date"], "20261030")
+        self.assertEqual(repaired["rule_version"], PREDICTION_RULE_VERSION)
+        self.assertTrue(repaired["dataset_quote_complete"])
+        self.service._calc_repository.save_prediction.assert_called_once()
+
+    def test_today_recompute_failure_does_not_overwrite_dataset_with_empty_items(self):
+        repository = self.service._calc_repository
+        repository.save_prediction = Mock()
+        repository.fail_prediction = Mock()
+        self.service._latest_data_stage_date = lambda: ("20261030", "formal")
+        self.service.client.trade_cal = lambda *_: SimpleNamespace(to_dict=lambda *_: [
+            {"cal_date": "20261030", "is_open": 1}, {"cal_date": "20261102", "is_open": 1}])
+        self.service._prediction_record = lambda *_args, **_kwargs: None
+        repository.all_calculations = lambda: {}
+        repository.all_indexes = lambda: {}
+        self.service._compute_prediction_from_repository = lambda *_args, **_kwargs: None
+        self.service._generate_prediction_datasets("formal")
+        today_writes = [call for call in repository.save_prediction.call_args_list
+            if call.args and call.args[0] == "today"]
+        self.assertEqual(today_writes, [])
+        repository.fail_prediction.assert_any_call("today", unittest.mock.ANY)
 
     def test_formal_close_supplements_new_candidates_without_intraday_scanning(self):
         self.service._calc_repository.save_prediction = Mock()

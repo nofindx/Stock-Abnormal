@@ -454,19 +454,31 @@ class MarketService:
         repository.update_derived_metrics(updates)
 
     def _repair_prior_candidates(self, source, target_date):
-        """Replay a previous close under this rule version, without refetching prices.
+        """Replay a complete prior-close candidate set without refetching prices.
 
-        A version upgrade must not perpetuate candidates selected by the old
-        bug. Quotes after the prior base date are excluded from this replay.
+        An absent, incomplete, misdated, or old-rule dataset is rebuilt only
+        from persisted vectors strictly before ``target_date``. Quotes from
+        the target session are never allowed to select prior-session entries.
         """
         repository = self._calc_repository
-        if not repository.available or (source or {}).get("rule_version") == PREDICTION_RULE_VERSION:
+        if not repository.available:
+            return source
+        source = source or {}
+        source_is_complete = (
+            self._date_key(source.get("target_trade_date")) == self._date_key(target_date)
+            and bool(self._date_key(source.get("base_trade_date")))
+            and self._date_key(source.get("base_trade_date")) < self._date_key(target_date)
+            and source.get("status") == "ready"
+            and bool(source.get("dataset_quote_complete"))
+            and source.get("rule_version") == PREDICTION_RULE_VERSION
+        )
+        if source_is_complete:
             return source
         calculations, indexes = repository.all_calculations() or {}, repository.all_indexes() or {}
         common = sorted({self._date_key(point.get("date")) for row in indexes.values()
                          for point in self._vector_entries(row.get("index_return_vector"))
                          if self._date_key(point.get("date")) < target_date})
-        base = self._date_key((source or {}).get("base_trade_date")) or (common[-1] if common else "")
+        base = common[-1] if common else ""
         if not base or base >= target_date:
             return source
         def truncate(rows, key):
@@ -3146,21 +3158,8 @@ class MarketService:
             except Exception as exc:  # noqa: BLE001 - 保留上一份成功数据并记录任务失败
                 self._prediction_last_error[scope] = str(exc)
                 if self._calc_repository.available:
-                    if scope == "today":
-                        # 旧版本可能已把同日收盘重算的错误数据写入 today。
-                        # 明确落为 incomplete，避免失败状态仍携带错误卡片。
-                        self._calc_repository.save_prediction(
-                            scope, target_trade_date, [], self._now(),
-                            data_stage=data_stage,
-                            data_quality="provisional" if data_stage == "initial" else "confirmed",
-                            rule_version=PREDICTION_RULE_VERSION,
-                            target_trade_date=target_trade_date,
-                            base_trade_date=base_trade_date,
-                            dataset_quote_as_of=base_trade_date,
-                            dataset_quote_complete=False,
-                            exclusion_stats=self._prediction_generation_stats.get(scope, {}),
-                            status="incomplete",
-                        )
+                    # A failed recomputation must not overwrite the last
+                    # published dataset with an empty or partial snapshot.
                     self._calc_repository.fail_prediction(scope, str(exc))
 
     def detail(self, ts_code: str, *, use_realtime: bool = True) -> Dict[str, Any]:
