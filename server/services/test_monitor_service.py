@@ -1128,6 +1128,25 @@ class MonitorWindowTests(unittest.TestCase):
         self.assertEqual(evidence["windowDays"], 2)
         self.assertEqual(self.service._event_end_date("2026-10-22", body), "2026-10-21")
 
+    def test_failed_reread_preserves_confirmed_ordinary_date_and_direction(self):
+        announcements = Mock()
+        announcements.query_broker_risk_alerts.return_value = {"available": True, "items": []}
+        announcements.query_zts_risk_alerts.return_value = {"available": True, "items": []}
+        announcements.query_market.return_value = {"available": True, "items": [{
+            "title": "股票交易异常波动公告", "date": "2026-10-22", "stockCode": "002724",
+            "stockName": "海洋王", "source": "巨潮资讯", "url": "https://static.cninfo.com.cn/ordinary.pdf"}]}
+        announcements.extract_pdf_text.return_value = "公司股票连续2个交易日内（2026年10月20日、2026年10月21日）收盘价格涨幅偏离值累计超过20%，属于股票交易异常波动。"
+        self.service.announcements = announcements
+        self.service._clock = lambda: datetime(2026, 10, 23, 20, tzinfo=SHANGHAI_TZ)
+        self.assertNotIn("error", self.service.refresh())
+        original = self.service.repository.active_snapshot()["resetFacts"][0]
+        announcements.extract_pdf_text.return_value = ""
+        self.service._clock = lambda: datetime(2026, 10, 23, 21, tzinfo=SHANGHAI_TZ)
+        self.assertNotIn("error", self.service.refresh())
+        snapshot = self.service.repository.active_snapshot()
+        self.assertEqual(snapshot["resetFacts"][0], original)
+        self.assertEqual(snapshot["unresolvedFacts"], [])
+
     def test_next_dated_severe_notice_preserves_independent_broker_card(self):
         announcements = Mock()
         announcements.query_broker_risk_alerts.return_value = {"available": True, "items": [{

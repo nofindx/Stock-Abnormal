@@ -2005,9 +2005,9 @@ class MarketService:
                     "deviation": round(deviation, 6),
                     "direction": direction,
                 })
-        # A verified ordinary notice delimits event episodes, but never creates
-        # a count without a market-data threshold hit. Within each reset segment,
-        # consolidate continuous overlapping qualifying windows independently.
+        # Market candidates are only forecasts/direction evidence. Formal
+        # counts below come from confirmed notices, irrespective of whether
+        # this calculation reproduces their numerical threshold.
         boundaries = [
             cls._date_key(value) for value in sorted(ordinary_resets)
             if cls._date_key(value) and (not severe_reset_date or cls._date_key(value) >= severe_reset_date)

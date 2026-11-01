@@ -1449,12 +1449,25 @@ class OfficialMonitorService:
                 })
             # 18.cn 页面只展示滚动的最近条目；仅在 18.cn 成功时保留旧窗口，避免主源滚动造成记录消失。
             previous_snapshot = self.repository.active_snapshot() or {}
+            previous_confirmed = {
+                str(item.get("sourceId") or ""): item
+                for item in previous_snapshot.get("resetFacts", [])
+                if item.get("ruleResetConfirmed")
+                and (item.get("resetEvidence") or {}).get("code") != ORDINARY_TITLE_EVIDENCE_CODE
+            }
+            # A transient failed re-read must not downgrade an already parsed
+            # official body to a title-only date/direction guess.
+            parsed_reset_facts = [
+                previous_confirmed.get(str(item.get("sourceId") or ""), item)
+                if (item.get("resetEvidence") or {}).get("code") == ORDINARY_TITLE_EVIDENCE_CODE
+                else item for item in parsed_reset_facts
+            ]
             # 正文读取失败的官方命中不能因下一次关键词分页变化而消失。
             # 保留 90 日内未被同源正式正文事实替换的 pending 记录；正文
             # 恢复后使用相同 sourceId 写入正式事实时自动移除。
             confirmed_fact_ids = {
                 str(item.get("sourceId") or "")
-                for item in [*parsed_reset_facts, *parsed_events]
+                for item in [*previous_confirmed.values(), *parsed_reset_facts, *parsed_events]
                 if item.get("ruleResetConfirmed")
                 and (item.get("resetEvidence") or {}).get("code") != ORDINARY_TITLE_EVIDENCE_CODE
             }
