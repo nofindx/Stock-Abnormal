@@ -495,10 +495,35 @@ class MarketVectorTests(unittest.TestCase):
         service = self.service
         calls = []
         service._latest_completed_trade_date = lambda: "20261009"
+        service.client.trade_cal = lambda *_args: SimpleNamespace(to_dict=lambda *_args, **_kwargs: [
+            {"cal_date": "20261008", "is_open": 1}, {"cal_date": "20261009", "is_open": 1},
+        ])
         service.update_market_data = lambda **kwargs: calls.append(kwargs) or {"updated": False, "reason": "test"}
         result = service.rebuild_formal_history()
         self.assertFalse(result["updated"])
-        self.assertEqual(calls, [{"data_stage": "formal", "allow_non_trade_day": True, "force_history": True, "history_end_date": "20261009"}])
+        self.assertEqual(calls, [{"data_stage": "formal", "allow_non_trade_day": True, "force_history": True, "history_end_date": "20261008"}])
+
+    def test_full_history_rebuild_seeds_previous_day_before_target_day(self):
+        service = self.service
+        service._latest_completed_trade_date = lambda: "20261009"
+        service.client.trade_cal = lambda *_args: SimpleNamespace(to_dict=lambda *_args, **_kwargs: [
+            {"cal_date": "20261008", "is_open": 1}, {"cal_date": "20261009", "is_open": 1},
+        ])
+        calls = []
+
+        def update(**kwargs):
+            calls.append(kwargs["history_end_date"])
+            return {"updated": True, "tradeDate": kwargs["history_end_date"]}
+
+        service.update_market_data = update
+        generated = []
+        service._generate_prediction_datasets = lambda stage: generated.append(stage)
+
+        result = service.rebuild_formal_history()
+
+        self.assertTrue(result["updated"])
+        self.assertEqual(calls, ["20261008", "20261009"])
+        self.assertEqual(generated, ["formal", "formal"])
 
     def test_rule_upgrade_recalculates_from_existing_confirmed_bases(self):
         service = self.service
