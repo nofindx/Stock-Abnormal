@@ -810,8 +810,8 @@ class MonitorWindowTests(unittest.TestCase):
         )
         self.assertEqual(OfficialMonitorService._severe_event_direction("严重异常波动，未披露方向"), "")
 
-    def test_monitor_rule_version_requires_refresh_after_direction_change(self):
-        self.assertEqual("20261102-product-policy-v32", MONITOR_RULE_VERSION)
+    def test_monitor_rule_version_requires_refresh_after_official_notice_identity_fix(self):
+        self.assertEqual("20261102-product-policy-v33", MONITOR_RULE_VERSION)
 
     def test_zts_risk_period_starts_on_announcement_date(self):
         dates = [

@@ -48,7 +48,7 @@ MONITOR_PERIOD_TRADING_DAYS = {
 MONITOR_WINDOW_TRADING_DAYS = MONITOR_PERIOD_TRADING_DAYS
 # 公告分类口径变化时，启动任务主动重采一次当前快照；避免必须等到次日
 # 00:00 才让修复后的北交所严重异动进入重点监控。
-MONITOR_RULE_VERSION = "20261102-product-policy-v32"
+MONITOR_RULE_VERSION = "20261102-product-policy-v33"
 
 # 只有官方披露平台上的发行人/交易所事实，才有资格改变行情累计基线。
 # 可读正文优先；普通异动正文短时不可读时，官方标题只能作为待行情核验

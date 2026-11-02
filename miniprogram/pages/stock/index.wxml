@@ -75,6 +75,7 @@
         <view class="matrix-head"><text class="matrix-label matrix-head-label">指标</text><view wx:for="{{matrix.columns}}" wx:for-item="column" wx:key="*this" class="matrix-column"><text class="day-badge">{{column.day}}</text><text class="table-date">{{column.date}}</text></view></view>
       <view wx:for="{{matrix.rows}}" wx:for-item="matrixRow" wx:key="key" class="matrix-row"><text class="matrix-label {{matrixRow.key === 'space' ? 'matrix-safety-label' : ''}}">{{matrixRow.label}}</text><view wx:for="{{matrixRow.values}}" wx:for-item="cell" wx:key="*this" class="matrix-cell"><block wx:if="{{cell.placeholder}}"><text class="matrix-placeholder">—</text></block><block wx:elif="{{cell.editable}}"><view class="matrix-input-wrap"><input class="matrix-input" type="digit" placeholder="" value="{{cell.value}}" selection-start="{{cell.selectionStart}}" selection-end="{{cell.selectionEnd}}" data-row="{{cell.rowIndex}}" data-field="{{cell.field}}" bindfocus="selectInput" bindblur="blurInput" bindinput="editRow" /><text wx:if="{{cell.value !== ''}}" class="matrix-suffix">%</text></view></block><block wx:elif="{{matrixRow.key === 'space' && cell.value === '已触发'}}"><text class="matrix-safety-badge">已触发</text></block><block wx:else><text class="matrix-value {{matrixRow.key === 'space' ? 'safety-value' : cell.className}}">{{cell.value}}</text></block></view></view>
       </view>
+      <view class="simulation-distance-note">仅比较10/30日上涨阈值；数值为偏离百分点。</view>
     </view>
   </block>
   <view class="legal-footer-links">

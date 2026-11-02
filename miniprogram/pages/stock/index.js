@@ -26,7 +26,7 @@ function buildMatrixGroups(rows) {
     { key: 'index', label: '指数涨幅', editable: true },
     { key: 'deviation10', label: '10日偏离' },
     { key: 'deviation30', label: '30日偏离' },
-    { key: 'space', label: '安全空间' }
+    { key: 'space', label: '距最近阈值' }
   ]
   const groups = []
   for (let start = 0; start < rows.length; start += 5) {
@@ -357,7 +357,7 @@ function cumulativeReturn(values) {
 }
 
 function bestDeviation(stockValues, indexValues, maxWindow) {
-  // 与后端 _best_vector_deviation 保持一致：枚举回看窗口内所有连续收益区间。
+  // 模拟仅比较上涨阈值：枚举以模拟日为终点的连续区间，取最大偏离。
   const upperLimit = maxWindow
   const count = Math.min(maxWindow, stockValues.length, indexValues.length)
   const stocks = stockValues.slice(-count)
@@ -372,17 +372,13 @@ function bestDeviation(stockValues, indexValues, maxWindow) {
       window
     })
   }
-  const positive = results.filter(item => item.value > 0)
-  const candidates = positive.length ? positive : results
-  candidates.sort((left, right) => positive.length
-    ? right.value - left.value || left.window - right.window
-    : left.value - right.value || left.window - right.window)
-  return { ...candidates[0], downValue: Math.min(...results.map(item => item.value)) }
+  results.sort((left, right) => right.value - left.value || left.window - right.window)
+  return results[0]
 }
 
 function calculateSimulationRows(rows, detail) {
   const base = (detail && detail.simulationBase) || { stock: [], index: [] }
-  const thresholds = (detail && detail.simulationThresholds) || { '10': { up: 100 } }
+  const thresholds = (detail && detail.simulationThresholds) || {}
   const stockBase = Array.isArray(base.stock) ? base.stock : []
   const indexBase = Array.isArray(base.index) ? base.index : []
   let complete = true
@@ -409,25 +405,23 @@ function calculateSimulationRows(rows, detail) {
     const deviation10 = metric10.value
     const deviation30 = metric30.value
     const display = value => value == null ? '--' : `${value >= 0 ? '+' : ''}${value.toFixed(2)}%`
-    const safetyMetrics = [
-      { deviation: deviation10, downValue: metric10.downValue, up: thresholds['10'] && Number(thresholds['10'].up), down: thresholds['10'] && Number(thresholds['10'].down) },
-      { deviation: deviation30, downValue: metric30.downValue, up: thresholds['30'] && Number(thresholds['30'].up), down: thresholds['30'] && Number(thresholds['30'].down) }
-    ].filter(item => (item.deviation != null || item.downValue != null) && (Number.isFinite(item.up) || Number.isFinite(item.down)))
-    const safety = safetyMetrics.length === 0
+    // 旧接口仍携带 down 字段，仅供正式预警兼容；模拟不读取下跌阈值。
+    const upwardMetrics = [
+      { deviation: deviation10, up: parsePercent(thresholds['10'] && thresholds['10'].up) },
+      { deviation: deviation30, up: parsePercent(thresholds['30'] && thresholds['30'].up) }
+    ].filter(item => Number.isFinite(item.deviation) && Number.isFinite(item.up) && item.up > 0)
+    const thresholdDistance = upwardMetrics.length === 0
       ? '--'
-      : safetyMetrics.some(item => (Number.isFinite(item.up) && item.deviation != null && item.deviation >= item.up) || (Number.isFinite(item.down) && item.downValue != null && item.downValue <= item.down))
+      : upwardMetrics.some(item => item.deviation >= item.up)
         ? '已触发'
-        : `${Math.min(...safetyMetrics.flatMap(item => [
-          Number.isFinite(item.up) && item.deviation != null ? Math.max(0, item.up - item.deviation) : Infinity,
-          Number.isFinite(item.down) && item.downValue != null ? Math.max(0, item.downValue - item.down) : Infinity
-        ])).toFixed(2)}%`
+        : `${Math.min(...upwardMetrics.map(item => item.up - item.deviation)).toFixed(2)}%`
     const currentDeviation = deviation10 == null ? (deviation30 == null ? 0 : deviation30) : deviation10
     const deviationClass = value => value == null ? '' : value > 0 ? 'risk' : value < 0 ? 'safe' : ''
     return {
       ...row,
       deviation10: display(deviation10),
       deviation30: display(deviation30),
-      space: safety,
+      space: thresholdDistance,
       deviation10Window: metric10.window,
       deviation30Window: metric30.window,
       deviation10Class: deviationClass(deviation10),

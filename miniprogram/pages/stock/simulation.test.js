@@ -256,7 +256,7 @@ const detail = {
 const rows = createInputRows(2, ['2026-10-16', '2026-10-19'])
 assert.strictEqual(rows[0].stock, '')
 assert.strictEqual(rows[0].index, '')
-assert.deepStrictEqual(buildMatrixGroups(rows)[0].rows.map(item => item.label), ['股票涨幅', '指数涨幅', '10日偏离', '30日偏离', '安全空间'])
+assert.deepStrictEqual(buildMatrixGroups(rows)[0].rows.map(item => item.label), ['股票涨幅', '指数涨幅', '10日偏离', '30日偏离', '距最近阈值'])
 rows[0].stock = '16'
 rows[0].index = '0'
 const result = calculateSimulationRows(rows, detail)
@@ -271,8 +271,6 @@ assert.strictEqual(result[1].index, '')
 assert.strictEqual(createInputRows(1, ['2026-10-19'])[0].date, '20261019')
 const blankResult = calculateSimulationRows(createInputRows(1), detail)
 assert.notStrictEqual(blankResult[0].deviation10, '--')
-
-console.log('stock simulation tests passed')
 
 const downsideWarning = presentWarnings([{
   title: '10 日偏离', value: '--', downValue: '-55.00%',
@@ -372,6 +370,52 @@ const ordinaryOnlyResult = calculateSimulationRows(ordinaryOnlyRows, ordinaryOnl
 assert.strictEqual(ordinaryOnlyResult[0].deviation10, '+25.00%')
 assert.strictEqual(ordinaryOnlyResult[0].space, '75.00%')
 
+// 兼容接口的下跌阈值不参与模拟；距离只比较两个上涨阈值。
+const upwardOnlyDetail = {
+  simulationBase: { stock: Array(29).fill(0), index: Array(29).fill(0) },
+  simulationThresholds: { '10': { up: 100, down: -50 }, '30': { up: 200, down: -70 } }
+}
+assert.strictEqual(calculateSimulationRows(createInputRows(1), upwardOnlyDetail)[0].space, '100.00%')
+const decliningRows = createInputRows(1)
+decliningRows[0].stock = '-60'
+const decliningResult = calculateSimulationRows(decliningRows, upwardOnlyDetail)[0]
+assert.strictEqual(decliningResult.deviation10, '-60.00%')
+assert.strictEqual(decliningResult.space, '160.00%', '触及下跌阈值不标记模拟已触发')
+const allNegativeInterval = bestDeviation([-30, -20], [0, 0], 10)
+assert.strictEqual(allNegativeInterval.window, 1)
+assert(Math.abs(allNegativeInterval.value + 20) < 1e-9, '全为负值时仍取最大偏离，不切换为下跌指标')
+
+const rollingDetail = {
+  ...upwardOnlyDetail,
+  simulationBase: { stock: Array(20).fill(0).concat([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]), index: Array(30).fill(0) }
+}
+const rollingResults = calculateSimulationRows(createInputRows(10), rollingDetail)
+assert.deepStrictEqual(rollingResults.slice(5).map(row => row.space), ['61.44%', '70.51%', '80.10%', '90.00%', '100.00%'])
+assert.strictEqual(rollingResults[9].deviation10, '+0.00%')
+
+const thirtyDayIsCloser = {
+  ...upwardOnlyDetail,
+  simulationBase: { stockByWindow: { '10': [0], '30': [160] }, indexByWindow: { '10': [0], '30': [0] } }
+}
+assert.strictEqual(calculateSimulationRows(createInputRows(1), thirtyDayIsCloser)[0].space, '40.00%', '30 日上涨阈值更近时由其决定距离')
+for (const [stockReturn, expected] of [[99, '1.00%'], [100, '已触发'], [101, '已触发']]) {
+  const boundaryRows = createInputRows(1)
+  boundaryRows[0].stock = String(stockReturn)
+  assert.strictEqual(calculateSimulationRows(boundaryRows, upwardOnlyDetail)[0].space, expected)
+}
+assert.strictEqual(calculateSimulationRows(createInputRows(1), {
+  ...upwardOnlyDetail, simulationThresholds: { '10': { up: null, down: -50 }, '30': { down: -70 } }
+})[0].space, '--', '没有有效上涨阈值时不能用下跌阈值或零值代替')
+assert.strictEqual(calculateSimulationRows(createInputRows(1), {
+  simulationBase: upwardOnlyDetail.simulationBase
+})[0].space, '--', '缺少整个阈值对象时不能猜测主板上涨阈值')
+const invalidRows = createInputRows(2)
+invalidRows[0].stock = 'invalid'
+assert.deepStrictEqual(calculateSimulationRows(invalidRows, upwardOnlyDetail).map(row => row.space), ['--', '--'])
+assert.strictEqual(calculateSimulationRows(createInputRows(1), {
+  ...upwardOnlyDetail, simulationThresholds: { '10': { up: 150, down: -60 }, '30': { up: 300, down: -75 } }
+})[0].space, '150.00%', '使用响应给出的板块上涨阈值，不硬编码主板或下跌阈值')
+
 // 清空只重建当前展开范围的本地输入和计算结果，不读取行情或修改股票状态。
 for (const days of [2, 10]) {
   const futureTradeDates = ['20261103', '20261104', '20261105', '20261106', '20261109', '20261110', '20261111', '20261112', '20261113', '20261116']
@@ -396,3 +440,5 @@ for (const days of [2, 10]) {
   stockPage.clearInputs.call(page)
   assert.deepStrictEqual(page.data.inputRows, defaultRows, '重复清空保持默认态')
 }
+
+console.log('stock simulation tests passed')
