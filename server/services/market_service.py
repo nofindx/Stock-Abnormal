@@ -3031,12 +3031,14 @@ class MarketService:
                         (str(item.get("ts_code") or ""), str(item.get("ruleKey") or ""))
                         for item in items
                     }
-                    missing_candidates = candidate_keys - recalculated_keys
-                    if missing_candidates:
-                        raise RuntimeError(
-                            f"{target_trade_date} 有 {len(missing_candidates)} 张前序候选卡片未能按目标日重算，拒绝发布不完整或过期数据"
-                        )
-                    candidate_keys |= recalculated_keys
+                    # Prior-session cards are only forecast candidates. Once
+                    # target-session quotes are available, a candidate may
+                    # naturally leave the risk range; requiring every prior
+                    # card to survive would incorrectly fail the whole dataset.
+                    # The target-date computation (including close candidates)
+                    # is authoritative for both the published cards and the
+                    # coverage checks below.
+                    candidate_keys = recalculated_keys
                     for item in items:
                         item["targetTradeDate"] = target_trade_date
                         item["scope"] = "当日"

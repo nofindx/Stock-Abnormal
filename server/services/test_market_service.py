@@ -189,7 +189,7 @@ class MarketVectorTests(unittest.TestCase):
         self.assertEqual(service._prediction_trade_date["today"], "20261016")
         self.assertEqual(service._prediction_last_error, {})
 
-    def test_today_dataset_refuses_partial_candidate_recalculation(self):
+    def test_today_dataset_allows_prior_candidate_to_leave_risk_after_target_close(self):
         service = self.service
         archived_forecast = {
             "scope": "next_day", "target_trade_date": "20261016", "base_trade_date": "20261015",
@@ -214,8 +214,10 @@ class MarketVectorTests(unittest.TestCase):
 
         service._generate_prediction_datasets("formal")
 
-        self.assertNotIn("today", service._prediction_cache)
-        self.assertIn("1 张前序候选卡片未能按目标日重算", service._prediction_last_error["today"])
+        self.assertIn("today", service._prediction_cache)
+        self.assertEqual(len(service._prediction_cache["today"][1]), 1)
+        self.assertEqual(service._prediction_cache["today"][1][0]["ts_code"], "002242.SZ")
+        self.assertNotIn("today", service._prediction_last_error)
 
     def test_today_dataset_ignores_unrelated_suspended_stock_missing_target_day_quote(self):
         service = self.service
