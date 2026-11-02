@@ -382,7 +382,10 @@ class MarketService:
                 force_history = str(os.getenv("FORCE_MARKET_HISTORY_REBUILD", "")).strip().lower() in {"1", "true", "yes", "on"}
                 records = [self._calc_repository.get_prediction(scope) for scope in ("today", "next_day")]
                 rules_match = bool(records) and all(
-                    record and record.get("rule_version") == PREDICTION_RULE_VERSION
+                    record
+                    and record.get("rule_version") == PREDICTION_RULE_VERSION
+                    and record.get("status") == "ready"
+                    and bool(record.get("dataset_quote_complete"))
                     for record in records
                 )
                 if rules_match and not force_history:

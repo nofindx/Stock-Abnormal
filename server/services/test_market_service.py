@@ -571,6 +571,25 @@ class MarketVectorTests(unittest.TestCase):
 
         self.assertEqual(calls, [("recalculate", "formal")])
 
+    def test_failed_dataset_rebuilds_even_when_rule_version_matches(self):
+        service = self.service
+        records = {
+            "today": {"rule_version": PREDICTION_RULE_VERSION, "status": "failed", "dataset_quote_complete": False},
+            "next_day": {"rule_version": PREDICTION_RULE_VERSION, "status": "ready", "dataset_quote_complete": True},
+        }
+        service._calc_repository = SimpleNamespace(
+            available=True,
+            get_prediction=lambda scope: records[scope],
+        )
+        service._latest_data_stage_date = lambda: ("20261030", "formal")
+        calls = []
+        service._generate_prediction_datasets = lambda stage: calls.append(stage)
+
+        with patch.dict("os.environ", {"FORCE_MARKET_HISTORY_REBUILD": "0"}):
+            service._rebuild_predictions_if_rule_changed()
+
+        self.assertEqual(calls, ["formal"])
+
     def test_new_announcement_snapshot_recalculates_without_history_fetch(self):
         service = self.service
         service._calc_repository = SimpleNamespace(available=True)
