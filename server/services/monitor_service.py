@@ -48,7 +48,7 @@ MONITOR_PERIOD_TRADING_DAYS = {
 MONITOR_WINDOW_TRADING_DAYS = MONITOR_PERIOD_TRADING_DAYS
 # 公告分类口径变化时，启动任务主动重采一次当前快照；避免必须等到次日
 # 00:00 才让修复后的北交所严重异动进入重点监控。
-MONITOR_RULE_VERSION = "20261102-product-policy-v33"
+MONITOR_RULE_VERSION = "20261102-product-policy-v34"
 
 # 只有官方披露平台上的发行人/交易所事实，才有资格改变行情累计基线。
 # 可读正文优先；普通异动正文短时不可读时，官方标题只能作为待行情核验
@@ -1031,7 +1031,8 @@ class OfficialMonitorService:
             self._cache_active_pdfs([item], today, cleanup=False)
         return path if path.is_file() else None
 
-    def _collapse_by_stock(self, items: List[Dict[str, Any]], snapshot_date: str) -> List[Dict[str, Any]]:
+    def _collapse_by_stock(self, items: List[Dict[str, Any]], snapshot_date: str,
+                           confirmed_facts: Optional[List[Dict[str, Any]]] = None) -> List[Dict[str, Any]]:
         """同股同类型重叠时只保留最新记录；同日不同来源仅作为佐证链接附加。"""
 
         del snapshot_date  # 当前状态在 read 阶段按自然日判定。
@@ -1040,7 +1041,7 @@ class OfficialMonitorService:
         # event and must not restart the monitoring window on the prompt date.
         confirmed_severe_by_id = {
             str(item.get("sourceId")): item
-            for item in items
+            for item in [*items, *(confirmed_facts or [])]
             if str(item.get("riskTone") or "") in ("severe-10d", "severe-30d")
             and item.get("sourceType") in PDF_ORDINARY_SOURCE_TYPES
             and item.get("ruleResetConfirmed")
@@ -1060,6 +1061,10 @@ class OfficialMonitorService:
                 confirmed.setdefault("supportingSourceUrls", [])
                 if item.get("sourceUrl") and item["sourceUrl"] not in confirmed["supportingSourceUrls"]:
                     confirmed["supportingSourceUrls"].append(item["sourceUrl"])
+                # The official fact may survive only in the reset ledger after
+                # an older display collapse. Restore it as the canonical card.
+                if not any(chosen.get("sourceId") == confirmed.get("sourceId") for chosen in canonical_items):
+                    canonical_items.append(confirmed)
                 continue
             canonical_items.append(item)
 
@@ -1587,11 +1592,13 @@ class OfficialMonitorService:
             # 新公告按同股同类型的最新记录覆盖旧记录。这样不会因为一次
             # 部分抓取把闽东、天普等仍在监管期内的卡片清空。
             merge_items = parsed_events + previous_items
-            parsed = self._collapse_by_stock(merge_items, now.strftime("%Y-%m-%d"))
             # Keep regulatory identity independent from its reading attachment.
             # Broker prompts may carry no PDF; attach a verified issuer notice
             # for the same stock/category while preserving the original fact.
-            for item in parsed:
+            # Resolve reading evidence before collapsing: a freshly fetched
+            # broker row otherwise has no link yet and overrides the linked
+            # copy from the previous snapshot with its later prompt date.
+            for item in merge_items:
                 if self._trusted_pdf_url(item):
                     continue
                 eligible = [fact for fact in [*parsed_events, *reset_facts]
@@ -1607,6 +1614,9 @@ class OfficialMonitorService:
                     evidence = {**candidate, "riskTone": item.get("riskTone")}
                     if self._trusted_pdf_url(evidence):
                         item["pdfEvidence"] = evidence
+            parsed = self._collapse_by_stock(
+                merge_items, now.strftime("%Y-%m-%d"), confirmed_facts=reset_facts,
+            )
             self._cache_active_pdfs(parsed, now.strftime("%Y-%m-%d"))
             updated_at = self._clock().strftime("%Y-%m-%d %H:%M")
             active_source = "broker_primary" if broker_available else ("zts_primary" if zts_available else "issuer_disclosure_backup")

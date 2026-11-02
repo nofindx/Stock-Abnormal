@@ -612,6 +612,57 @@ class MonitorWindowTests(unittest.TestCase):
         self.assertEqual(result[0]["monitorEndDate"], "2026-11-06")
         self.assertIn(broker["sourceUrl"], result[0]["supportingSourceUrls"])
 
+    def test_refresh_fresh_broker_row_cannot_override_official_period_in_ledger(self):
+        official_url = "https://static.cninfo.com.cn/finalpage/2026-10-23/1225621200.PDF"
+        issuer = self.event("2026-10-23", "2026-11-06", "severe-10d")
+        issuer.update({
+            "sourceId": hashlib.sha256(official_url.encode()).hexdigest()[:24],
+            "symbol": "301313", "name": "凡拓数创", "sourceUrl": official_url,
+            "sourceType": "issuer-disclosure", "sourcePriority": 2,
+            "announcementDate": "2026-10-23", "monitorStartDate": "2026-10-26",
+            "monitorEndDate": "2026-11-06", "ruleResetDate": "20261026",
+            "monitorDates": ["2026-10-26", "2026-10-27", "2026-11-06"],
+            "ruleResetConfirmed": True,
+            "resetEvidence": {"code": "official_severe_abnormality_body"},
+        })
+        broker_url = "https://wap.18.cn/article/detail/818/3637"
+        previous = self.event("2026-10-27", "2026-11-09", "severe-10d")
+        previous.update({
+            "sourceId": hashlib.sha256(broker_url.encode()).hexdigest()[:24],
+            "symbol": "301313", "name": "凡拓数创", "sourceUrl": broker_url,
+            "sourceType": "broker-risk-alert", "sourcePriority": 1,
+            "announcementDate": "2026-10-26", "pdfEvidence": dict(issuer),
+        })
+        snapshot = {
+            "snapshotId": "old-wrong-period", "snapshotDate": "2026-11-02",
+            "updatedAt": "2026-11-02 11:00", "startedAt": "2026-11-02 10:59",
+            "items": [previous], "resetFacts": [issuer],
+            "dataQuality": {"announcementStatus": "source-specific"},
+        }
+        self.service.repository.publish(snapshot, [], "old-wrong-period")
+        announcements = Mock()
+        announcements.query_broker_risk_alerts.return_value = {"available": True, "items": [{
+            "title": "关于凡拓数创的风险提示", "stockCode": "301313", "stockName": "凡拓数创",
+            "date": "2026-10-26", "url": broker_url, "source": "18.cn",
+            "sourceType": "broker-risk-alert", "sourceRole": "broker_primary",
+            "sourcePriority": 1, "sourceLabel": "18.cn 主源",
+            "body": "公司股票连续10个交易日涨幅偏离值累计达到100%，属于严重异常波动。",
+        }]}
+        announcements.query_zts_risk_alerts.return_value = {"available": True, "items": []}
+        announcements.query_market.return_value = {"available": True, "partial": False, "items": []}
+        self.service.announcements = announcements
+        self.service._clock = lambda: datetime(2026, 11, 2, 12, tzinfo=SHANGHAI_TZ)
+        self.service._cache_active_pdfs = lambda *_: None
+
+        self.assertNotIn("error", self.service.refresh())
+        current = self.service.repository.active_snapshot()["items"]
+        self.assertEqual(len(current), 1)
+        self.assertEqual(current[0]["sourceId"], issuer["sourceId"])
+        self.assertEqual(current[0]["monitorStartDate"].replace("-", ""), "20261026")
+        self.assertEqual(current[0]["monitorEndDate"].replace("-", ""), "20261106")
+        self.assertTrue(current[0]["ruleResetConfirmed"])
+        self.assertIn(broker_url, current[0]["supportingSourceUrls"])
+
     def test_reference_stocks_have_the_attachment_periods(self):
         dates = [
             (date(2026, 9, 1) + timedelta(days=index)).strftime("%Y-%m-%d")
@@ -811,7 +862,7 @@ class MonitorWindowTests(unittest.TestCase):
         self.assertEqual(OfficialMonitorService._severe_event_direction("严重异常波动，未披露方向"), "")
 
     def test_monitor_rule_version_requires_refresh_after_official_notice_identity_fix(self):
-        self.assertEqual("20261102-product-policy-v33", MONITOR_RULE_VERSION)
+        self.assertEqual("20261102-product-policy-v34", MONITOR_RULE_VERSION)
 
     def test_zts_risk_period_starts_on_announcement_date(self):
         dates = [
