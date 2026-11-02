@@ -1035,8 +1035,36 @@ class OfficialMonitorService:
         """同股同类型重叠时只保留最新记录；同日不同来源仅作为佐证链接附加。"""
 
         del snapshot_date  # 当前状态在 read 阶段按自然日判定。
-        grouped: Dict[tuple[str, str], List[Dict[str, Any]]] = {}
+        # A broker risk prompt can carry the issuer's official PDF as evidence.
+        # If it points to the exact confirmed severe event, it is not a second
+        # event and must not restart the monitoring window on the prompt date.
+        confirmed_severe_by_id = {
+            str(item.get("sourceId")): item
+            for item in items
+            if str(item.get("riskTone") or "") in ("severe-10d", "severe-30d")
+            and item.get("sourceType") in PDF_ORDINARY_SOURCE_TYPES
+            and item.get("ruleResetConfirmed")
+            and item.get("sourceId")
+        }
+        canonical_items: List[Dict[str, Any]] = []
         for item in items:
+            evidence = item.get("pdfEvidence") or {}
+            confirmed = confirmed_severe_by_id.get(str(evidence.get("sourceId") or ""))
+            if (
+                item.get("sourceType") == "broker-risk-alert"
+                and str(item.get("riskTone") or "") in ("severe-10d", "severe-30d")
+                and confirmed
+                and confirmed.get("symbol") == item.get("symbol")
+                and confirmed.get("riskTone") == item.get("riskTone")
+            ):
+                confirmed.setdefault("supportingSourceUrls", [])
+                if item.get("sourceUrl") and item["sourceUrl"] not in confirmed["supportingSourceUrls"]:
+                    confirmed["supportingSourceUrls"].append(item["sourceUrl"])
+                continue
+            canonical_items.append(item)
+
+        grouped: Dict[tuple[str, str], List[Dict[str, Any]]] = {}
+        for item in canonical_items:
             grouped.setdefault((str(item.get("symbol")), str(item.get("riskTone"))), []).append(item)
 
         selected_items: List[Dict[str, Any]] = []

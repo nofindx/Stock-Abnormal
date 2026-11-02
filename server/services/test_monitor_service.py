@@ -586,6 +586,32 @@ class MonitorWindowTests(unittest.TestCase):
         self.assertTrue(result[0]["ruleResetConfirmed"])
         self.assertEqual(result[0]["ruleResetDate"], "20261009")
 
+    def test_broker_prompt_linked_to_same_official_severe_notice_cannot_extend_monitor_period(self):
+        issuer = self.event("2026-10-23", "2026-11-06", "severe-10d")
+        issuer.update({
+            "sourceId": "official-fantuo-20261023", "symbol": "301313", "name": "凡拓数创",
+            "sourceType": "issuer-disclosure", "sourcePriority": 2,
+            "announcementDate": "2026-10-23", "monitorStartDate": "2026-10-26",
+            "monitorEndDate": "2026-11-06", "monitorDates": ["2026-10-26", "2026-10-27", "2026-11-06"],
+            "ruleResetConfirmed": True, "ruleResetDate": "20261026",
+        })
+        broker = self.event("2026-10-27", "2026-11-09", "severe-10d")
+        broker.update({
+            "sourceId": "broker-prompt-20261026", "symbol": "301313", "name": "凡拓数创",
+            "sourceType": "broker-risk-alert", "sourcePriority": 1,
+            "announcementDate": "2026-10-26", "monitorStartDate": "2026-10-27",
+            "monitorEndDate": "2026-11-09",
+            "pdfEvidence": {"sourceId": "official-fantuo-20261023"},
+        })
+
+        result = self.service._collapse_by_stock([broker, issuer], "2026-11-02")
+
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]["sourceId"], "official-fantuo-20261023")
+        self.assertEqual(result[0]["monitorStartDate"], "2026-10-26")
+        self.assertEqual(result[0]["monitorEndDate"], "2026-11-06")
+        self.assertIn(broker["sourceUrl"], result[0]["supportingSourceUrls"])
+
     def test_reference_stocks_have_the_attachment_periods(self):
         dates = [
             (date(2026, 9, 1) + timedelta(days=index)).strftime("%Y-%m-%d")
