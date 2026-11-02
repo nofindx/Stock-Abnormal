@@ -1,6 +1,7 @@
 const assert = require('assert')
 
-global.Page = () => {}
+let stockPage
+global.Page = definition => { stockPage = definition }
 const { bestDeviation, buildMatrixGroups, buildNextDayForecast, calculateSimulationRows, createInputRows, presentWarnings, summaryStatus, formatMonthDay, monitoringRuleLabel, formatMonitoringSummary, remainingMonitoringDays, findStockMonitoring, selectStockMonitoring, currentSevereRuleTexts, resolveStatusBanner } = require('./index')
 
 assert.deepStrictEqual(resolveStatusBanner({ summaryStatus: '暂无异动风险', summaryTone: 'safe' }, { dateText: '10/26-11/06' }), {
@@ -370,3 +371,28 @@ ordinaryOnlyRows[0].stock = '25'
 const ordinaryOnlyResult = calculateSimulationRows(ordinaryOnlyRows, ordinaryOnlyDetail)
 assert.strictEqual(ordinaryOnlyResult[0].deviation10, '+25.00%')
 assert.strictEqual(ordinaryOnlyResult[0].space, '75.00%')
+
+// 清空只重建当前展开范围的本地输入和计算结果，不读取行情或修改股票状态。
+for (const days of [2, 10]) {
+  const futureTradeDates = ['20261103', '20261104', '20261105', '20261106', '20261109', '20261110', '20261111', '20261112', '20261113', '20261116']
+  const defaultRows = calculateSimulationRows(createInputRows(days, futureTradeDates), ordinaryOnlyDetail)
+  const editedRows = defaultRows.map((row, index) => ({
+    ...row, stock: String(index + 5), index: '-1.5', stockSelectAll: true,
+    deviation10: '+999.00%', deviation30: '+999.00%', space: '已触发'
+  }))
+  const selected = { ts_code: '301313.SZ' }
+  const page = {
+    data: { simulationExpanded: days === 10, visibleDays: days, futureTradeDates, detail: ordinaryOnlyDetail, selected, inputRows: editedRows, matrixGroups: buildMatrixGroups(editedRows) },
+    setData(values) { Object.assign(this.data, values) }
+  }
+  stockPage.clearInputs.call(page)
+  assert.deepStrictEqual(page.data.inputRows, defaultRows, `${days} 日清空恢复默认计算，不残留模拟结果`)
+  assert.deepStrictEqual(page.data.matrixGroups, buildMatrixGroups(defaultRows))
+  assert.strictEqual(page.data.simulationExpanded, days === 10)
+  assert.strictEqual(page.data.visibleDays, days)
+  assert.strictEqual(page.data.detail, ordinaryOnlyDetail)
+  assert.strictEqual(page.data.selected, selected)
+  assert.strictEqual(page.data.futureTradeDates, futureTradeDates)
+  stockPage.clearInputs.call(page)
+  assert.deepStrictEqual(page.data.inputRows, defaultRows, '重复清空保持默认态')
+}
