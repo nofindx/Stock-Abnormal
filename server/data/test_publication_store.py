@@ -3,7 +3,8 @@ import unittest
 from copy import deepcopy
 from pathlib import Path
 from types import SimpleNamespace
-from server.data.publication_store import PublicationStore, PublicationUnavailable
+from unittest.mock import MagicMock, Mock, patch
+from server.data.publication_store import PublicationStore, PublicationUnavailable, PublicationBusy
 from server.services.context_service import ContextService, ContextExpired, IdempotencyConflict
 from server.services.read_publications import ReadPublications
 from server.services.read_refresh_jobs import ReadRefreshJobs
@@ -49,6 +50,36 @@ class SharedPublicationTests(unittest.TestCase):
         self.assertTrue(self.b.dispatch(lambda: True))
         self.assertEqual(self.a.health()["outboxPending"], 0)
         self.assertFalse(self.a.dispatch(lambda: self.fail("already delivered")))
+
+    def test_outbox_contention_is_not_a_monitor_failure_and_work_is_retried(self):
+        self.a.publish(self.snapshot("1"), [], "one")
+        with patch.object(self.b, "locked", side_effect=PublicationBusy("shared publication is busy")):
+            self.assertFalse(self.b.dispatch(lambda: self.fail("another worker owns the task")))
+        self.assertEqual(self.a.states()["last_status"], "success")
+        self.assertEqual(self.a.health()["outboxPending"], 1)
+        self.assertTrue(self.a.dispatch(lambda: True))
+        self.assertEqual(self.b.health()["outboxPending"], 0)
+
+    def test_outbox_storage_failure_is_not_hidden_as_contention(self):
+        with patch.object(self.a, "locked", side_effect=RuntimeError("database offline")):
+            with self.assertRaisesRegex(RuntimeError, "database offline"):
+                self.a.dispatch(lambda: True)
+
+    def test_mysql_outbox_skips_held_lock_but_does_not_hide_lock_service_error(self):
+        store = PublicationStore(repository=object())
+        db = Mock()
+        connection = MagicMock()
+        connection.__enter__.return_value = db
+        cursor = Mock()
+        callback = Mock()
+        with patch.object(store, "connection", return_value=connection), patch.object(store, "execute", return_value=cursor) as execute:
+            cursor.fetchone.return_value = (0,)
+            self.assertFalse(store.dispatch(callback))
+            callback.assert_not_called()
+            execute.assert_called_once_with(db, "SELECT GET_LOCK(%s, %s)", ("stock-abnormal:monitor:outbox", 0))
+            cursor.fetchone.return_value = (None,)
+            with self.assertRaisesRegex(PublicationUnavailable, "lock is unavailable"):
+                store.dispatch(callback)
 
     def test_immutable_read_survives_pointer_switch_and_expires_closed(self):
         old = self.a.freeze_read({"items": ["A"]}, {"page": "prediction"})

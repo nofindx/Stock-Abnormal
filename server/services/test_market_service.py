@@ -535,6 +535,29 @@ class MarketVectorTests(unittest.TestCase):
         self.assertFalse(result["updated"])
         self.assertEqual(calls, [{"data_stage": "formal", "allow_non_trade_day": True, "force_history": True, "history_end_date": "20261008"}])
 
+    def test_inverse_threshold_uses_the_latest_applicable_severe_boundary_for_three_day_rule(self):
+        context = {"ordinaryResetDates": ["20261026"],
+                   "severeResetDate": "20261102", "severeResetDates": ["20261020", "20261102"]}
+        self.assertEqual(MarketService._prediction_reset_arguments(context, 3, "20261102")["rule_reset_date"], "20261102")
+        self.assertEqual(MarketService._prediction_reset_arguments(context, 3, "20261030")["rule_reset_date"], "20261026")
+        self.assertEqual(MarketService._prediction_reset_arguments(context, 10, "20261030")["rule_reset_date"], "20261020")
+
+    def test_reset_session_has_zero_metric_and_no_pre_reset_intraday_threshold(self):
+        stock = [{"date": day, "return": change} for day, change in
+                 [("20261029", 5), ("20261030", 8), ("20261102", -10)]]
+        index = [{"date": item["date"], "return": 0.0} for item in stock]
+        metric = MarketService._vector_metrics(stock, index, BOARD_RULES[Board.MAIN], severe_reset_date="20261102")
+        self.assertEqual(metric["deviations"][3], 0)
+        self.assertIsNone(MarketService._required_up_percent(stock, index, 0, 20, "today", 3, "20261102", 3))
+        self.assertIsNone(MarketService._required_down_percent(stock, index, 0, -20, "today", 3, "20261102", 3))
+        self.assertIsNone(MarketService._required_up_percent(stock[:-1], index[:-1], 3, 20, "next_day", 3, "20261102", 3))
+        self.assertAlmostEqual(MarketService._required_up_percent(stock, index, 0, 20, "next_day", 3, "20261102", 3), 20)
+
+    def test_one_observation_can_solve_today_threshold_without_prior_returns(self):
+        stock = [{"date": "20261102", "return": 8}]
+        index = [{"date": "20261102", "return": 1}]
+        self.assertAlmostEqual(MarketService._required_up_percent(stock, index, 1, 20, "today", 3), 21)
+
     def test_full_history_rebuild_seeds_previous_day_before_target_day(self):
         service = self.service
         service._latest_completed_trade_date = lambda: "20261009"
@@ -2080,6 +2103,37 @@ class MarketVectorTests(unittest.TestCase):
         }]
         items = service._compute_prediction_from_repository("today")
         self.assertNotIn("ordinary_3d", {item["ruleKey"] for item in items})
+
+    def test_severe_effective_date_excludes_pre_reset_ordinary_candidates(self):
+        service = self.service
+        stock = {"ts_code": "002724.SZ", "symbol": "002724", "name": "海洋王", "board": "主板", "market": "SZSE", "isST": False}
+        sv = [{"date": "20261029", "return": 5}, {"date": "20261030", "return": 8}]
+        iv = [{"date": x["date"], "return": 0} for x in sv]
+        meta = {"ordinaryResetDates": ["20261026"], "severeResetDate": "20261102",
+                "severeResetDates": ["20261102"], "ordinaryEvents": []}
+        service._stock_rows = lambda: [stock]
+        service._rule_vectors_for_stock = lambda _stock, s, i: (s, i, meta, None)
+        service._monitored_rule_codes = lambda *_: {"__severe_monitor__": {"002724"}}
+        service._calc_repository = SimpleNamespace(available=True,
+            all_calculations=lambda: {stock["ts_code"]: {"as_of_trade_date": "20261030", "latest_close": 10, "stock_return_vector": sv}},
+            all_indexes=lambda: {"399107.SZ": {"as_of_trade_date": "20261030", "latest_close": 100, "index_return_vector": iv}})
+        items = service._compute_prediction_from_repository("next_day", target_trade_date="20261102")
+        self.assertFalse(any(x["ruleKey"] == "ordinary_3d" for x in items))
+
+        # A client may still hold an S1 issued just before the new publication.
+        # Its S2 must not keep the old threshold beside a reset zero badge.
+        service._calc_repository.get_prediction = lambda *_: {"target_trade_date": "20261102", "items": [{
+            **stock, "ruleKey": "ordinary_3d", "predictionWindow": 3, "deviationWindow": 3,
+            "triggerValue": "+5.38%", "triggerCondition": "涨幅达 5.38%"}]}
+        service._realtime = SimpleNamespace(fetch_many=lambda _: {
+            "002724.SZ": {"current": 9, "pctChg": -10, "updatedAt": "2026-11-02T11:00:00"},
+            "399107.SZ": {"current": 100, "pctChg": 0, "updatedAt": "2026-11-02T11:00:00"}})
+        refreshed = service._refresh_existing_prediction_scope("next_day", "today")[0]
+        self.assertEqual(refreshed["deviationWindow"], 0)
+        self.assertEqual(refreshed["deviationPercent"], 0)
+        self.assertIn("重置", refreshed["deviationLabel"])
+        self.assertEqual(refreshed["triggerValue"], "--")
+        self.assertFalse(refreshed["triggered"])
 
     def test_intraday_refresh_only_updates_existing_prediction_codes(self):
         service = self.service

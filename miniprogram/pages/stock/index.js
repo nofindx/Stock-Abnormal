@@ -548,7 +548,10 @@ Page({
   onShow() {
     this.syncTabBar()
     const pending = getApp().globalData.pendingStock
-    if (pending) { getApp().globalData.pendingStock = null; this.chooseStock(pending) }
+    if (pending) {
+      getApp().globalData.pendingStock = null
+      if (!this.data.selected || pending.ts_code !== this.data.selected.ts_code || (!this.data.detail && !this.data.detailLoading)) this.chooseStock(pending)
+    }
   },
   syncTabBar() {
     const tabBar = this.getTabBar && this.getTabBar()
@@ -604,10 +607,11 @@ Page({
     const requestId = this.detailRequestId
     this.setData({ selected: stock, detail: null, detailLoading: true, detailError: '', dataUpdatedAt: '', nextDayForecastLine: '', nextDayForecastText: '正在核对下一交易日预测…', nextDayForecastNotice: '', query: stock.name === '正在加载' ? stock.ts_code : `${stock.name} ${stock.symbol}`, suggestions: [], suggestionHint: false, inputRows, matrixGroups: buildMatrixGroups(inputRows), simulationExpanded: false, visibleDays: 2 })
     const render = detail => {
+      if (requestId === this.detailRequestId) this.stockReadResult = detail
       this.renderStockDetail(detail, { items: detail.monitoringFacts || [] }, stock, requestId)
       return detail
     }
-    getStockDetail(stock.ts_code).then(render).then(detail => {
+    return getStockDetail(stock.ts_code).then(render).then(detail => {
       if (requestId !== this.detailRequestId || !detail.realtimeRefreshAllowed) return
       return refreshStockDetail(stock.ts_code, detail).then(render)
         .catch(() => { /* S2 failure retains the visible, confirmed S1. */ })
@@ -617,6 +621,26 @@ Page({
       const isDataError = /数据库|收益向量|基线|交易区间|共同交易/.test(message)
       this.setData({ detailLoading: false, detailError: isDataError ? message : '行情暂时不可用，请稍后重试' })
     })
+  },
+  onPullDownRefresh() {
+    const stock = this.data.selected
+    if (!stock || this.data.detailLoading || this.detailRefreshPromise) {
+      wx.stopPullDownRefresh()
+      return this.detailRefreshPromise || Promise.resolve()
+    }
+    const requestId = this.detailRequestId
+    const request = refreshStockDetail(stock.ts_code, this.stockReadResult).then(detail => {
+      if (requestId !== this.detailRequestId) return
+      this.stockReadResult = detail
+      this.renderStockDetail(detail, { items: detail.monitoringFacts || [] }, stock, requestId)
+    }).catch(() => {
+      if (requestId === this.detailRequestId) wx.showToast({ title: '刷新失败，请稍后重试', icon: 'none' })
+    })
+    this.detailRefreshPromise = request.finally(() => {
+      this.detailRefreshPromise = null
+      wx.stopPullDownRefresh()
+    })
+    return this.detailRefreshPromise
   },
   renderStockDetail(detail, monitorSnapshot, stock, requestId) {
       if (requestId !== this.detailRequestId) return

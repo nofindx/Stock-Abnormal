@@ -24,7 +24,7 @@ from urllib.request import Request, urlopen
 
 from .announcement_service import AnnouncementService
 from server.data.fact_ledger import FactLedger
-from server.data.publication_store import PublicationStore
+from server.data.publication_store import PublicationStore, PublicationBusy
 from .market_calc_repository import MarketCalcRepository
 from .tushare_client import TushareClient
 
@@ -1669,6 +1669,12 @@ class OfficialMonitorService:
                 except Exception as exc:
                     self.last_error = f"公告已持久化，派生重建待重试：{type(exc).__name__}"
             return {"started": True, "refreshing": False, "count": len(parsed)}
+        except PublicationBusy:
+            # A peer may be committing the same collection. Keep the last
+            # successful snapshot and retry; do not overwrite shared success
+            # with a false source failure from this worker.
+            self.repository.set_state("coverage_retry_after", (now + timedelta(minutes=1)).strftime("%Y%m%d%H%M"))
+            return {"started": True, "refreshing": False, "deferred": True, "reason": "another_instance_publishing"}
         except Exception as exc:
             self.last_error = str(exc)
             self.repository.record_failure(run_id, started_at, self.last_error)

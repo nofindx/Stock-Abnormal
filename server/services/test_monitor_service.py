@@ -10,6 +10,7 @@ from unittest.mock import Mock, patch
 from server.services.monitor_service import MONITOR_RULE_VERSION, OfficialMonitorService, SHANGHAI_TZ
 from server.services.announcement_service import AnnouncementService
 from server.services.fact_ledger import FactLedger
+from server.data.publication_store import PublicationBusy
 
 
 class MonitorWindowTests(unittest.TestCase):
@@ -58,6 +59,26 @@ class MonitorWindowTests(unittest.TestCase):
             "sourceUrl": "https://static.cninfo.com.cn/pending.pdf",
         }])
         self.assertEqual(ledger.health()["pendingCount"], 0)
+
+    def test_concurrent_snapshot_publication_preserves_success_and_schedules_retry(self):
+        announcements = Mock()
+        for name in ("query_broker_risk_alerts", "query_zts_risk_alerts", "query_market"):
+            getattr(announcements, name).return_value = {"available": True, "partial": False, "items": []}
+        self.service.announcements = announcements
+        self.service._clock = lambda: datetime(2026, 11, 2, 12, tzinfo=SHANGHAI_TZ)
+        snapshot = {"snapshotId": "prior", "snapshotDate": "20261102", "updatedAt": "2026-11-02 11:00",
+                    "startedAt": "2026-11-02 10:59",
+                    "items": [], "dataQuality": {"announcementStatus": "source-specific"}}
+        self.service.repository.publish(snapshot, [], "prior")
+        with patch.object(self.service.repository, "publish", side_effect=PublicationBusy("shared publication is busy")):
+            result = self.service.refresh()
+        self.assertTrue(result["deferred"])
+        self.assertNotIn("error", result)
+        self.assertEqual(self.service.repository.active_snapshot()["snapshotId"], "prior")
+        self.assertEqual(self.service.repository.states()["last_status"], "success")
+        self.assertEqual(self.service.repository.states()["coverage_retry_after"], "202611021201")
+        self.assertEqual(self.service.read("current", "all")["error"], "")
+        self.assertFalse(self.service.refreshing)
 
     def test_cninfo_query_market_includes_bse_column(self):
         service = AnnouncementService()

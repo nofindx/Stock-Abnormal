@@ -23,6 +23,10 @@ class PublicationUnavailable(RuntimeError):
     pass
 
 
+class PublicationBusy(PublicationUnavailable):
+    """Another worker owns this publication task; it is retryable contention."""
+
+
 class PublicationStore:
     def __init__(self, repository=None, *, sqlite_path=None, clock=time.time):
         self.repository = repository or MarketCalcRepository()
@@ -89,16 +93,19 @@ class PublicationStore:
             return dict(self.execute(db, "SELECT state_key,state_value FROM publication_state").fetchall())
 
     @contextmanager
-    def locked(self, name):
+    def locked(self, name, wait_seconds=1):
         with self.connection() as db:
             acquired = False
             try:
                 if self.sqlite_path:
                     db.execute("BEGIN IMMEDIATE")
                 else:
-                    acquired = bool(self.execute(db, "SELECT GET_LOCK(%s, 1)", (name,)).fetchone()[0])
+                    lock_result = self.execute(db, "SELECT GET_LOCK(%s, %s)", (name, wait_seconds)).fetchone()[0]
+                    if lock_result is None:
+                        raise PublicationUnavailable("shared publication lock is unavailable")
+                    acquired = bool(lock_result)
                     if not acquired:
-                        raise PublicationUnavailable("shared publication is busy")
+                        raise PublicationBusy("shared publication is busy")
                 yield db
             except Exception:
                 db.rollback()
@@ -194,7 +201,7 @@ class PublicationStore:
         return self.get(identity, "monitor") if identity else None
 
     def publish(self, snapshot, announcements, run_id):
-        with self.locked("stock-abnormal:monitor:publish") as db:
+        with self.locked("stock-abnormal:monitor:publish", wait_seconds=10) as db:
             pointer = self.execute(db, "SELECT state_value FROM publication_state WHERE state_key='active_snapshot_id'").fetchone()
             # An older worker finishing late may not replace a newer snapshot.
             if pointer and str(pointer[0]) > str(snapshot["snapshotId"]):
@@ -236,7 +243,16 @@ class PublicationStore:
     def dispatch(self, callback):
         if not callback:
             return False
-        with self.locked("stock-abnormal:monitor:outbox") as db:
+        try:
+            return self._dispatch_owned(callback)
+        except PublicationBusy:
+            # Every instance polls the same durable outbox. A worker already
+            # rebuilding the derived datasets is normal, not a monitor-source
+            # failure. Leave its work untouched and retry on the next tick.
+            return False
+
+    def _dispatch_owned(self, callback):
+        with self.locked("stock-abnormal:monitor:outbox", wait_seconds=0) as db:
             row = self.execute(db, "SELECT publication_id FROM publication_outbox WHERE delivered=0 ORDER BY publication_id LIMIT 1").fetchone()
             if not row:
                 db.rollback()

@@ -69,7 +69,13 @@ class ProductionRegressionTests(unittest.TestCase):
         # the prior-close pool. The replay must not look ahead to that fall.
         self.assertNotIn(("688836.SH", "severe_10d"), keys)
         self.assertEqual(repaired["base_trade_date"], "20261029")
-        self.assertEqual(repaired["rule_version"], "v69")
+        self.assertEqual(repaired["rule_version"], PREDICTION_RULE_VERSION)
+
+    def test_next_session_reset_cannot_reuse_ocean_king_or_daye_pre_reset_threshold(self):
+        cards = self.service._compute_prediction_from_repository("next_day", target_trade_date="20261102")
+        keys = {(x["ts_code"], x["ruleKey"]) for x in cards}
+        self.assertNotIn(("002724.SZ", "ordinary_3d"), keys)
+        self.assertNotIn(("603278.SH", "ordinary_3d"), keys)
 
     def test_incomplete_current_version_candidates_are_rebuilt_from_prior_close(self):
         self.service._calc_repository.save_prediction = Mock()

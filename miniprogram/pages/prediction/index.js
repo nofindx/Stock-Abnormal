@@ -39,16 +39,17 @@ function preserveItemOrder(currentItems, nextItems) {
 Page({
   data: { scope: 'today', items: [], refreshing: false, loading: false, error: '', quoteUpdatedAt: '', dataQuality: {}, dataUnavailable: false, nextDayAvailable: true, nextDayReason: '', nextDayNoticeVisible: false },
   onLoad() {
-    // Each page entry reads the published pool first (S1), then refreshes
-    // quotes (S2) only while trading. A device-wide flag misses later entries.
+    // A tab page lives across onShow calls. Initialize once per page instance;
+    // subsequent quote updates are explicit pull-down refreshes.
+    this.initialLoad = this.loadData().then((result) => {
+      if (result && result.realtimeRefreshAllowed && this.data.scope === 'today') return this.refresh()
+      return result
+    })
+    return this.initialLoad
   },
   onShow() {
     const tabBar = this.getTabBar && this.getTabBar()
     if (tabBar) tabBar.setData({ selected: 2 })
-    this.loadData().then((result) => {
-      if (result && result.realtimeRefreshAllowed && this.data.scope === 'today') return this.refresh()
-      return result
-    })
   },
   switchScope(event) {
     const scope = event.currentTarget.dataset.scope

@@ -61,7 +61,7 @@ SHANGHAI_TZ = ZoneInfo("Asia/Shanghai") if ZoneInfo else timezone(timedelta(hour
 # 版本变化会触发服务启动时从已确认收盘行情重建计算基础数据与预测集。
 # Keep the persisted identifier compact: existing production schemas use a
 # 40-character rule-version column; the human-readable rationale lives in docs.
-PREDICTION_RULE_VERSION = "v69"
+PREDICTION_RULE_VERSION = "v70"
 _has_auditable_reset_evidence = has_auditable_reset_evidence
 
 
@@ -1701,6 +1701,10 @@ class MarketService:
             return None
         horizon = int(rule_window or actual_window)
         if rule_reset_date and not (forecast_scope == "today" and rule_reset_date > cls._date_key(dates[-1])) and (reset_window is None or horizon <= reset_window):
+            # The reset session is a zero reference in _vector_metrics. Do not
+            # show an intraday trigger solved against a pre-reset history.
+            if forecast_scope == "today" and rule_reset_date == cls._date_key(dates[-1]):
+                return None
             stock = [item for item in stock if cls._date_key(item.get("date")) >= rule_reset_date]
             index = [item for item in index if cls._date_key(item.get("date")) >= rule_reset_date]
             stock_map = {item.get("date"): float(item.get("return")) for item in stock if item.get("date")}
@@ -1723,12 +1727,12 @@ class MarketService:
         # 结束的最大历史区间反推目标日涨幅；分别尝试各个可用起点并取最小值。
         # 当日区间还包含目标日指数收益，但目标日股票收益未知，因此指数侧比
         # 股票已知收益多一个区间，不能对两边使用相同的切片长度。
-        for window in range(1, max_prior_returns + 1):
+        for window in range(0, max_prior_returns + 1):
             if today_scope:
                 interval_dates = dates[-(window + 1):]
                 stock_dates = interval_dates[:-1]
             else:
-                interval_dates = dates[-window:]
+                interval_dates = dates[-window:] if window else []
                 stock_dates = interval_dates
             stock_total = cls._compound(stock_map[day] for day in stock_dates)
             index_total = cls._compound(index_map[day] for day in interval_dates)
@@ -1739,6 +1743,17 @@ class MarketService:
         if direction == "down":
             return max(min(0.0, value) for value in distances)
         return min(max(0.0, value) for value in distances)
+
+    @classmethod
+    def _prediction_reset_arguments(cls, context, window, target_date=""):
+        """Use the same ordinary/severe boundary for a metric and its inverse."""
+        dates = [*(context.get("severeResetDates") or []), context.get("severeResetDate", "")]
+        if window == 3:
+            dates.extend(context.get("ordinaryResetDates") or [])
+        dates = [cls._date_key(value) for value in dates if cls._date_key(value)]
+        if target_date:
+            dates = [value for value in dates if value <= cls._date_key(target_date)]
+        return {"rule_reset_date": max(dates, default=""), "reset_window": 3 if window == 3 else 30}
 
     @classmethod
     def _required_up_percent(
@@ -3306,7 +3321,7 @@ class MarketService:
                         continue
                     distance = self._required_up_percent(
                         stock_vector, index_vector, 3, target, forecast_scope=scope, rule_window=3,
-                        rule_reset_date=max(suspension.get("ordinaryResetDates") or [], default=""), reset_window=3,
+                        **self._prediction_reset_arguments(suspension, 3, target_trade_date or (stock_as_of if scope == "today" else "")),
                     )
                     if not triggered:
                         # An official event is never manufactured by projection.
@@ -3342,15 +3357,7 @@ class MarketService:
                     target,
                     forecast_scope=scope,
                     rule_window=rule_window,
-                    rule_reset_date=(
-                        max(suspension.get("ordinaryResetDates") or [], default="")
-                        if rule_window == 3 else suspension.get("severeResetDate", "")
-                    ),
-                    reset_window=(
-                        3 if rule_window == 3 and suspension.get("ordinaryResetDates")
-                        else 30 if rule_window >= 10 and suspension.get("severeResetDate")
-                        else None
-                    ),
+                    **self._prediction_reset_arguments(suspension, rule_window, target_trade_date or (stock_as_of if scope == "today" else "")),
                 )
                 if distance is None:
                     stats["excludedByDataQuality"] += 1
@@ -3462,8 +3469,9 @@ class MarketService:
                     actual_window = metric["window_lengths"].get(rule_window)
                     if deviation is not None:
                         item["_deviation"] = deviation
-                        item["_window"] = actual_window or item["_window"]
-                        item["deviation"] = f"{item['_window']}日 {_pct(deviation)}"
+                        item["_window"] = actual_window if actual_window is not None else item["_window"]
+                        item["deviationWindow"] = item["_window"]
+                        item["deviation"] = f"{item['_window']}日 {_pct(deviation)}" if item["_window"] else f"{rule_window}日 {_pct(deviation)}（重置）"
                         item["deviationLabel"] = item["deviation"]
                         item["deviationPercent"] = float(deviation)
                         item["triggered"] = deviation >= threshold
@@ -3476,19 +3484,11 @@ class MarketService:
                             BOARD_RULES[BOARD_BY_MARKET.get(item.get("board"), Board.MAIN)].ordinary_deviation if is_count else threshold,
                             forecast_scope=scope,
                             rule_window=rule_window,
-                            rule_reset_date=(
-                                max(item.get("ordinaryResetDates") or [], default="")
-                                if rule_window == 3 else item.get("severeResetDate", "")
-                            ),
-                            reset_window=(
-                                3 if rule_window == 3 and item.get("ordinaryResetDates")
-                                else 30 if rule_window >= 10 and item.get("severeResetDate")
-                                else None
-                            ),
+                            **self._prediction_reset_arguments(item, rule_window, self._vector_latest_date(stock_vector) if scope == "today" else ""),
                         )
-                        display_distance = max(0.0, float(distance or 0.0))
-                        item["triggerValue"] = f"+{display_distance:.2f}%"
-                        item["triggerCondition"] = f"涨幅达 {display_distance:.2f}%"
+                        display_distance = max(0.0, float(distance)) if distance is not None else None
+                        item["triggerValue"] = f"+{display_distance:.2f}%" if display_distance is not None else "--"
+                        item["triggerCondition"] = f"涨幅达 {display_distance:.2f}%" if display_distance is not None else "重置基准日，暂无有效触发条件"
                         item["trigger"] = item["triggerCondition"]
                     if deviation is not None:
                         item["alertText"] = "已触发" if item["triggered"] else ""
@@ -4062,7 +4062,8 @@ class MarketService:
                 rule_key = str(item.get("ruleKey") or "")
                 rule_window = {"ordinary_3d": 3, "same_direction_10d": 3, "severe_10d": 10, "severe_30d": 30}.get(rule_key, int(item.get("predictionWindow") or 10))
                 deviation = metrics.get("deviations", {}).get(rule_window)
-                actual_window = metrics.get("window_lengths", {}).get(rule_window) or rule_window
+                actual_window = metrics.get("window_lengths", {}).get(rule_window)
+                actual_window = rule_window if actual_window is None else actual_window
                 # 盘中只修正已经生成的候选，不重新扫描全市场；但修正必须使用
                 # 与后台生成、单股详情相同的有效窗口和复牌重置逻辑。
                 if deviation is not None:
@@ -4074,17 +4075,10 @@ class MarketService:
                         threshold,
                         forecast_scope=forecast_scope,
                         rule_window=rule_window,
-                        rule_reset_date=(
-                            max(suspension.get("ordinaryResetDates") or [], default="")
-                            if rule_window == 3 else suspension.get("severeResetDate", "")
-                        ),
-                        reset_window=(
-                            3 if rule_window == 3 and suspension.get("ordinaryResetDates")
-                            else 30 if rule_window >= 10 and suspension.get("severeResetDate")
-                            else None
-                        ),
+                        **self._prediction_reset_arguments(suspension, rule_window, self._vector_latest_date(stock_vector) if forecast_scope == "today" else ""),
                     )
-                    item["deviation"] = f"{actual_window}日 {_pct(deviation)}"
+                    item["deviationWindow"] = actual_window
+                    item["deviation"] = f"{actual_window}日 {_pct(deviation)}" if actual_window else f"{rule_window}日 {_pct(deviation)}（重置）"
                     item["deviationLabel"] = item["deviation"]
                     item["deviationPercent"] = float(deviation)
                     item["triggered"] = (int(metrics.get("same", 0) or 0) >= rule.severe_same_direction_count) if rule_key == "same_direction_10d" else deviation >= threshold
@@ -4102,6 +4096,9 @@ class MarketService:
                         item["triggerCondition"] = f"涨幅达 {max(0.0, float(distance)):.2f}%"
                         # 兼容旧调用方：盘中重算后旧字段也必须与实时条件一致。
                         item["trigger"] = item["triggerCondition"]
+                    else:
+                        item["triggerValue"] = "--"
+                        item["trigger"] = item["triggerCondition"] = "重置基准日，暂无有效触发条件"
                 if deviation is not None:
                     item["alertText"] = "已触发" if item["triggered"] else ""
                     item["cardTone"] = "triggered" if item["triggered"] else ""
