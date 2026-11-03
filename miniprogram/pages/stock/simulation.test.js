@@ -2,7 +2,7 @@ const assert = require('assert')
 
 let stockPage
 global.Page = definition => { stockPage = definition }
-const { bestDeviation, buildMatrixGroups, buildNextDayForecast, calculateSimulationRows, createInputRows, presentWarnings, summaryStatus, formatMonthDay, monitoringRuleLabel, formatMonitoringSummary, remainingMonitoringDays, findStockMonitoring, selectStockMonitoring, currentSevereRuleTexts, resolveStatusBanner } = require('./index')
+const { bestDeviation, buildMatrixGroups, buildNextDayForecast, calculateSimulationRows, createInputRows, nearestUpwardThreshold, presentWarnings, summaryStatus, formatMonthDay, monitoringRuleLabel, formatMonitoringSummary, remainingMonitoringDays, findStockMonitoring, selectStockMonitoring, currentSevereRuleTexts, resolveStatusBanner } = require('./index')
 
 assert.deepStrictEqual(resolveStatusBanner({ summaryStatus: '暂无异动风险', summaryTone: 'safe' }, { dateText: '10/26-11/06' }), {
   summaryStatus: '暂无异动风险', summaryTone: 'safe', statusClass: 'safe'
@@ -415,6 +415,79 @@ assert.deepStrictEqual(calculateSimulationRows(invalidRows, upwardOnlyDetail).ma
 assert.strictEqual(calculateSimulationRows(createInputRows(1), {
   ...upwardOnlyDetail, simulationThresholds: { '10': { up: 150, down: -60 }, '30': { up: 300, down: -75 } }
 })[0].space, '150.00%', '使用响应给出的板块上涨阈值，不硬编码主板或下跌阈值')
+
+for (const [metrics, expected] of [
+  [[{ deviation: 50, up: 100 }, { deviation: 150, up: 200 }], '50.00%'],
+  [[{ deviation: -20, up: 100 }, { deviation: 190, up: 200 }], '10.00%'],
+  [[{ deviation: 99.999, up: 100 }, { deviation: 0, up: 200 }], '<0.01%'],
+  [[{ deviation: null, up: 100 }, { deviation: 150, up: 200 }], '--'],
+  [[{ deviation: null, up: 100 }, { deviation: 200, up: 200 }], '已触发'],
+  [[{ deviation: 50, up: null }, { deviation: 150, up: null }], '--']
+]) {
+  assert.strictEqual(nearestUpwardThreshold(metrics), expected)
+}
+for (const simulationBase of [
+  undefined,
+  { stock: [], index: [] },
+  { stock: [1, 2], index: [0] },
+  { stock: [null], index: [0] },
+  { stock: [NaN], index: [0] },
+  { stock: [0], index: [Infinity] },
+  { stockByWindow: { '10': [0], '30': [150] }, indexByWindow: { '30': [0] } }
+]) {
+  assert.strictEqual(calculateSimulationRows(createInputRows(1), {
+    ...upwardOnlyDetail, simulationBase
+  })[0].space, '--', '缺失/错位/非有限的历史不能伪装成最近阈值')
+}
+assert.strictEqual(calculateSimulationRows(createInputRows(1), {
+  ...upwardOnlyDetail, dataQuality: { isComplete: false }
+})[0].space, '--')
+const futureResetDetail = {
+  simulationBase: {
+    stock: [80, 10], index: [0, 0],
+    stockByWindow: { '10': [80, 10], '30': [80, 10] },
+    indexByWindow: { '10': [0, 0], '30': [0, 0] },
+    datesByWindow: { '10': ['20261029', '20261030'], '30': ['20261029', '20261030'] },
+    resetDatesByWindow: { '10': ['20261102'], '30': ['20261102'] }
+  },
+  simulationThresholds: upwardOnlyDetail.simulationThresholds
+}
+const resetRows = createInputRows(2, ['20261102', '20261103'])
+resetRows[0].stock = '5'
+resetRows[1].stock = '2'
+const resetResults = calculateSimulationRows(resetRows, futureResetDetail)
+assert.deepStrictEqual(resetResults.map(row => row.deviation10), ['+0.00%', '+7.10%'])
+assert.deepStrictEqual(resetResults.map(row => row.space), ['100.00%', '92.90%'])
+assert.strictEqual(resetResults[0].deviation10Window, 0)
+const ordinaryResetOnly = {
+  ...futureResetDetail,
+  simulationBase: { ...futureResetDetail.simulationBase, resetDatesByWindow: { '10': [], '30': [] } }
+}
+assert.strictEqual(calculateSimulationRows(resetRows, ordinaryResetOnly)[0].space, '已触发', '普通重置不清空 10/30 模拟基线')
+
+// Independent exhaustive trailing-interval oracle for every simulated T+N.
+let randomState = 20261104
+const random = () => { randomState = (Math.imul(randomState, 1664525) + 1013904223) >>> 0; return randomState / 4294967296 }
+const compoundOracle = values => (values.reduce((factor, value) => factor * (1 + value / 100), 1) - 1) * 100
+for (let sample = 0; sample < 80; sample += 1) {
+  const historyStock = Array.from({ length: 30 }, () => random() * 20 - 8)
+  const historyIndex = Array.from({ length: 30 }, () => random() * 6 - 3)
+  const simulated = createInputRows(10).map(row => ({ ...row, stock: String(random() * 20 - 8), index: String(random() * 6 - 3) }))
+  const thresholds = sample % 2 ? [100, 200] : [150, 300]
+  const output = calculateSimulationRows(simulated, {
+    simulationBase: { stock: historyStock, index: historyIndex },
+    simulationThresholds: { '10': { up: thresholds[0] }, '30': { up: thresholds[1] } }
+  })
+  output.forEach((row, i) => {
+    const stocks = historyStock.concat(simulated.slice(0, i + 1).map(item => Number(item.stock)))
+    const indexes = historyIndex.concat(simulated.slice(0, i + 1).map(item => Number(item.index)))
+    const deviations = [10, 30].map(horizon => Math.max(...Array.from({ length: horizon }, (_, n) =>
+      compoundOracle(stocks.slice(-(n + 1))) - compoundOracle(indexes.slice(-(n + 1))))))
+    const distance = Math.min(...deviations.map((value, n) => thresholds[n] - value))
+    const expected = distance <= 0 ? '已触发' : distance < 0.005 ? '<0.01%' : `${distance.toFixed(2)}%`
+    assert.strictEqual(row.space, expected, `sample=${sample}, T+${i + 1}`)
+  })
+}
 
 // 清空只重建当前展开范围的本地输入和计算结果，不读取行情或修改股票状态。
 for (const days of [2, 10]) {

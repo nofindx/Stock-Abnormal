@@ -47,4 +47,20 @@ const nextDayAlreadyAtThreshold = normalizeItems([{
 assert.strictEqual(nextDayAlreadyAtThreshold[0].triggered, true)
 assert.strictEqual(nextDayAlreadyAtThreshold[0].todayTriggered, false)
 
+const negativeUpwardBoundary = normalizeItems([{
+  ts_code: '300949.SZ',
+  name: '奥雅股份',
+  ruleKey: 'severe_10d',
+  change: '-0.75%',
+  changeSource: 'realtime',
+  deviationLabel: '10日 +99.03%',
+  triggerValue: '-0.24%',
+  triggered: false,
+}], 'today')[0]
+assert.strictEqual(negativeUpwardBoundary.triggerValue, '-0.24%')
+assert.strictEqual(negativeUpwardBoundary.triggered, false)
+assert.strictEqual(negativeUpwardBoundary.todayTriggered, false)
+assert.strictEqual(negativeUpwardBoundary.cardTone, '')
+assert.strictEqual(negativeUpwardBoundary.riskTone, 'severe')
+
 console.log('prediction page tests passed')

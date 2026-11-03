@@ -484,6 +484,37 @@ class MarketVectorTests(unittest.TestCase):
     def test_compound_return_uses_composite_formula(self):
         self.assertAlmostEqual(MarketService._compound([10.0, 10.0]), 21.0)
 
+    def test_simulation_baselines_pair_dates_and_keep_future_reset_metadata(self):
+        stock = [{"date": "20261029", "return": 80}, {"date": "20261030", "return": 10}]
+        index = [{"date": "2026-10-29", "return": 0}, {"date": "2026-10-30", "return": 0},
+                 {"date": "20261102", "return": 1}]
+        base = MarketService._simulation_base(stock, index, {
+            "ordinaryResetDates": ["20261030"], "severeResetDate": "20261102",
+        })
+        self.assertEqual(base["dates"], ["20261029", "20261030"])
+        self.assertEqual(base["stockByWindow"]["10"], [80, 10])
+        self.assertEqual(base["indexByWindow"]["10"], [0, 0])
+        self.assertEqual(base["datesByWindow"]["3"], ["20261030"])
+        self.assertEqual(base["resetDatesByWindow"]["10"], ["20261102"])
+        self.assertEqual(base["resetDatesByWindow"]["3"], ["20261030", "20261102"])
+
+    def test_simulation_uses_latest_severe_boundary_even_without_plural_metadata(self):
+        stock = [{"date": "20261029", "return": 80}, {"date": "20261030", "return": 10}]
+        index = [{"date": item["date"], "return": 0} for item in stock]
+        base = MarketService._simulation_base(stock, index, {
+            "ordinaryResetDates": ["20261029"], "severeResetDate": "20261030",
+        })
+        self.assertEqual(base["datesByWindow"]["3"], ["20261030"])
+        self.assertEqual(base["datesByWindow"]["10"], ["20261030"])
+        self.assertEqual(base["stockByWindow"]["30"], [10])
+
+    def test_simulation_accepts_nullable_reset_collections(self):
+        stock = [{"date": "20261103", "return": 1}]
+        base = MarketService._simulation_base(stock, stock, {
+            "ordinaryResetDates": None, "severeResetDates": None,
+        })
+        self.assertEqual(base["resetDatesByWindow"], {"3": [], "10": [], "30": []})
+
     def test_required_up_percent_today_solves_current_day_not_next_day(self):
         """当日卡的触发涨幅必须把最新股票日收益作为未知量。"""
         stock = [{"date": f"2026-10-{index:02d}", "return": value} for index, value in enumerate([10.0, 10.0, 5.0], 1)]
@@ -494,10 +525,11 @@ class MarketVectorTests(unittest.TestCase):
             7.4380165,
             places=5,
         )
-        # 次日口径使用完整当前窗口；当前已为 +26.05%，只需约 2.32% 追加到 +30%。
+        # 次日三日窗口以目标日结束，只能使用前两日已知股票收益；
+        # 与当日解法同窗口长度，但待求的目标日和指数基准日不同。
         self.assertAlmostEqual(
             MarketService._required_up_percent(stock, index, 3, 30.0, forecast_scope="next_day"),
-            2.3219205,
+            12.5541126,
             places=5,
         )
 
@@ -1389,7 +1421,8 @@ class MarketVectorTests(unittest.TestCase):
         self.assertTrue(by_rule["severe_30d"]["triggerCondition"].startswith("涨幅达 "))
         self.assertTrue(by_rule["severe_10d"]["triggered"])
         self.assertEqual(by_rule["severe_10d"]["alertText"], "已触发")
-        self.assertTrue(by_rule["severe_10d"]["triggerValue"].startswith("+"))
+        expected_trigger = (2.0 / 1.09 ** 9 - 1.0) * 100.0
+        self.assertEqual(by_rule["severe_10d"]["triggerValue"], f"{expected_trigger:+.2f}%")
         # 已触发卡仍显示达到阈值所需的目标日涨幅，不能退化成固定规则阈值。
         self.assertNotEqual(by_rule["severe_10d"]["triggerValue"], "+100.00%")
         self.assertNotEqual(by_rule["severe_30d"]["triggerValue"], "+200.00%")

@@ -61,7 +61,7 @@ SHANGHAI_TZ = ZoneInfo("Asia/Shanghai") if ZoneInfo else timezone(timedelta(hour
 # 版本变化会触发服务启动时从已确认收盘行情重建计算基础数据与预测集。
 # Keep the persisted identifier compact: existing production schemas use a
 # 40-character rule-version column; the human-readable rationale lives in docs.
-PREDICTION_RULE_VERSION = "v70"
+PREDICTION_RULE_VERSION = "v71"
 _has_auditable_reset_evidence = has_auditable_reset_evidence
 
 
@@ -1602,6 +1602,37 @@ class MarketService:
     def _vector_numbers(entries: List[Dict[str, Any]]) -> List[float]:
         return [float(item["return"]) for item in entries]
 
+    @classmethod
+    def _simulation_base(cls, stock, index, context):
+        """Publish paired simulation inputs and every confirmed reset date.
+
+        Historical arrays retain the latest already-effective baseline for
+        older clients. Dates let the current client apply a confirmed future
+        reset on its own simulated effective session, rather than using an
+        out-of-date pre-reset baseline throughout T+1..T+10.
+        """
+        stock_map = {cls._date_key(item.get("date")): item for item in stock if cls._date_key(item.get("date"))}
+        index_map = {cls._date_key(item.get("date")): item for item in index if cls._date_key(item.get("date"))}
+        dates = sorted(set(stock_map) & set(index_map))
+        cutoff = dates[-1] if dates else ""
+        ordinary = {cls._date_key(value) for value in (context.get("ordinaryResetDates") or []) if cls._date_key(value)}
+        severe = {cls._date_key(value) for value in [*(context.get("severeResetDates") or []), context.get("severeResetDate", "")]
+                  if cls._date_key(value)}
+        resets = {3: sorted(ordinary | severe), 10: sorted(severe), 30: sorted(severe)}
+        window_dates = {}
+        for window, values in resets.items():
+            effective = max((value for value in values if value <= cutoff), default="")
+            window_dates[str(window)] = [day for day in dates if not effective or day >= effective]
+        return {
+            "stock": [float(stock_map[day]["return"]) for day in dates],
+            "index": [float(index_map[day]["return"]) for day in dates],
+            "dates": dates,
+            "stockByWindow": {key: [float(stock_map[day]["return"]) for day in days] for key, days in window_dates.items()},
+            "indexByWindow": {key: [float(index_map[day]["return"]) for day in days] for key, days in window_dates.items()},
+            "datesByWindow": window_dates,
+            "resetDatesByWindow": {str(window): values for window, values in resets.items()},
+        }
+
     @staticmethod
     def _compound(values: Iterable[float]) -> float:
         result = 1.0
@@ -1690,9 +1721,11 @@ class MarketService:
 
         ``today`` 卡是在当前交易日收盘前反推：最新股票日收益是待求的
         未知量，所以对每个可能起点都只使用目标日前的股票收益，指数最新日
-        收益仍纳入基准。``next_day`` 卡则使用完整当前区间，再反推下一交易日
-        的股票收益。两条路径共用同一复合收益公式，但未知日不同，不能把当日
-        卡也按“追加下一日”计算。触发条件取最新端点可延伸区间所需涨幅的最小值。
+        收益仍纳入基准。``next_day`` 卡以次日为目标，最多保留 N-1 个已知
+        股票收益，再反推下一交易日收益。两条路径共用复合收益公式，但未知日不同，不能把当日
+        卡也按“追加下一日”计算。触发条件是目标日相对前收盘的涨跌幅，
+        不是从当前报价起还需上涨的幅度；上涨阈值的边界也可能为负。
+        上涨方向取有效区间边界的最小值，下跌方向取最大值，均保留符号。
         """
         stock_map = {item.get("date"): float(item.get("return")) for item in stock if item.get("date")}
         index_map = {item.get("date"): float(item.get("return")) for item in index if item.get("date")}
@@ -1713,14 +1746,11 @@ class MarketService:
             if not dates:
                 return None
         today_scope = forecast_scope == "today"
-        # N-day rules have at most N-1 known stock returns before today's
-        # unknown return. The next-day 3-day rule retains its full current
-        # window, matching the product's T+1 projection semantics.
-        max_prior_returns = (
-            max(0, horizon - 1)
-            if today_scope or horizon in (10, 30)
-            else horizon
-        )
+        # An N-day boundary always covers the N-1 sessions before its unknown
+        # target session. This is true for both today and next-day forecasts;
+        # counting N known sessions here accidentally projects an N+1-day
+        # window (most visible in the same-direction 3-day counter).
+        max_prior_returns = max(0, horizon - 1)
         max_prior_returns = min(max_prior_returns, len(dates) - 1 if today_scope else len(dates))
         distances = []
         # 触发距离是从最新有效日向目标日延伸的区间，不能拿一个早于最新日
@@ -1741,8 +1771,21 @@ class MarketService:
         if not distances:
             return None
         if direction == "down":
-            return max(min(0.0, value) for value in distances)
-        return min(max(0.0, value) for value in distances)
+            return max(distances)
+        return min(distances)
+
+    @staticmethod
+    def _prediction_trigger_fields(required_change: Optional[float]) -> Dict[str, str]:
+        """Keep one signed target-day boundary across generation and quote refresh."""
+        if required_change is None:
+            value = "--"
+            condition = "重置基准日，暂无有效触发条件"
+        else:
+            # Normalize display-only negative zero, not negative boundaries.
+            display_change = round(float(required_change), 2) or 0.0
+            value = _pct(display_change)
+            condition = f"涨幅达 {display_change:.2f}%"
+        return {"triggerValue": value, "triggerCondition": condition, "trigger": condition}
 
     @classmethod
     def _prediction_reset_arguments(cls, context, window, target_date=""):
@@ -1846,7 +1889,7 @@ class MarketService:
                     stock, index, min(window, len(common_dates)), up_target,
                     rule_window=window, rule_reset_date=effective_reset_date, reset_window=effective_reset_window,
                 )
-                if distance is not None and 0.0 <= distance <= limit:
+                if distance is not None and distance <= limit:
                     candidates.append({
                         "ruleKey": rule_key, "direction": "up",
                         "rule": f"连续{label}个交易日内收盘价涨幅偏离值累计达到 +{up_target:.0f}%",
@@ -1857,7 +1900,7 @@ class MarketService:
                     stock, index, min(window, len(common_dates)), down_target,
                     rule_window=window, rule_reset_date=effective_reset_date, reset_window=effective_reset_window,
                 )
-                if distance is not None and -limit <= distance <= 0.0:
+                if distance is not None and -limit <= distance:
                     candidates.append({
                         "ruleKey": rule_key, "direction": "down",
                         "rule": f"连续{label}个交易日内收盘价涨幅偏离值累计达到 {down_target:.0f}%",
@@ -2451,24 +2494,6 @@ class MarketService:
             market_data_state="complete" if common_days else "unavailable",
             facts_data_state=facts_status,
         )
-        # The simulation editor represents the current, already-published
-        # close.  Do not apply an announced reset before its effective session
-        # exists in that close; otherwise a future reset produces an empty
-        # baseline and the UI incorrectly reports "data unavailable".
-        current_reset_cutoff = common_dates[-1] if common_dates else ""
-        ordinary_reset_dates = {
-            self._date_key(value) for value in (suspension.get("ordinaryResetDates") or [])
-            if self._date_key(value) and (not current_reset_cutoff or self._date_key(value) <= current_reset_cutoff)
-        }
-        severe_reset_dates = {
-            self._date_key(value) for value in (suspension.get("severeResetDates") or [])
-            if self._date_key(value) and (not current_reset_cutoff or self._date_key(value) <= current_reset_cutoff)
-        }
-        simulation_reset_dates = {
-            3: max(ordinary_reset_dates, default="") or max(severe_reset_dates, default=""),
-            10: max(severe_reset_dates, default=""),
-            30: max(severe_reset_dates, default=""),
-        }
         return {
             **stock,
             "status": status,
@@ -2496,24 +2521,7 @@ class MarketService:
             },
             "warnings": warnings,
             "alerts": self._build_alerts(deviations, severe, board),
-            "simulationBase": {
-                "stock": self._vector_numbers(stock_vector),
-                "index": self._vector_numbers(index_vector),
-                "stockByWindow": {
-                    str(window): self._vector_numbers([
-                        item for item in stock_vector
-                        if not simulation_reset_dates[window]
-                        or self._date_key(item.get("date")) >= simulation_reset_dates[window]
-                    ]) for window in (3, 10, 30)
-                },
-                "indexByWindow": {
-                    str(window): self._vector_numbers([
-                        item for item in index_vector
-                        if not simulation_reset_dates[window]
-                        or self._date_key(item.get("date")) >= simulation_reset_dates[window]
-                    ]) for window in (3, 10, 30)
-                },
-            },
+            "simulationBase": self._simulation_base(stock_vector, index_vector, suspension),
             "calculationInput": {"stock": stock_vector, "index": index_vector, "ordinaryDeviation": rule.ordinary_deviation, "severe10": {"up": rule.severe_10d_threshold.up, "down": rule.severe_10d_threshold.down}, "severe30": {"up": rule.severe_30d_threshold.up, "down": rule.severe_30d_threshold.down}, "sameDirectionThreshold": rule.severe_same_direction_count, "ordinaryResetDates": suspension.get("ordinaryResetDates", []), "ordinaryEvents": suspension.get("ordinaryEvents", []), "severeResetDate": suspension.get("severeResetDate", ""), "severeResetDates": suspension.get("severeResetDates", []), "sameDirectionWindowPolicy": "product-inference: formal-10d-ledger-counts-idempotent-cninfo-confirmed-ordinary-3d-notices; market-windows-are-candidates-only; ordinary-reset-3d-baseline; severe-reset-all-four", "ruleVersion": PREDICTION_RULE_VERSION},
             "simulationThresholds": {
                 "3": {"up": rule.ordinary_deviation, "down": -rule.ordinary_deviation},
@@ -3380,11 +3388,8 @@ class MarketService:
                 kind = option["kind"]
                 deviation = option.get("deviation")
                 deviation_label = (f"10日 +{int(deviation)}次" if kind == "count" else f"{option['actualWindow']}日 {_pct(deviation)}")
-                # 触发条件展示目标日实际还需上涨的距离；已经触发时通常为 0，
-                # 规则阈值只保留在 rule 文案，不能覆盖触发距离。
-                display_distance = max(0.0, float(option["distance"]))
-                trigger_value = f"+{display_distance:.2f}%"
-                trigger_condition = f"涨幅达 {display_distance:.2f}%"
+                # 展示目标日相对前收盘的涨跌幅边界，保留负值；是否已经
+                # 触发仍由实际偏离/公告计数决定，不由边界的正负推断。
                 if kind == "count":
                     rule_text = f"连续10个交易日内出现{int(option['threshold'])}次同向普通异动"
                 elif option["ruleKey"] == "ordinary_3d":
@@ -3407,9 +3412,7 @@ class MarketService:
                     "deviationLabel": deviation_label,
                     "deviationPercent": float(deviation),
                     "deviationWindow": option["actualWindow"],
-                    "trigger": trigger_condition,
-                    "triggerCondition": trigger_condition,
-                    "triggerValue": trigger_value,
+                    **self._prediction_trigger_fields(option["distance"]),
                     "rule": rule_text,
                     "tradeDate": str(calc.get("as_of_trade_date") or ""),
                     "quoteUpdatedAt": self._format_prediction_datetime(calc.get("quote_updated_at")) or (
@@ -3486,10 +3489,7 @@ class MarketService:
                             rule_window=rule_window,
                             **self._prediction_reset_arguments(item, rule_window, self._vector_latest_date(stock_vector) if scope == "today" else ""),
                         )
-                        display_distance = max(0.0, float(distance)) if distance is not None else None
-                        item["triggerValue"] = f"+{display_distance:.2f}%" if display_distance is not None else "--"
-                        item["triggerCondition"] = f"涨幅达 {display_distance:.2f}%" if display_distance is not None else "重置基准日，暂无有效触发条件"
-                        item["trigger"] = item["triggerCondition"]
+                        item.update(self._prediction_trigger_fields(distance))
                     if deviation is not None:
                         item["alertText"] = "已触发" if item["triggered"] else ""
                         item["cardTone"] = "triggered" if item["triggered"] else ""
@@ -4091,14 +4091,7 @@ class MarketService:
                         if (suspension.get("ruleFactsQuality") or {}).get("status") != "available":
                             item["exactCount"] = None
                             item["availability"] = "unavailable"
-                    if distance is not None:
-                        item["triggerValue"] = f"+{max(0.0, float(distance)):.2f}%"
-                        item["triggerCondition"] = f"涨幅达 {max(0.0, float(distance)):.2f}%"
-                        # 兼容旧调用方：盘中重算后旧字段也必须与实时条件一致。
-                        item["trigger"] = item["triggerCondition"]
-                    else:
-                        item["triggerValue"] = "--"
-                        item["trigger"] = item["triggerCondition"] = "重置基准日，暂无有效触发条件"
+                    item.update(self._prediction_trigger_fields(distance))
                 if deviation is not None:
                     item["alertText"] = "已触发" if item["triggered"] else ""
                     item["cardTone"] = "triggered" if item["triggered"] else ""

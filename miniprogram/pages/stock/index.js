@@ -358,6 +358,12 @@ function cumulativeReturn(values) {
 
 function bestDeviation(stockValues, indexValues, maxWindow) {
   // 模拟仅比较上涨阈值：枚举以模拟日为终点的连续区间，取最大偏离。
+  if (!Array.isArray(stockValues) || !Array.isArray(indexValues)
+    || stockValues.length !== indexValues.length
+    || !stockValues.every(value => Number.isFinite(value) && value > -100)
+    || !indexValues.every(value => Number.isFinite(value) && value > -100)) {
+    return { value: null, window: null }
+  }
   const upperLimit = maxWindow
   const count = Math.min(maxWindow, stockValues.length, indexValues.length)
   const stocks = stockValues.slice(-count)
@@ -372,8 +378,20 @@ function bestDeviation(stockValues, indexValues, maxWindow) {
       window
     })
   }
+  if (results.some(item => !Number.isFinite(item.value))) return { value: null, window: null }
   results.sort((left, right) => right.value - left.value || left.window - right.window)
   return results[0]
+}
+
+function nearestUpwardThreshold(metrics) {
+  const configured = metrics.filter(item => Number.isFinite(item.up) && item.up > 0)
+  if (!configured.length) return '--'
+  if (configured.some(item => Number.isFinite(item.deviation) && item.deviation >= item.up)) return '已触发'
+  // An unavailable configured window may be the nearest one. Do not silently
+  // drop it and present the other window as a complete minimum.
+  if (configured.some(item => !Number.isFinite(item.deviation))) return '--'
+  const distance = Math.min(...configured.map(item => item.up - item.deviation))
+  return distance > 0 && distance < 0.005 ? '<0.01%' : `${distance.toFixed(2)}%`
 }
 
 function calculateSimulationRows(rows, detail) {
@@ -385,15 +403,43 @@ function calculateSimulationRows(rows, detail) {
   return rows.map((row, rowIndex) => {
     const stockValue = simulationInputValue(row.stock)
     const indexValue = simulationInputValue(row.index)
-    if (stockValue == null || indexValue == null) complete = false
+    if (stockValue == null || indexValue == null || stockValue <= -100 || indexValue <= -100) complete = false
     if (!complete) {
       return { ...row, deviation10: '--', deviation30: '--', space: '--', deviation10Window: null, deviation30Window: null, deviationClass: '' }
     }
     const metricForWindow = window => {
+      const unavailable = { value: null, window: null }
+      if (detail && ((detail.dataQuality || {}).isComplete === false
+        || (detail.stockState || {}).marketDataState === 'unavailable')) return unavailable
+      const key = String(window)
+      const hasWindowBase = base.stockByWindow && Object.prototype.hasOwnProperty.call(base.stockByWindow, key)
+        || base.indexByWindow && Object.prototype.hasOwnProperty.call(base.indexByWindow, key)
+      if (hasWindowBase && (!Array.isArray(base.stockByWindow && base.stockByWindow[key])
+        || !Array.isArray(base.indexByWindow && base.indexByWindow[key]))) return unavailable
       const stockWindowBase = base.stockByWindow && Array.isArray(base.stockByWindow[String(window)])
         ? base.stockByWindow[String(window)] : stockBase
       const indexWindowBase = base.indexByWindow && Array.isArray(base.indexByWindow[String(window)])
         ? base.indexByWindow[String(window)] : indexBase
+      if (!stockWindowBase.length || stockWindowBase.length !== indexWindowBase.length
+        || !stockWindowBase.every(value => Number.isFinite(value) && value > -100)
+        || !indexWindowBase.every(value => Number.isFinite(value) && value > -100)) return unavailable
+      const simulatedRows = rows.slice(0, rowIndex + 1)
+      const historyDates = base.datesByWindow && base.datesByWindow[key]
+      const resetDates = base.resetDatesByWindow && base.resetDatesByWindow[key]
+      if (Array.isArray(historyDates)) {
+        const dates = historyDates.map(dateKey).concat(simulatedRows.map(item => dateKey(item.date)))
+        if (historyDates.length !== stockWindowBase.length
+          || dates.some((value, i) => !/^\d{8}$/.test(value) || i > 0 && value <= dates[i - 1])) return unavailable
+        const targetDate = dates[dates.length - 1]
+        const effectiveReset = (Array.isArray(resetDates) ? resetDates : []).map(dateKey)
+          .filter(value => value && value <= targetDate).sort().pop() || ''
+        if (effectiveReset === targetDate) return { value: 0, window: 0 }
+        const stocks = stockWindowBase.concat(simulatedRows.map(item => simulationInputValue(item.stock)))
+        const indexes = indexWindowBase.concat(simulatedRows.map(item => simulationInputValue(item.index)))
+        const keep = dates.map((value, i) => !effectiveReset || value >= effectiveReset ? i : -1).filter(i => i >= 0)
+        return bestDeviation(keep.map(i => stocks[i]), keep.map(i => indexes[i]), window)
+      }
+      if (Array.isArray(resetDates) && resetDates.length) return unavailable
       return bestDeviation(
         stockWindowBase.concat(rows.slice(0, rowIndex + 1).map(item => simulationInputValue(item.stock))),
         indexWindowBase.concat(rows.slice(0, rowIndex + 1).map(item => simulationInputValue(item.index))),
@@ -409,12 +455,8 @@ function calculateSimulationRows(rows, detail) {
     const upwardMetrics = [
       { deviation: deviation10, up: parsePercent(thresholds['10'] && thresholds['10'].up) },
       { deviation: deviation30, up: parsePercent(thresholds['30'] && thresholds['30'].up) }
-    ].filter(item => Number.isFinite(item.deviation) && Number.isFinite(item.up) && item.up > 0)
-    const thresholdDistance = upwardMetrics.length === 0
-      ? '--'
-      : upwardMetrics.some(item => item.deviation >= item.up)
-        ? '已触发'
-        : `${Math.min(...upwardMetrics.map(item => item.up - item.deviation)).toFixed(2)}%`
+    ]
+    const thresholdDistance = nearestUpwardThreshold(upwardMetrics)
     const currentDeviation = deviation10 == null ? (deviation30 == null ? 0 : deviation30) : deviation10
     const deviationClass = value => value == null ? '' : value > 0 ? 'risk' : value < 0 ? 'safe' : ''
     return {
@@ -741,4 +783,4 @@ Page({
 })
 
 // 纯计算函数导出给前端回归测试；小程序运行时不影响 Page 注册。
-if (typeof module !== 'undefined') module.exports = { bestDeviation, buildMatrixGroups, buildNextDayForecast, calculateSimulationRows, createInputRows, presentWarnings, summaryStatus, formatMonthDay, monitoringRuleLabel, formatMonitoringSummary, remainingMonitoringDays, findStockMonitoring, selectStockMonitoring, currentSevereRuleTexts, resolveStatusBanner }
+if (typeof module !== 'undefined') module.exports = { bestDeviation, buildMatrixGroups, buildNextDayForecast, calculateSimulationRows, createInputRows, nearestUpwardThreshold, presentWarnings, summaryStatus, formatMonthDay, monitoringRuleLabel, formatMonitoringSummary, remainingMonitoringDays, findStockMonitoring, selectStockMonitoring, currentSevereRuleTexts, resolveStatusBanner }
