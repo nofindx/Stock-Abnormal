@@ -257,6 +257,21 @@ const rows = createInputRows(2, ['2026-10-16', '2026-10-19'])
 assert.strictEqual(rows[0].stock, '')
 assert.strictEqual(rows[0].index, '')
 assert.deepStrictEqual(buildMatrixGroups(rows)[0].rows.map(item => item.label), ['股票涨幅', '指数涨幅', '10日偏离', '30日偏离', '距最近阈值'])
+// Object identity is not a valid WXML list key. Stable per-column IDs must
+// survive edits, expansion and clearing, including placeholder cells.
+const simulationMarkup = require('fs').readFileSync(require('path').join(__dirname, 'index.wxml'), 'utf8')
+assert(simulationMarkup.includes('wx:for="{{matrix.columns}}" wx:for-item="column" wx:key="rowIndex"'))
+assert(simulationMarkup.includes('wx:for="{{matrixRow.values}}" wx:for-item="cell" wx:key="rowIndex"'))
+for (const count of [2, 10]) {
+  const initial = buildMatrixGroups(createInputRows(count))
+  const changed = buildMatrixGroups(createInputRows(count).map((row, i) => ({ ...row, stock: String(i + 1) })))
+  initial.forEach((group, index) => {
+    const ids = group.columns.map(column => column.rowIndex)
+    assert.strictEqual(new Set(ids).size, ids.length)
+    assert.deepStrictEqual(changed[index].columns.map(column => column.rowIndex), ids)
+    group.rows.forEach(row => assert.deepStrictEqual(row.values.map(cell => cell.rowIndex), ids))
+  })
+}
 rows[0].stock = '16'
 rows[0].index = '0'
 const result = calculateSimulationRows(rows, detail)
