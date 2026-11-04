@@ -391,7 +391,8 @@ function nearestUpwardThreshold(metrics) {
   // drop it and present the other window as a complete minimum.
   if (configured.some(item => !Number.isFinite(item.deviation))) return '--'
   const distance = Math.min(...configured.map(item => item.up - item.deviation))
-  return distance > 0 && distance < 0.005 ? '<0.01%' : `${distance.toFixed(2)}%`
+  // 阈值与偏离值相减得到百分点差，单位由行标题标注；不能再拼接百分号。
+  return distance > 0 && distance < 0.005 ? '<0.01' : distance.toFixed(2)
 }
 
 function calculateSimulationRows(rows, detail) {

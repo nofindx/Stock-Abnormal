@@ -48,5 +48,6 @@ class SimulationContractTests(unittest.TestCase):
                             self.assertAlmostEqual(float(calculated[position][f"deviation{window}"].rstrip("%")), deviation, delta=0.0051)
                             self.assertEqual(calculated[position][f"deviation{window}Window"], metrics["up_window_lengths"][window])
                             distances.append(limit - deviation)
-                        expected = "已触发" if min(distances) <= 0 else f"{min(distances):.2f}%"
+                        distance = min(distances)
+                        expected = "已触发" if distance <= 0 else "<0.01" if distance < 0.005 else f"{distance:.2f}"
                         self.assertEqual(calculated[position]["space"], expected)

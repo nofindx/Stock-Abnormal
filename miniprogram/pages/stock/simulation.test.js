@@ -262,6 +262,8 @@ assert.deepStrictEqual(buildMatrixGroups(rows)[0].rows.map(item => item.label), 
 const simulationMarkup = require('fs').readFileSync(require('path').join(__dirname, 'index.wxml'), 'utf8')
 assert(simulationMarkup.includes('wx:for="{{matrix.columns}}" wx:for-item="column" wx:key="rowIndex"'))
 assert(simulationMarkup.includes('wx:for="{{matrixRow.values}}" wx:for-item="cell" wx:key="rowIndex"'))
+assert(simulationMarkup.includes('wx:if="{{matrixRow.key === \'space\'}}" class="matrix-distance-unit">（百分点）</text>'))
+assert(simulationMarkup.includes('距最近阈值为偏离值差，单位：百分点，不是股票涨幅'))
 for (const count of [2, 10]) {
   const initial = buildMatrixGroups(createInputRows(count))
   const changed = buildMatrixGroups(createInputRows(count).map((row, i) => ({ ...row, stock: String(i + 1) })))
@@ -383,19 +385,19 @@ const ordinaryOnlyRows = createInputRows(1)
 ordinaryOnlyRows[0].stock = '25'
 const ordinaryOnlyResult = calculateSimulationRows(ordinaryOnlyRows, ordinaryOnlyDetail)
 assert.strictEqual(ordinaryOnlyResult[0].deviation10, '+25.00%')
-assert.strictEqual(ordinaryOnlyResult[0].space, '75.00%')
+assert.strictEqual(ordinaryOnlyResult[0].space, '75.00')
 
 // 兼容接口的下跌阈值不参与模拟；距离只比较两个上涨阈值。
 const upwardOnlyDetail = {
   simulationBase: { stock: Array(29).fill(0), index: Array(29).fill(0) },
   simulationThresholds: { '10': { up: 100, down: -50 }, '30': { up: 200, down: -70 } }
 }
-assert.strictEqual(calculateSimulationRows(createInputRows(1), upwardOnlyDetail)[0].space, '100.00%')
+assert.strictEqual(calculateSimulationRows(createInputRows(1), upwardOnlyDetail)[0].space, '100.00')
 const decliningRows = createInputRows(1)
 decliningRows[0].stock = '-60'
 const decliningResult = calculateSimulationRows(decliningRows, upwardOnlyDetail)[0]
 assert.strictEqual(decliningResult.deviation10, '-60.00%')
-assert.strictEqual(decliningResult.space, '160.00%', '触及下跌阈值不标记模拟已触发')
+assert.strictEqual(decliningResult.space, '160.00', '触及下跌阈值不标记模拟已触发')
 const allNegativeInterval = bestDeviation([-30, -20], [0, 0], 10)
 assert.strictEqual(allNegativeInterval.window, 1)
 assert(Math.abs(allNegativeInterval.value + 20) < 1e-9, '全为负值时仍取最大偏离，不切换为下跌指标')
@@ -405,15 +407,15 @@ const rollingDetail = {
   simulationBase: { stock: Array(20).fill(0).concat([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]), index: Array(30).fill(0) }
 }
 const rollingResults = calculateSimulationRows(createInputRows(10), rollingDetail)
-assert.deepStrictEqual(rollingResults.slice(5).map(row => row.space), ['61.44%', '70.51%', '80.10%', '90.00%', '100.00%'])
+assert.deepStrictEqual(rollingResults.slice(5).map(row => row.space), ['61.44', '70.51', '80.10', '90.00', '100.00'])
 assert.strictEqual(rollingResults[9].deviation10, '+0.00%')
 
 const thirtyDayIsCloser = {
   ...upwardOnlyDetail,
   simulationBase: { stockByWindow: { '10': [0], '30': [160] }, indexByWindow: { '10': [0], '30': [0] } }
 }
-assert.strictEqual(calculateSimulationRows(createInputRows(1), thirtyDayIsCloser)[0].space, '40.00%', '30 日上涨阈值更近时由其决定距离')
-for (const [stockReturn, expected] of [[99, '1.00%'], [100, '已触发'], [101, '已触发']]) {
+assert.strictEqual(calculateSimulationRows(createInputRows(1), thirtyDayIsCloser)[0].space, '40.00', '30 日上涨阈值更近时由其决定距离')
+for (const [stockReturn, expected] of [[99, '1.00'], [100, '已触发'], [101, '已触发']]) {
   const boundaryRows = createInputRows(1)
   boundaryRows[0].stock = String(stockReturn)
   assert.strictEqual(calculateSimulationRows(boundaryRows, upwardOnlyDetail)[0].space, expected)
@@ -429,12 +431,12 @@ invalidRows[0].stock = 'invalid'
 assert.deepStrictEqual(calculateSimulationRows(invalidRows, upwardOnlyDetail).map(row => row.space), ['--', '--'])
 assert.strictEqual(calculateSimulationRows(createInputRows(1), {
   ...upwardOnlyDetail, simulationThresholds: { '10': { up: 150, down: -60 }, '30': { up: 300, down: -75 } }
-})[0].space, '150.00%', '使用响应给出的板块上涨阈值，不硬编码主板或下跌阈值')
+})[0].space, '150.00', '使用响应给出的板块上涨阈值，不硬编码主板或下跌阈值')
 
 for (const [metrics, expected] of [
-  [[{ deviation: 50, up: 100 }, { deviation: 150, up: 200 }], '50.00%'],
-  [[{ deviation: -20, up: 100 }, { deviation: 190, up: 200 }], '10.00%'],
-  [[{ deviation: 99.999, up: 100 }, { deviation: 0, up: 200 }], '<0.01%'],
+  [[{ deviation: 50, up: 100 }, { deviation: 150, up: 200 }], '50.00'],
+  [[{ deviation: -20, up: 100 }, { deviation: 190, up: 200 }], '10.00'],
+  [[{ deviation: 99.999, up: 100 }, { deviation: 0, up: 200 }], '<0.01'],
   [[{ deviation: null, up: 100 }, { deviation: 150, up: 200 }], '--'],
   [[{ deviation: null, up: 100 }, { deviation: 200, up: 200 }], '已触发'],
   [[{ deviation: 50, up: null }, { deviation: 150, up: null }], '--']
@@ -472,7 +474,7 @@ resetRows[0].stock = '5'
 resetRows[1].stock = '2'
 const resetResults = calculateSimulationRows(resetRows, futureResetDetail)
 assert.deepStrictEqual(resetResults.map(row => row.deviation10), ['+0.00%', '+7.10%'])
-assert.deepStrictEqual(resetResults.map(row => row.space), ['100.00%', '92.90%'])
+assert.deepStrictEqual(resetResults.map(row => row.space), ['100.00', '92.90'])
 assert.strictEqual(resetResults[0].deviation10Window, 0)
 const ordinaryResetOnly = {
   ...futureResetDetail,
@@ -499,8 +501,9 @@ for (let sample = 0; sample < 80; sample += 1) {
     const deviations = [10, 30].map(horizon => Math.max(...Array.from({ length: horizon }, (_, n) =>
       compoundOracle(stocks.slice(-(n + 1))) - compoundOracle(indexes.slice(-(n + 1))))))
     const distance = Math.min(...deviations.map((value, n) => thresholds[n] - value))
-    const expected = distance <= 0 ? '已触发' : distance < 0.005 ? '<0.01%' : `${distance.toFixed(2)}%`
+    const expected = distance <= 0 ? '已触发' : distance < 0.005 ? '<0.01' : distance.toFixed(2)
     assert.strictEqual(row.space, expected, `sample=${sample}, T+${i + 1}`)
+    assert(!row.space.includes('%'), '偏离距离用行标题的百分点单位，不得混用百分比')
   })
 }
 
