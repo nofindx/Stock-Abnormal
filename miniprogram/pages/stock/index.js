@@ -383,6 +383,27 @@ function bestDeviation(stockValues, indexValues, maxWindow) {
   return results[0]
 }
 
+function additionalRiseToThreshold(stockValues, indexValues, maxWindow, threshold) {
+  if (!Number.isFinite(threshold) || threshold <= 0 || !Number.isInteger(maxWindow) || maxWindow <= 0
+    || !Array.isArray(stockValues) || !Array.isArray(indexValues)
+    || !stockValues.length || stockValues.length !== indexValues.length
+    || !stockValues.every(value => Number.isFinite(value) && value > -100)
+    || !indexValues.every(value => Number.isFinite(value) && value > -100)) return null
+  const candidates = []
+  // 在该模拟日的价格上额外上涨，影响所有以该日为终点的区间；指数不变。
+  // Δ股价涨幅 = (阈值 - 区间偏离值) / 区间股票累计价格因子。
+  // 最大偏离区间不一定是最先触及阈值的区间，必须逐个反算。
+  for (let window = 1; window <= Math.min(maxWindow, stockValues.length); window += 1) {
+    const stockReturn = cumulativeReturn(stockValues.slice(-window))
+    const indexReturn = cumulativeReturn(indexValues.slice(-window))
+    const factor = 1 + stockReturn / 100
+    const required = (threshold - (stockReturn - indexReturn)) / factor
+    if (!Number.isFinite(required) || !Number.isFinite(factor) || factor <= 0) return null
+    candidates.push(required)
+  }
+  return Math.min(...candidates)
+}
+
 function nearestUpwardThreshold(metrics) {
   const configured = metrics.filter(item => Number.isFinite(item.up) && item.up > 0)
   if (!configured.length) return '--'
@@ -390,9 +411,12 @@ function nearestUpwardThreshold(metrics) {
   // An unavailable configured window may be the nearest one. Do not silently
   // drop it and present the other window as a complete minimum.
   if (configured.some(item => !Number.isFinite(item.deviation))) return '--'
-  const distance = Math.min(...configured.map(item => item.up - item.deviation))
-  // 阈值与偏离值相减得到百分点差，单位由行标题标注；不能再拼接百分号。
-  return distance > 0 && distance < 0.005 ? '<0.01' : distance.toFixed(2)
+  // 正式重置生效日偏离固定为0，当日没有可反算的价格触发边界。
+  const eligible = configured.filter(item => !item.resetEffective)
+  if (!eligible.length || eligible.some(item => !Number.isFinite(item.requiredRise))) return '--'
+  const distance = Math.min(...eligible.map(item => item.requiredRise))
+  if (distance <= 0) return '已触发'
+  return distance < 0.005 ? '<0.01%' : `${distance.toFixed(2)}%`
 }
 
 function calculateSimulationRows(rows, detail) {
@@ -410,6 +434,10 @@ function calculateSimulationRows(rows, detail) {
     }
     const metricForWindow = window => {
       const unavailable = { value: null, window: null }
+      const fromVectors = (stocks, indexes) => ({
+        ...bestDeviation(stocks, indexes, window),
+        requiredRise: additionalRiseToThreshold(stocks, indexes, window, parsePercent(thresholds[String(window)] && thresholds[String(window)].up))
+      })
       if (detail && ((detail.dataQuality || {}).isComplete === false
         || (detail.stockState || {}).marketDataState === 'unavailable')) return unavailable
       const key = String(window)
@@ -434,17 +462,16 @@ function calculateSimulationRows(rows, detail) {
         const targetDate = dates[dates.length - 1]
         const effectiveReset = (Array.isArray(resetDates) ? resetDates : []).map(dateKey)
           .filter(value => value && value <= targetDate).sort().pop() || ''
-        if (effectiveReset === targetDate) return { value: 0, window: 0 }
+        if (effectiveReset === targetDate) return { value: 0, window: 0, resetEffective: true }
         const stocks = stockWindowBase.concat(simulatedRows.map(item => simulationInputValue(item.stock)))
         const indexes = indexWindowBase.concat(simulatedRows.map(item => simulationInputValue(item.index)))
         const keep = dates.map((value, i) => !effectiveReset || value >= effectiveReset ? i : -1).filter(i => i >= 0)
-        return bestDeviation(keep.map(i => stocks[i]), keep.map(i => indexes[i]), window)
+        return fromVectors(keep.map(i => stocks[i]), keep.map(i => indexes[i]))
       }
       if (Array.isArray(resetDates) && resetDates.length) return unavailable
-      return bestDeviation(
+      return fromVectors(
         stockWindowBase.concat(rows.slice(0, rowIndex + 1).map(item => simulationInputValue(item.stock))),
-        indexWindowBase.concat(rows.slice(0, rowIndex + 1).map(item => simulationInputValue(item.index))),
-        window
+        indexWindowBase.concat(rows.slice(0, rowIndex + 1).map(item => simulationInputValue(item.index)))
       )
     }
     const metric10 = metricForWindow(10)
@@ -454,8 +481,8 @@ function calculateSimulationRows(rows, detail) {
     const display = value => value == null ? '--' : `${value >= 0 ? '+' : ''}${value.toFixed(2)}%`
     // 旧接口仍携带 down 字段，仅供正式预警兼容；模拟不读取下跌阈值。
     const upwardMetrics = [
-      { deviation: deviation10, up: parsePercent(thresholds['10'] && thresholds['10'].up) },
-      { deviation: deviation30, up: parsePercent(thresholds['30'] && thresholds['30'].up) }
+      { deviation: deviation10, requiredRise: metric10.requiredRise, resetEffective: metric10.resetEffective, up: parsePercent(thresholds['10'] && thresholds['10'].up) },
+      { deviation: deviation30, requiredRise: metric30.requiredRise, resetEffective: metric30.resetEffective, up: parsePercent(thresholds['30'] && thresholds['30'].up) }
     ]
     const thresholdDistance = nearestUpwardThreshold(upwardMetrics)
     const currentDeviation = deviation10 == null ? (deviation30 == null ? 0 : deviation30) : deviation10
@@ -784,4 +811,4 @@ Page({
 })
 
 // 纯计算函数导出给前端回归测试；小程序运行时不影响 Page 注册。
-if (typeof module !== 'undefined') module.exports = { bestDeviation, buildMatrixGroups, buildNextDayForecast, calculateSimulationRows, createInputRows, nearestUpwardThreshold, presentWarnings, summaryStatus, formatMonthDay, monitoringRuleLabel, formatMonitoringSummary, remainingMonitoringDays, findStockMonitoring, selectStockMonitoring, currentSevereRuleTexts, resolveStatusBanner }
+if (typeof module !== 'undefined') module.exports = { additionalRiseToThreshold, bestDeviation, buildMatrixGroups, buildNextDayForecast, calculateSimulationRows, createInputRows, nearestUpwardThreshold, presentWarnings, summaryStatus, formatMonthDay, monitoringRuleLabel, formatMonitoringSummary, remainingMonitoringDays, findStockMonitoring, selectStockMonitoring, currentSevereRuleTexts, resolveStatusBanner }

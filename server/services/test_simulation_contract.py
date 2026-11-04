@@ -38,16 +38,42 @@ class SimulationContractTests(unittest.TestCase):
                     for position, row in enumerate(rows):
                         stock.append({"date": row["date"], "return": row["stock"]})
                         index.append({"date": row["date"], "return": row["index"]})
-                        metrics = MarketService._vector_metrics(stock, index, rule,
-                            ordinary_reset_dates=context.get("ordinaryResetDates"),
-                            severe_reset_date=context.get("severeResetDate", ""),
-                            severe_reset_dates=context.get("severeResetDates"))
-                        distances = []
-                        for window, limit in ((10, rule.severe_10d_threshold.up), (30, rule.severe_30d_threshold.up)):
+                        def formal_metrics(values):
+                            return MarketService._vector_metrics(values, index, rule,
+                                ordinary_reset_dates=context.get("ordinaryResetDates"),
+                                severe_reset_date=context.get("severeResetDate", ""),
+                                severe_reset_dates=context.get("severeResetDates"))
+
+                        metrics = formal_metrics(stock)
+                        limits = ((10, rule.severe_10d_threshold.up), (30, rule.severe_30d_threshold.up))
+                        for window, limit in limits:
                             deviation = metrics["up_deviations"][window]
                             self.assertAlmostEqual(float(calculated[position][f"deviation{window}"].rstrip("%")), deviation, delta=0.0051)
                             self.assertEqual(calculated[position][f"deviation{window}Window"], metrics["up_window_lengths"][window])
-                            distances.append(limit - deviation)
-                        distance = min(distances)
-                        expected = "已触发" if distance <= 0 else "<0.01" if distance < 0.005 else f"{distance:.2f}"
+                        if any(metrics["up_deviations"][window] >= limit for window, limit in limits):
+                            expected = "已触发"
+                        elif all(metrics["up_window_lengths"][window] == 0 for window, _ in limits):
+                            expected = "--"  # 生效日正式指标固定为零，没有当日可触及价格边界。
+                        else:
+                            # Independent oracle: increase only the final simulated price,
+                            # keep index unchanged, and binary-search the formal backend engine.
+                            def excess(extra):
+                                values = [dict(item) for item in stock]
+                                values[-1]["return"] = ((1 + row["stock"] / 100) * (1 + extra / 100) - 1) * 100
+                                changed = formal_metrics(values)
+                                return max(changed["up_deviations"][window] - limit for window, limit in limits)
+
+                            low, high = 0.0, 1.0
+                            while excess(high) < 0:
+                                high *= 2
+                                self.assertLess(high, 1_000_000)
+                            for _ in range(65):
+                                middle = (low + high) / 2
+                                if excess(middle) >= 0:
+                                    high = middle
+                                else:
+                                    low = middle
+                            self.assertAlmostEqual(excess(high), 0, delta=1e-7)
+                            self.assertLess(excess(max(0, high - 0.0001)), 0)
+                            expected = "<0.01%" if high < 0.005 else f"{high:.2f}%"
                         self.assertEqual(calculated[position]["space"], expected)
