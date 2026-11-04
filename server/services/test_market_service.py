@@ -2114,6 +2114,37 @@ class MarketVectorTests(unittest.TestCase):
         }]
         self.assertFalse(any(item["ruleKey"] == "severe_10d" for item in service._compute_prediction_from_repository("next_day")))
 
+    def test_today_recalculation_drops_retained_unreachable_candidate(self):
+        """A prior-pool identity cannot bypass today's board-limit filter."""
+        service = self.service
+        dates = [f"2026-08-{index:02d}" for index in range(1, 31)]
+        stock_vector = [{"date": day, "return": 5.0 if index >= 20 else 0.0} for index, day in enumerate(dates)]
+        index_vector = [{"date": day, "return": 0.0} for day in dates]
+        service._calc_repository = SimpleNamespace(
+            available=True,
+            all_calculations=lambda: {"000001.SZ": {
+                "ts_code": "000001.SZ", "latest_close": 10.0,
+                "as_of_trade_date": "20260830", "stock_return_vector": stock_vector,
+            }},
+            all_indexes=lambda: {"399107.SZ": {
+                "index_code": "399107.SZ", "latest_close": 10.0, "as_of_trade_date": "20260830",
+                "index_return_vector": index_vector,
+            }},
+        )
+        service._stock_rows = lambda: [{
+            "ts_code": "000001.SZ", "symbol": "000001", "name": "测试股票",
+            "market": "SZSE", "board": "主板", "isST": False,
+        }]
+
+        items = service._compute_prediction_from_repository(
+            "today",
+            target_trade_date="20260830",
+            candidate_keys={("000001.SZ", "severe_10d")},
+            include_close_candidates=True,
+        )
+
+        self.assertFalse(any(item["ruleKey"] == "severe_10d" for item in (items or [])))
+
     def test_today_prediction_includes_nearby_untriggered_upward_candidates(self):
         service = self.service
         dates = [f"2026-08-{index:02d}" for index in range(1, 31)]

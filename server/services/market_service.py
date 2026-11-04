@@ -3354,8 +3354,12 @@ class MarketService:
                     continue
                 deviation = metrics["deviations"].get(rule_window)
                 actual_window = metrics.get("window_lengths", {}).get(rule_window)
-                retained_candidate = rule_key in candidate_rule_keys
-                if deviation is None or actual_window is None or (deviation <= 0 and not retained_candidate):
+                # Candidate identity is only a seed for the target-day
+                # recalculation. It must not keep a stale, no-longer-risky
+                # card alive after the target close. A non-positive deviation
+                # has no upward prediction candidate regardless of whether
+                # the rule appeared in the prior published pool.
+                if deviation is None or actual_window is None or deviation <= 0:
                     stats["excludedByDataQuality"] += 1
                     continue
                 distance = self._required_up_percent(
@@ -3378,7 +3382,12 @@ class MarketService:
                 if scope == "next_day" and rule_key == "severe_10d" and triggered:
                     stats["excludedByTriggered"] += 1
                     continue
-                if not triggered and distance > limit and not retained_candidate:
+                # An untriggered card is shown only when its target-day
+                # boundary is reachable within the board's one-day limit.
+                # Previously retained candidates must obey the same rule;
+                # otherwise a card such as +10.85% on a main-board stock
+                # (whose limit is +10%) remained in today's prediction.
+                if not triggered and distance > limit:
                     stats["excludedByLimit"] += 1
                     continue
                 rule_options.append({"ruleKey": rule_key, "ruleWindow": rule_window, "actualWindow": actual_window, "deviation": deviation, "threshold": threshold, "distance": distance, "kind": kind, "triggered": triggered})
