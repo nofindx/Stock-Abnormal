@@ -45,14 +45,22 @@ async function run() {
   api.getStockDetail = async code => { stockReads++; return result(code) }
   api.refreshStockDetail = async code => { stockQuotes++; return result(code) }
   const stock = page('./stock/index')
-  stock.renderStockDetail = function(detail) { this.setData({ detail, detailLoading: false }) }
+  stock.renderStockDetail = function(detail) { this.setData({ detail, detailLoading: false, simulationReady: true }) }
   stock.onLoad({})
   await stock.chooseStock({ ts_code: '002724.SZ', name: '海洋王' })
   assert.deepStrictEqual([stockReads, stockQuotes], [1, 1])
+  stock.data.simulationExpanded = true
+  stock.data.visibleDays = 10
+  stock.data.inputRows = [{ stock: '5', index: '1' }]
   app.globalData.pendingStock = { ts_code: '002724.SZ', name: '海洋王' }
   stock.onShow()
   stock.onShow()
-  assert.deepStrictEqual([stockReads, stockQuotes], [1, 1], 'returning to the same stock must retain its view')
+  assert.deepStrictEqual([stockReads, stockQuotes], [1, 1], 'returning from a prediction card must reuse the existing detail without another quote request')
+  assert.strictEqual(stock.data.simulationExpanded, false, 'opening a stock card resets the simulation to its two-day initial mode')
+  assert.strictEqual(stock.data.visibleDays, 2)
+  assert.strictEqual(stock.data.inputRows.length, 2)
+  assert.strictEqual(stock.data.inputRows[0].stock, '', 'navigation reset must clear prior user inputs')
+  assert.strictEqual(stock.data.simulationReady, true, 'the existing detail baseline is recalculated before the page is shown')
   await stock.onPullDownRefresh()
   assert.deepStrictEqual([stockReads, stockQuotes], [1, 2])
   await stock.chooseStock({ ts_code: '603278.SH', name: '大业股份' })

@@ -262,6 +262,9 @@ assert.deepStrictEqual(buildMatrixGroups(rows)[0].rows.map(item => item.label), 
 const simulationMarkup = require('fs').readFileSync(require('path').join(__dirname, 'index.wxml'), 'utf8')
 assert(simulationMarkup.includes('wx:for="{{matrix.columns}}" wx:for-item="column" wx:key="rowIndex"'))
 assert(simulationMarkup.includes('wx:for="{{matrixRow.values}}" wx:for-item="cell" wx:key="rowIndex"'))
+assert(simulationMarkup.includes('wx:if="{{!simulationReady}}" class="simulation-loading"'))
+assert(simulationMarkup.includes('<block wx:if="{{simulationReady}}">'))
+assert(simulationMarkup.includes('<text class="matrix-suffix">%</text>'), 'blank simulation inputs must still show their percent unit')
 assert(!simulationMarkup.includes('（百分点）'))
 assert(simulationMarkup.includes('距最近阈值为在该模拟价格上还能上涨的百分比，指数按该行假设不变'))
 for (const count of [2, 10]) {

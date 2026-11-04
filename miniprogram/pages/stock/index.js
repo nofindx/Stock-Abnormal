@@ -602,7 +602,7 @@ Page({
     query: '', suggestions: [], suggestionHint: false, suggestionTotal: 0, selected: null, detail: null, recentStocks: [],
     detailLoading: false, detailError: '', searchError: '', searchFocused: false, dataUpdatedAt: '',
     futureTradeDates: [], nextDayForecastLine: '', nextDayForecastText: '正在核对下一交易日预测…', nextDayForecastNotice: '',
-    dayOptions: ['10'], simulationExpanded: false, visibleDays: 2,
+    dayOptions: ['10'], simulationExpanded: false, simulationReady: false, visibleDays: 2,
     inputRows: createInputRows(2), matrixGroups: buildMatrixGroups(createInputRows(2))
   },
   onLoad(options) {
@@ -614,7 +614,11 @@ Page({
     const pending = getApp().globalData.pendingStock
     if (pending) {
       getApp().globalData.pendingStock = null
-      if (!this.data.selected || pending.ts_code !== this.data.selected.ts_code || (!this.data.detail && !this.data.detailLoading)) this.chooseStock(pending)
+      if (this.data.selected && pending.ts_code === this.data.selected.ts_code && this.data.detail) {
+        this.resetSimulationInputs()
+      } else if (!this.data.selected || pending.ts_code !== this.data.selected.ts_code || !this.data.detailLoading) {
+        this.chooseStock(pending)
+      }
     }
   },
   syncTabBar() {
@@ -669,7 +673,7 @@ Page({
     const inputRows = createInputRows(2, this.data.futureTradeDates)
     this.detailRequestId = (this.detailRequestId || 0) + 1
     const requestId = this.detailRequestId
-    this.setData({ selected: stock, detail: null, detailLoading: true, detailError: '', dataUpdatedAt: '', nextDayForecastLine: '', nextDayForecastText: '正在核对下一交易日预测…', nextDayForecastNotice: '', query: stock.name === '正在加载' ? stock.ts_code : `${stock.name} ${stock.symbol}`, suggestions: [], suggestionHint: false, inputRows, matrixGroups: buildMatrixGroups(inputRows), simulationExpanded: false, visibleDays: 2 })
+    this.setData({ selected: stock, detail: null, detailLoading: true, detailError: '', dataUpdatedAt: '', nextDayForecastLine: '', nextDayForecastText: '正在核对下一交易日预测…', nextDayForecastNotice: '', query: stock.name === '正在加载' ? stock.ts_code : `${stock.name} ${stock.symbol}`, suggestions: [], suggestionHint: false, inputRows, matrixGroups: buildMatrixGroups(inputRows), simulationExpanded: false, simulationReady: false, visibleDays: 2 })
     const render = detail => {
       if (requestId === this.detailRequestId) this.stockReadResult = detail
       this.renderStockDetail(detail, { items: detail.monitoringFacts || [] }, stock, requestId)
@@ -770,7 +774,11 @@ Page({
       const dataUpdatedAt = formatUpdatedAt((detailWithMonitoring.dataQuality || {}).quoteUpdatedAt || detailWithMonitoring.tradeDate)
       const recentStocks = [{ ts_code: detailWithMonitoring.ts_code || stock.ts_code, symbol: detailWithMonitoring.symbol || stock.symbol || stock.ts_code.split('.')[0], name: detailWithMonitoring.name || stock.name || stock.ts_code }, ...(this.data.recentStocks || []).filter(item => item.ts_code !== (detailWithMonitoring.ts_code || stock.ts_code))].slice(0, 8)
       wx.setStorageSync(STOCK_HISTORY_KEY, recentStocks)
-      this.setData({ selected: { ...stock, ...detailWithMonitoring }, detail: displayDetail, detailLoading: false, detailError: '', dataUpdatedAt, recentStocks, futureTradeDates, inputRows: rows, matrixGroups: buildMatrixGroups(rows), query: `${detailWithMonitoring.name} ${detailWithMonitoring.symbol}`, nextDayForecastLine: forecast.line, nextDayForecastText: forecast.text, nextDayForecastNotice: forecast.notice || '' })
+      this.setData({ selected: { ...stock, ...detailWithMonitoring }, detail: displayDetail, detailLoading: false, detailError: '', dataUpdatedAt, recentStocks, futureTradeDates, inputRows: rows, matrixGroups: buildMatrixGroups(rows), simulationReady: true, query: `${detailWithMonitoring.name} ${detailWithMonitoring.symbol}`, nextDayForecastLine: forecast.line, nextDayForecastText: forecast.text, nextDayForecastNotice: forecast.notice || '' })
+  },
+  resetSimulationInputs() {
+    const inputRows = calculateSimulationRows(createInputRows(2, this.data.futureTradeDates), this.data.detail)
+    this.setData({ simulationExpanded: false, visibleDays: 2, inputRows, matrixGroups: buildMatrixGroups(inputRows), simulationReady: Boolean(this.data.detail) })
   },
   expandSimulation() {
     if (this.data.simulationExpanded) return
