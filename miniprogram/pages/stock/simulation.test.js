@@ -266,7 +266,7 @@ assert(simulationMarkup.includes('wx:if="{{!simulationReady}}" class="simulation
 assert(simulationMarkup.includes('<block wx:if="{{simulationReady}}">'))
 assert(simulationMarkup.includes('<text class="matrix-suffix">%</text>'), 'blank simulation inputs must still show their percent unit')
 assert(!simulationMarkup.includes('（百分点）'))
-assert(simulationMarkup.includes('距最近阈值为在该模拟价格上还能上涨的百分比，指数按该行假设不变'))
+assert(!simulationMarkup.includes('距最近阈值为在该模拟价格上还能上涨的百分比，指数按该行假设不变'))
 for (const count of [2, 10]) {
   const initial = buildMatrixGroups(createInputRows(count))
   const changed = buildMatrixGroups(createInputRows(count).map((row, i) => ({ ...row, stock: String(i + 1) })))
