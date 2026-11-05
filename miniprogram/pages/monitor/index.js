@@ -4,7 +4,7 @@ const { openPdf } = require('../../utils/open-pdf')
 
 Page({
   data: { type: 'all', items: [], rawItems: [], visibleCount: 0, updatedAt: '', loading: false, refreshing: false, error: '', skeletonRows: [0, 1, 2, 3], types: [{ key: 'all', label: '全部' }, { key: 'risk', label: '风险提示' }, { key: 'severe', label: '严重异动' }, { key: 'delisting', label: '退市整理' }] },
-  onLoad() { this.restoreCache(); this.loadData() },
+  onLoad() { this.loadData() },
   onShow() {
     const tabBar = this.getTabBar && this.getTabBar()
     if (tabBar) tabBar.setData({ selected: 1 })
@@ -18,26 +18,12 @@ Page({
     this.requestSeq = (this.requestSeq || 0) + 1
     if (this.pollTimer) clearTimeout(this.pollTimer)
     this.pollAttempts = 0
-    this.setData({ type: event.currentTarget.dataset.type }, () => { if (!this.restoreCache()) this.setData({ items: [], rawItems: [], updatedAt: '' }); this.loadData() })
-  },
-  cacheKey(type = this.data.type) { return `monitorSnapshot:v3:current:${type}` },
-  restoreCache() {
-    try {
-      const cached = wx.getStorageSync(this.cacheKey(this.data.type))
-      if (!cached || !Array.isArray(cached.items)) return false
-      this.setData({ rawItems: cached.items, updatedAt: cached.updatedAt || '', error: '' })
-      this.applyFilters(cached.items)
-      return true
-    } catch (error) {
-      // 本地缓存不可用时继续请求后端，不影响首次打开。
-      return false
-    }
-  },
-  saveCache(result, type = this.data.type) {
-    try { wx.setStorageSync(this.cacheKey(type), { items: result.items || [], updatedAt: result.updatedAt || '' }) } catch (error) {}
+    this.setData({
+      type: event.currentTarget.dataset.type,
+      items: [], rawItems: [], visibleCount: 0, updatedAt: '', error: '', loading: true
+    }, () => this.loadData())
   },
   loadData() {
-    if (this.data.loading) return this.loadPromise || Promise.resolve()
     const requestType = this.data.type
     const requestId = (this.requestSeq || 0) + 1
     this.requestSeq = requestId
@@ -48,9 +34,7 @@ Page({
       if (requestId !== this.requestSeq || requestType !== this.data.type) return
       const items = result.items || []
       const waiting = Boolean(result.refreshing) && !items.length
-      // 冷启动期间不覆盖本地成功快照，避免缓存内容被空响应清掉。
       if (!waiting) {
-        this.saveCache(result, requestType)
         this.setData({ rawItems: items, updatedAt: result.updatedAt || '' })
         this.applyFilters(items)
       }
@@ -59,8 +43,7 @@ Page({
     }).catch(() => {
       if (requestId === this.requestSeq && requestType === this.data.type) this.setData({ loading: false, error: '监控数据暂时不可用，请稍后重试' })
     })
-    this.loadPromise = request.finally(() => { if (requestId === this.requestSeq) this.loadPromise = null })
-    return this.loadPromise
+    return request
   },
   schedulePoll() {
     if (this.pollTimer) clearTimeout(this.pollTimer)
@@ -77,7 +60,6 @@ Page({
         const items = result.items || []
         const waiting = Boolean(result.refreshing) && !items.length
         if (!waiting) {
-          this.saveCache(result, pollType)
           this.setData({ rawItems: items, updatedAt: result.updatedAt || '' })
           this.applyFilters(items)
         }
