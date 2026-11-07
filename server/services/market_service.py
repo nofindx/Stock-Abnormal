@@ -8,6 +8,7 @@ from __future__ import annotations
 from datetime import date, datetime, timedelta, timezone
 from copy import copy, deepcopy
 import os
+import math
 import re
 from concurrent.futures import ThreadPoolExecutor
 from threading import Event, Lock, Thread
@@ -61,7 +62,7 @@ SHANGHAI_TZ = ZoneInfo("Asia/Shanghai") if ZoneInfo else timezone(timedelta(hour
 # 版本变化会触发服务启动时从已确认收盘行情重建计算基础数据与预测集。
 # Keep the persisted identifier compact: existing production schemas use a
 # 40-character rule-version column; the human-readable rationale lives in docs.
-PREDICTION_RULE_VERSION = "v72"
+PREDICTION_RULE_VERSION = "v73"
 _has_auditable_reset_evidence = has_auditable_reset_evidence
 
 
@@ -448,7 +449,8 @@ class MarketService:
             metrics = self._vector_metrics(sv, iv, BOARD_RULES[BOARD_BY_MARKET.get(stock["board"], Board.MAIN)],
                 ordinary_reset_dates=context.get("ordinaryResetDates"),
                 severe_reset_date=context.get("severeResetDate", ""),
-                severe_reset_dates=context.get("severeResetDates"), ordinary_events=context.get("ordinaryEvents"))
+                severe_reset_dates=context.get("severeResetDates"), ordinary_events=context.get("ordinaryEvents"),
+                price_reset_dates=context.get("priceResetDates"))
             quality = context.get("ruleFactsQuality") or {}
             count_available = quality.get("status") == "available" and not metrics.get("unresolved_same_direction_events")
             updates.append({"ts_code": code, "date": self._date_key(calc.get("as_of_trade_date")),
@@ -930,6 +932,7 @@ class MarketService:
                     severe_reset_date=reset_meta.get("severeResetDate", ""),
                     ordinary_events=reset_meta.get("ordinaryEvents"),
                     severe_reset_dates=reset_meta.get("severeResetDates"),
+                    price_reset_dates=reset_meta.get("priceResetDates"),
                 )
                 rule_reset_date = reset_meta.get("ruleResetDate", "")
                 deviations = {str(window): metrics["deviations"][window] for window in (3, 10, 30)}
@@ -1255,11 +1258,10 @@ class MarketService:
         stock: List[Dict[str, Any]],
         index: List[Dict[str, Any]],
     ) -> tuple[List[Dict[str, Any]], List[Dict[str, Any]], Dict[str, Any]]:
-        """识别停牌尾部，但保留停牌前的有效交易日。
+        """识别停牌缺口与首个复牌收益日，供偏离基线重置使用。
 
-        停牌日没有收益区间，不补 0，也不应把此前有效交易日从滚动规则中
-        清除。否则 10 日同向次数会被错误归零，30 日窗口也会退化成复牌
-        后的短窗口。尾部仍停牌时只标记 ``suspended``，由预测资格层排除。
+        停牌日不补零。复牌边界只重置价格偏离基线；已确认的普通异动事件
+        是否清零由严重异动公告/停牌事实的有效日期单独决定。
         """
 
         stock_entries = list(stock or [])
@@ -1281,13 +1283,19 @@ class MarketService:
         index_latest = cls._date_key(ordered_index[-1].get("date"))
         missing = [day for day in index_dates if day < stock_latest and day not in stock_dates]
         reset_date = ""
+        last_gap_date = ""
+        last_stock_before_gap = ""
         if missing:
-            last_gap = missing[-1]
-            resumed = [cls._date_key(item.get("date")) for item in ordered_stock if cls._date_key(item.get("date")) > last_gap]
+            last_gap_date = missing[-1]
+            last_stock_before_gap = max((day for day in stock_dates if day < missing[0]), default="")
+            resumed = [cls._date_key(item.get("date")) for item in ordered_stock if cls._date_key(item.get("date")) > last_gap_date]
             reset_date = resumed[0] if resumed else ""
 
         return ordered_stock[-30:], ordered_index[-30:], {
             "resetDate": reset_date,
+            "lastGapDate": last_gap_date,
+            "lastStockDateBeforeGap": last_stock_before_gap,
+            "missingDates": missing,
             "suspended": bool(stock_latest < index_latest),
         }
 
@@ -1578,11 +1586,39 @@ class MarketService:
         """统一应用停牌重置和正式普通/严重异动公告后的规则重置。"""
 
         stock_vector, index_vector, suspension = self._trim_vectors_after_suspension(stock_vector, index_vector)
+        missing_dates = suspension.get("missingDates") or []
+        if suspension.get("resetDate") and missing_dates:
+            try:
+                frame = self.client.suspend_d(missing_dates[0], missing_dates[-1])
+                rows = frame.to_dict("records") if hasattr(frame, "to_dict") else list(frame or [])
+                code = str(stock.get("ts_code") or "").upper()
+                confirmed = {
+                    self._date_key(row.get("trade_date"))
+                    for row in rows
+                    if str(row.get("ts_code") or "").upper() == code
+                    and str(row.get("suspend_type") or "").upper() == "S"
+                }
+                if not set(missing_dates).issubset(confirmed):
+                    suspension["suspensionGapUnverified"] = True
+                    suspension["resetDate"] = ""
+            except Exception:  # noqa: BLE001 - never infer a reset from a data gap alone
+                suspension["suspensionGapUnverified"] = True
+                suspension["resetDate"] = ""
         monitoring = self._active_monitor_for_stock(stock)
         reset_facts = self._rule_reset_facts_for_stock(stock)
         reset_context = build_reset_context(reset_facts)
         ordinary_reset_dates = reset_context.ordinary_reset_dates
         severe_reset_dates = reset_context.severe_reset_dates
+        suspension_reset_date = self._date_key(suspension.get("resetDate"))
+        last_stock_before_gap = self._date_key(suspension.get("lastStockDateBeforeGap"))
+        # A verified severe reset effective inside a suspension gap identifies
+        # the severe-abnormality pause path. Reapply the full reset on the first
+        # valid resumed session; an ordinary pause only resets price windows.
+        if suspension_reset_date and last_stock_before_gap and any(
+            last_stock_before_gap < value <= suspension_reset_date
+            for value in severe_reset_dates
+        ):
+            severe_reset_dates = sorted(set(severe_reset_dates) | {suspension_reset_date})
         reset_date = reset_context.latest_reset_date
         reset_scope = reset_context.latest_reset_scope
         rule_reset = {
@@ -1593,6 +1629,7 @@ class MarketService:
             "ordinaryEvents": reset_context.ordinary_events,
             "severeResetDate": severe_reset_dates[-1] if severe_reset_dates else "",
             "severeResetDates": severe_reset_dates,
+            "priceResetDates": [suspension_reset_date] if suspension_reset_date else [],
             "resetEvidence": reset_context.reset_evidence,
             "ruleFactsQuality": dict(self._last_rule_facts_quality),
         }
@@ -1618,7 +1655,12 @@ class MarketService:
         ordinary = {cls._date_key(value) for value in (context.get("ordinaryResetDates") or []) if cls._date_key(value)}
         severe = {cls._date_key(value) for value in [*(context.get("severeResetDates") or []), context.get("severeResetDate", "")]
                   if cls._date_key(value)}
-        resets = {3: sorted(ordinary | severe), 10: sorted(severe), 30: sorted(severe)}
+        resumed = {cls._date_key(value) for value in (context.get("priceResetDates") or []) if cls._date_key(value)}
+        resets = {
+            3: sorted(ordinary | severe | resumed),
+            10: sorted(severe | resumed),
+            30: sorted(severe | resumed),
+        }
         window_dates = {}
         for window, values in resets.items():
             effective = max((value for value in values if value <= cutoff), default="")
@@ -1790,7 +1832,7 @@ class MarketService:
     @classmethod
     def _prediction_reset_arguments(cls, context, window, target_date=""):
         """Use the same ordinary/severe boundary for a metric and its inverse."""
-        dates = [*(context.get("severeResetDates") or []), context.get("severeResetDate", "")]
+        dates = [*(context.get("severeResetDates") or []), context.get("severeResetDate", ""), *(context.get("priceResetDates") or [])]
         if window == 3:
             dates.extend(context.get("ordinaryResetDates") or [])
         dates = [cls._date_key(value) for value in dates if cls._date_key(value)]
@@ -1847,6 +1889,7 @@ class MarketService:
         severe_reset_date: str = "",
         ordinary_events: Optional[Iterable[Dict[str, Any]]] = None,
         severe_reset_dates: Optional[Iterable[str]] = None,
+        price_reset_dates: Optional[Iterable[str]] = None,
     ) -> List[Dict[str, str]]:
         """按对应板块阈值列出下一交易日可能触及的上涨、下跌和同向规则。"""
         stock_map = {item.get("date"): float(item.get("return")) for item in stock if item.get("date")}
@@ -1863,11 +1906,17 @@ class MarketService:
         }
         if severe_reset_date:
             severe_reset_candidates.add(cls._date_key(severe_reset_date))
+        price_reset_candidates = {
+            cls._date_key(value) for value in (price_reset_dates or ()) if cls._date_key(value)
+        }
         effective_ordinary_reset = max(
             (value for value in ordinary_reset_candidates if value <= prediction_date), default=""
         )
         effective_severe_reset = max(
             (value for value in severe_reset_candidates if value <= prediction_date), default=""
+        )
+        effective_price_reset = max(
+            (value for value in price_reset_candidates if value <= prediction_date), default=""
         )
         limit = float(limit_price_ratio or rule.limit_price_ratio or 10.0)
         candidates: List[Dict[str, str]] = []
@@ -1878,10 +1927,10 @@ class MarketService:
         )
         for rule_key, window, up_target, down_target, label in rule_specs:
             if window == 3:
-                effective_reset_date = max(effective_ordinary_reset, effective_severe_reset)
+                effective_reset_date = max(effective_ordinary_reset, effective_severe_reset, effective_price_reset)
                 effective_reset_window = 3 if effective_reset_date else None
             else:
-                effective_reset_date = effective_severe_reset
+                effective_reset_date = max(effective_severe_reset, effective_price_reset)
                 effective_reset_window = 30 if effective_reset_date else None
             up_current = metrics.get("up_deviations", {}).get(window)
             if up_current is not None and up_current < up_target:
@@ -1924,6 +1973,7 @@ class MarketService:
                 severe_reset_date=severe_reset_date,
                 ordinary_events=ordinary_events,
                 severe_reset_dates=severe_reset_dates,
+                price_reset_dates=price_reset_dates,
             )
             projected_count = int(projected.get(direction, 0) or 0)
             # A T+1 forecast may project one new ordinary event when the
@@ -1959,6 +2009,7 @@ class MarketService:
         severe_reset_date: str = "",
         ordinary_events: Optional[Iterable[Dict[str, Any]]] = None,
         severe_reset_dates: Optional[Iterable[str]] = None,
+        price_reset_dates: Optional[Iterable[str]] = None,
     ) -> Dict[str, Any]:
         """从日期化收益率向量计算偏离和 10 日同向异动次数。
 
@@ -1993,6 +2044,9 @@ class MarketService:
         severe_reset_candidates = {
             cls._date_key(value) for value in (severe_reset_dates or ()) if cls._date_key(value)
         }
+        price_reset_candidates = {
+            cls._date_key(value) for value in (price_reset_dates or ()) if cls._date_key(value)
+        }
         if severe_reset_date:
             severe_reset_candidates.add(cls._date_key(severe_reset_date))
         stock_map = {item["date"]: item["return"] for item in stock if item.get("date")}
@@ -2003,8 +2057,10 @@ class MarketService:
         # must not erase the just-completed session's baseline or event ledger.
         active_ordinary_resets = {value for value in ordinary_resets if not latest_data_date or value <= latest_data_date}
         active_severe_resets = {value for value in severe_reset_candidates if not latest_data_date or value <= latest_data_date}
+        active_price_resets = {value for value in price_reset_candidates if not latest_data_date or value <= latest_data_date}
         latest_ordinary_reset = max(active_ordinary_resets, default="")
         severe_reset_date = max(active_severe_resets, default="")
+        latest_price_reset = max(active_price_resets, default="")
 
         deviations = {}
         up_deviations = {}
@@ -2015,7 +2071,7 @@ class MarketService:
         for window in (3, 10, 30):
             # A severe notice resets all indicators; an ordinary notice resets
             # only the three-day baseline and leaves the ten-day event ledger.
-            reset_date = max(latest_ordinary_reset, severe_reset_date) if window == 3 else severe_reset_date
+            reset_date = max(latest_ordinary_reset, severe_reset_date, latest_price_reset) if window == 3 else max(severe_reset_date, latest_price_reset)
             window_stock = stock
             window_index = index
             if reset_date:
@@ -2039,6 +2095,10 @@ class MarketService:
                 for window in (3, 10, 30):
                     deviations[window] = up_deviations[window] = down_deviations[window] = 0.0
                     window_lengths[window] = up_window_lengths[window] = down_window_lengths[window] = 0
+            elif latest_data_date in active_price_resets:
+                for window in (3, 10, 30):
+                    deviations[window] = up_deviations[window] = down_deviations[window] = 0.0
+                    window_lengths[window] = up_window_lengths[window] = down_window_lengths[window] = 0
 
         # A reset on the latest common close is an explicit zero baseline;
         # earlier effective resets continue from their post-reset observations.
@@ -2058,6 +2118,8 @@ class MarketService:
             if len(window_dates) < 3:
                 continue
             if severe_reset_date and window_dates[0] < severe_reset_date:
+                continue
+            if any(window_dates[0] < reset_date <= window_dates[-1] for reset_date in active_price_resets):
                 continue
             if any(window_dates[0] < reset_date <= window_dates[-1] for reset_date in active_ordinary_resets):
                 continue
@@ -2387,6 +2449,7 @@ class MarketService:
             severe_reset_date=suspension.get("severeResetDate", ""),
             ordinary_events=suspension.get("ordinaryEvents"),
             severe_reset_dates=suspension.get("severeResetDates"),
+            price_reset_dates=suspension.get("priceResetDates"),
         )
         deviations = metrics["deviations"]
         down_deviations = metrics["down_deviations"]
@@ -2435,6 +2498,7 @@ class MarketService:
             severe_reset_date=suspension.get("severeResetDate", ""),
             ordinary_events=suspension.get("ordinaryEvents"),
             severe_reset_dates=suspension.get("severeResetDates"),
+            price_reset_dates=suspension.get("priceResetDates"),
         )
         is_st = str(stock.get("isST") or "").strip().lower() in {"1", "true", "yes", "y"}
         forecast_limit = 5.0 if is_st else rule.limit_price_ratio
@@ -2445,6 +2509,7 @@ class MarketService:
             suspension.get("ordinaryResetDates"), suspension.get("severeResetDate", ""),
             suspension.get("ordinaryEvents"),
             suspension.get("severeResetDates"),
+            suspension.get("priceResetDates"),
         )
         forecast_stock_date = self._vector_latest_date(forecast_stock_vector)
         forecast_index_date = self._vector_latest_date(forecast_index_vector)
@@ -2452,10 +2517,13 @@ class MarketService:
             forecast_base_date and forecast_target_date
             and forecast_stock_date == forecast_base_date
             and forecast_index_date == forecast_base_date
+            and not suspension.get("suspensionGapUnverified")
         )
         forecast_unavailable_reason = ""
         if not forecast_available:
-            if not forecast_base_date or not forecast_target_date:
+            if suspension.get("suspensionGapUnverified"):
+                forecast_unavailable_reason = "停牌状态未能核实，不能确定复牌收益基线"
+            elif not forecast_base_date or not forecast_target_date:
                 forecast_unavailable_reason = "缺少有效的收盘基准日或下一交易日"
             elif forecast_stock_date != forecast_base_date or forecast_index_date != forecast_base_date:
                 forecast_unavailable_reason = (
@@ -2491,7 +2559,7 @@ class MarketService:
             projection_facts,
             data_available=projection_available,
             data_error=rule_facts_quality.get("message", ""),
-            market_data_state="complete" if common_days else "unavailable",
+            market_data_state="complete" if common_days and not suspension.get("suspensionGapUnverified") else "unavailable",
             facts_data_state=facts_status,
         )
         return {
@@ -2522,7 +2590,7 @@ class MarketService:
             "warnings": warnings,
             "alerts": self._build_alerts(deviations, severe, board),
             "simulationBase": self._simulation_base(stock_vector, index_vector, suspension),
-            "calculationInput": {"stock": stock_vector, "index": index_vector, "ordinaryDeviation": rule.ordinary_deviation, "severe10": {"up": rule.severe_10d_threshold.up, "down": rule.severe_10d_threshold.down}, "severe30": {"up": rule.severe_30d_threshold.up, "down": rule.severe_30d_threshold.down}, "sameDirectionThreshold": rule.severe_same_direction_count, "ordinaryResetDates": suspension.get("ordinaryResetDates", []), "ordinaryEvents": suspension.get("ordinaryEvents", []), "severeResetDate": suspension.get("severeResetDate", ""), "severeResetDates": suspension.get("severeResetDates", []), "sameDirectionWindowPolicy": "product-inference: formal-10d-ledger-counts-idempotent-cninfo-confirmed-ordinary-3d-notices; market-windows-are-candidates-only; ordinary-reset-3d-baseline; severe-reset-all-four", "ruleVersion": PREDICTION_RULE_VERSION},
+            "calculationInput": {"stock": stock_vector, "index": index_vector, "ordinaryDeviation": rule.ordinary_deviation, "severe10": {"up": rule.severe_10d_threshold.up, "down": rule.severe_10d_threshold.down}, "severe30": {"up": rule.severe_30d_threshold.up, "down": rule.severe_30d_threshold.down}, "sameDirectionThreshold": rule.severe_same_direction_count, "ordinaryResetDates": suspension.get("ordinaryResetDates", []), "ordinaryEvents": suspension.get("ordinaryEvents", []), "severeResetDate": suspension.get("severeResetDate", ""), "severeResetDates": suspension.get("severeResetDates", []), "priceResetDates": suspension.get("priceResetDates", []), "sameDirectionWindowPolicy": "product-inference: formal-10d-ledger-counts-idempotent-cninfo-confirmed-ordinary-3d-notices; market-windows-are-candidates-only; ordinary-reset-3d-baseline; severe-reset-all-four", "ruleVersion": PREDICTION_RULE_VERSION},
             "simulationThresholds": {
                 "3": {"up": rule.ordinary_deviation, "down": -rule.ordinary_deviation},
                 "10": {"up": rule.severe_10d_threshold.up, "down": rule.severe_10d_threshold.down},
@@ -2538,7 +2606,7 @@ class MarketService:
                 "fallback": not realtime,
                 # A reset starts a valid shorter baseline. Thirty rows are not
                 # a prerequisite for displaying the available calculations.
-                "isComplete": bool(common_days) and all(
+                "isComplete": bool(common_days) and not suspension.get("suspensionGapUnverified") and all(
                     warning.get("upValue") not in (None, "--") and warning.get("downValue") not in (None, "--")
                     for warning in (warnings[0], warnings[2], warnings[3])
                 ),
@@ -2696,6 +2764,27 @@ class MarketService:
     def _return_entry(date_value: str, previous: float, current: float) -> Dict[str, Any]:
         return {"date": str(date_value), "return": (float(current) / float(previous) - 1.0) * 100.0}
 
+    @staticmethod
+    def _daily_return_entry(row: Dict[str, Any], date_value: str) -> Optional[Dict[str, Any]]:
+        """Use the source's daily comparison basis, including ex-rights days.
+
+        A cached previous close may be unadjusted, or may already be today's
+        provisional close. It is never an adequate fallback comparison basis.
+        """
+        try:
+            value = float(row.get("pct_chg"))
+            if math.isfinite(value) and value >= -100:
+                return {"date": str(date_value), "return": value}
+        except (TypeError, ValueError):
+            pass
+        try:
+            close, base = float(row.get("close")), float(row.get("pre_close"))
+            if math.isfinite(close) and math.isfinite(base) and close > 0 and base > 0:
+                return {"date": str(date_value), "return": (close / base - 1) * 100}
+        except (TypeError, ValueError):
+            pass
+        return None
+
     def _append_daily_rows(self, calculations: Dict[str, Dict[str, Any]], daily_frames: Dict[str, Any], latest_dates: List[str]) -> None:
         for trade_date in latest_dates:
             frame = daily_frames.get(trade_date)
@@ -2710,19 +2799,15 @@ class MarketService:
                 if not item:
                     continue
                 vector = self._vector_entries(item.get("stock_return_vector"))
-                previous_close = item.get("latest_close")
                 row_date = str(trade_date)
                 # 初态和正式收盘都写同一个交易日。此时 latest_close 是初态价，
                 # 不能拿它作为“前收”再次计算，否则正式涨跌会被写成初态到收盘的
                 # 伪收益，甚至在某些回补路径中落成 0%。正式日线自身的 pct_chg
                 # 才是该交易日相对前收的权威结果。
                 vector = [entry for entry in vector if entry.get("date") != row_date]
-                pct_chg = row.get("pct_chg")
-                as_of = str(item.get("as_of_trade_date") or "")
-                if as_of == row_date and pct_chg is not None:
-                    vector.append({"date": row_date, "return": float(pct_chg)})
-                elif previous_close and float(previous_close) > 0:
-                    vector.append(self._return_entry(row_date, float(previous_close), float(close)))
+                entry = self._daily_return_entry(row, row_date)
+                if entry is not None:
+                    vector.append(entry)
                 item["stock_return_vector"] = vector[-30:]
                 item["latest_close"] = float(close)
                 item["as_of_trade_date"] = row_date
@@ -2796,7 +2881,9 @@ class MarketService:
                         rows.sort(key=lambda row: str(row.get("trade_date")))
                         vector = []
                         for previous, current in zip(rows, rows[1:]):
-                            vector.append(self._return_entry(current["trade_date"], float(previous["close"]), float(current["close"])))
+                            entry = self._daily_return_entry(current, str(current["trade_date"]))
+                            if entry is not None:
+                                vector.append(entry)
                         if rows:
                             row_date = str(rows[-1]["trade_date"])
                             existing[item["ts_code"]] = {"ts_code": item["ts_code"], "as_of_trade_date": row_date, "latest_close": float(rows[-1]["close"]), "stock_return_vector": vector[-30:], "quote_updated_at": f"{row_date[:4]}-{row_date[4:6]}-{row_date[6:]} 15:00:00"}
@@ -2811,8 +2898,9 @@ class MarketService:
                         rows = [] if frame is None or frame.empty else sorted(frame.to_dict("records"), key=lambda row: str(row.get("trade_date")))
                         vector = []
                         for previous, current in zip(rows, rows[1:]):
-                            if previous.get("close") and current.get("close"):
-                                vector.append(self._return_entry(current["trade_date"], float(previous["close"]), float(current["close"])))
+                            entry = self._daily_return_entry(current, str(current["trade_date"]))
+                            if entry is not None:
+                                vector.append(entry)
                         if rows and vector:
                             existing[stock["ts_code"]] = {
                                 "ts_code": stock["ts_code"], "as_of_trade_date": str(rows[-1]["trade_date"]),
@@ -2837,12 +2925,9 @@ class MarketService:
                             continue
                         row_date = str(row["trade_date"])
                         vector = [entry for entry in vector if entry.get("date") != row_date]
-                        existing_date = str(item.get("as_of_trade_date") or "")
-                        pct_chg = row.get("pct_chg")
-                        if existing_date == row_date and pct_chg is not None:
-                            vector.append({"date": row_date, "return": float(pct_chg)})
-                        elif previous_close and float(previous_close) > 0:
-                            vector.append(self._return_entry(row_date, float(previous_close), float(close)))
+                        entry = self._daily_return_entry(row, row_date)
+                        if entry is not None:
+                            vector.append(entry)
                         previous_close = float(close)
                         item["as_of_trade_date"] = row_date
                     if previous_close:
@@ -2887,6 +2972,7 @@ class MarketService:
                         severe_reset_date=reset_meta.get("severeResetDate", ""),
                         ordinary_events=reset_meta.get("ordinaryEvents"),
                         severe_reset_dates=reset_meta.get("severeResetDates"),
+                        price_reset_dates=reset_meta.get("priceResetDates"),
                     )
                     item.update({"deviation3": metrics["deviations"][3], "deviation10": metrics["deviations"][10], "deviation30": metrics["deviations"][30], "sameDirectionUp": metrics["up"], "sameDirectionDown": metrics["down"]})
                     item["data_stage"] = data_stage
@@ -2991,6 +3077,7 @@ class MarketService:
                     severe_reset_date=reset_meta.get("severeResetDate", ""),
                     ordinary_events=reset_meta.get("ordinaryEvents"),
                     severe_reset_dates=reset_meta.get("severeResetDates"),
+                    price_reset_dates=reset_meta.get("priceResetDates"),
                 )
                 item.update({"deviation3": metrics["deviations"][3], "deviation10": metrics["deviations"][10], "deviation30": metrics["deviations"][30], "sameDirectionUp": metrics["up"], "sameDirectionDown": metrics["down"]})
                 calculations.append(item)
@@ -3286,6 +3373,7 @@ class MarketService:
             index_as_of = self._date_key(index.get("as_of_trade_date"))
             if (
                 suspension.get("suspended")
+                or suspension.get("suspensionGapUnverified")
                 or not stock_as_of
                 or stock_as_of != index_as_of
                 or self._vector_latest_date(stock_vector) != stock_as_of
@@ -3299,6 +3387,7 @@ class MarketService:
                 severe_reset_date=suspension.get("severeResetDate", ""),
                 ordinary_events=suspension.get("ordinaryEvents"),
                 severe_reset_dates=suspension.get("severeResetDates"),
+                price_reset_dates=suspension.get("priceResetDates"),
             )
             limit = float(board_rule.limit_price_ratio or 10.0)
             # 规则逐项判定。10 日同向、10 日偏离和 30 日偏离是独立条件；
@@ -3343,6 +3432,7 @@ class MarketService:
                                 severe_reset_dates=suspension.get("severeResetDates"),
                                 severe_reset_date=suspension.get("severeResetDate", ""),
                                 ordinary_events=suspension.get("ordinaryEvents"),
+                                price_reset_dates=suspension.get("priceResetDates"),
                             )
                             count = int(projected.get("up", 0) or 0)
                         confirmed_today = any(self._date_key(e.get("endDate")) == end_date for e in metrics.get("same_direction_events", []))
@@ -3436,6 +3526,7 @@ class MarketService:
                     "ordinaryEvents": suspension.get("ordinaryEvents", []),
                     "severeResetDate": suspension.get("severeResetDate", ""),
                     "severeResetDates": suspension.get("severeResetDates", []),
+                    "priceResetDates": suspension.get("priceResetDates", []),
                     "triggered": triggered,
                     "alertText": "已触发" if triggered else "",
                     "cardTone": "triggered" if triggered else "",
@@ -3475,6 +3566,7 @@ class MarketService:
                         severe_reset_date=item.get("severeResetDate", ""),
                         ordinary_events=item.get("ordinaryEvents"),
                         severe_reset_dates=item.get("severeResetDates"),
+                        price_reset_dates=item.get("priceResetDates"),
                     )
                     is_count = item.get("_trigger_kind") == "count"
                     deviation = metric.get("up") if is_count else metric["deviations"].get(rule_window)
@@ -3613,7 +3705,9 @@ class MarketService:
 
     def _detail_realtime_allowed(self) -> bool:
         now = self._now()
-        if now.weekday() >= 5 or (now.hour, now.minute) < (9, 15) or now.hour >= 15:
+        minute_of_day = now.hour * 60 + now.minute
+        in_continuous_session = 9 * 60 + 15 <= minute_of_day < 11 * 60 + 30 or 13 * 60 <= minute_of_day < 15 * 60
+        if now.weekday() >= 5 or not in_continuous_session:
             return False
         try:
             return bool(self._prediction_state().get("realtimeRefreshAllowed"))
@@ -3655,11 +3749,12 @@ class MarketService:
             # 交易日历只说明今天应当交易；是否已经入盘必须看计算数据集
             # 的真实 as_of_trade_date，不能用 calendar 的日期代替。
             phase = "post_close_confirmed" if self._confirmed_market_trade_date() == today_value else "post_close_pending"
-        # targetTradeDate 是用户当前所处交易日；非交易日使用下一交易日，
-        # tradeDate 仍由预测数据集自身的 as-of 日期决定，避免把未入盘价格
-        # 冒充正式收盘价。
+        minute_of_day = now.hour * 60 + now.minute
+        realtime_session = 9 * 60 + 15 <= minute_of_day < 11 * 60 + 30 or 13 * 60 <= minute_of_day < 15 * 60
+        # tradeDate 是当前业务基准日 D；休市时回到最近完成交易日。
+        # targetTradeDate 是当前预测目标日，休市时指向下一交易日 N。
         state = {
-            "tradeDate": target_trade_date,
+            "tradeDate": previous if not is_trade_day else target_trade_date,
             "targetTradeDate": target_trade_date,
             "previousTradeDate": previous,
             "nextTradeDate": following,
@@ -3667,7 +3762,7 @@ class MarketService:
             # 09:00 切换前继续保留上一交易日收盘的 today（包括已触发卡）；
             # 09:00 后上一轮 next_day 才成为当前 today。
             "todaySourceScope": "next_day" if phase in ("dataset_open_pending", "intraday") else "today",
-            "realtimeRefreshAllowed": phase == "intraday",
+            "realtimeRefreshAllowed": phase == "intraday" and realtime_session,
         }
         self._prediction_state_cache = (now, state)
         return state
@@ -4058,7 +4153,7 @@ class MarketService:
                 stock_vector, index_vector, suspension, _monitoring = self._rule_vectors_for_stock(
                     stock, stock_vector, index_vector
                 )
-                if suspension.get("suspended"):
+                if suspension.get("suspended") or suspension.get("suspensionGapUnverified"):
                     continue
                 rule = BOARD_RULES[BOARD_BY_MARKET.get(stock.get("board"), Board.MAIN)]
                 metrics = self._vector_metrics(
@@ -4067,6 +4162,7 @@ class MarketService:
                     severe_reset_date=suspension.get("severeResetDate", ""),
                     ordinary_events=suspension.get("ordinaryEvents"),
                     severe_reset_dates=suspension.get("severeResetDates"),
+                    price_reset_dates=suspension.get("priceResetDates"),
                 )
                 rule_key = str(item.get("ruleKey") or "")
                 rule_window = {"ordinary_3d": 3, "same_direction_10d": 3, "severe_10d": 10, "severe_30d": 30}.get(rule_key, int(item.get("predictionWindow") or 10))

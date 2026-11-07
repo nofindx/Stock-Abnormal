@@ -23,6 +23,16 @@ class ProductionRegressionTests(unittest.TestCase):
             get_calc=lambda code: self.calcs[code], get_index=lambda code: self.indexes[code])
         self.service.set_monitor_provider(lambda: self.fixture["monitor"])
         self.service._fetch_realtime_many = lambda codes: {}
+        xinhua_stock_dates = {item["date"].replace("-", "") for item in self.calcs["600825.SH"]["stock_return_vector"]}
+        xinhua_index_dates = {
+            item["date"].replace("-", "") for item in self.indexes["000002.SH"]["index_return_vector"]
+            if item["date"].replace("-", "") < self.calcs["600825.SH"]["as_of_trade_date"]
+        }
+        xinhua_suspended_dates = sorted(xinhua_index_dates - xinhua_stock_dates)
+        self.service.client.suspend_d = lambda *_args: SimpleNamespace(to_dict=lambda *_a, **_k: [
+            {"ts_code": "600825.SH", "trade_date": day, "suspend_type": "S"}
+            for day in xinhua_suspended_dates
+        ])
 
     def tearDown(self):
         self.service.close()
@@ -51,6 +61,20 @@ class ProductionRegressionTests(unittest.TestCase):
         metrics = self.service._vector_metrics(stock["stock_return_vector"], index["index_return_vector"], BOARD_RULES[Board.MAIN])
         self.assertIsNotNone(metrics["up_deviations"][3])
         self.assertIsNotNone(metrics["up_deviations"][10])
+
+    def test_prediction_and_detail_share_same_current_deviation_and_trigger(self):
+        cards = self.service._compute_prediction_from_repository("today", target_trade_date="20261030")
+        warnings = {"ordinary_3d": "3 日偏离", "severe_10d": "10 日偏离", "severe_30d": "30 日偏离"}
+        self.service._future_trade_dates = lambda *_: ["20261102"]
+        for card in cards:
+            if card["ruleKey"] not in warnings:
+                continue
+            code = card["ts_code"]
+            with self.subTest(code=code, rule=card["ruleKey"]):
+                detail = self.service._detail_from_repository(self.stocks[code], self.calcs[code], use_realtime=False)
+                warning = next(x for x in detail["warnings"] if x["title"] == warnings[card["ruleKey"]])
+                self.assertEqual(card["deviation"].split()[-1], warning["upValue"])
+                self.assertEqual(card["triggered"], warning["upTriggered"])
 
     def test_xinhua_detail_is_not_unknown_for_valid_negative_short_history(self):
         self.service._future_trade_dates = lambda *_: ["20261102"]

@@ -515,6 +515,20 @@ class MarketVectorTests(unittest.TestCase):
         })
         self.assertEqual(base["resetDatesByWindow"], {"3": [], "10": [], "30": []})
 
+    def test_resume_price_reset_is_shared_by_all_simulation_windows_and_inverse_thresholds(self):
+        stock = [{"date": "20261029", "return": 8}, {"date": "20261030", "return": 5}]
+        context = {"priceResetDates": ["20261030"]}
+        base = MarketService._simulation_base(stock, stock, context)
+        self.assertEqual(base["resetDatesByWindow"], {
+            "3": ["20261030"], "10": ["20261030"], "30": ["20261030"],
+        })
+        self.assertEqual(base["datesByWindow"], {"3": ["20261030"], "10": ["20261030"], "30": ["20261030"]})
+        for window in (3, 10, 30):
+            self.assertEqual(
+                MarketService._prediction_reset_arguments(context, window, "20261030")["rule_reset_date"],
+                "20261030",
+            )
+
     def test_required_up_percent_today_solves_current_day_not_next_day(self):
         """当日卡的触发涨幅必须把最新股票日收益作为未知量。"""
         stock = [{"date": f"2026-10-{index:02d}", "return": value} for index, value in enumerate([10.0, 10.0, 5.0], 1)]
@@ -1639,8 +1653,8 @@ class MarketVectorTests(unittest.TestCase):
         self.assertTrue(severe[0]["triggered"])
         self.assertTrue(severe[0]["deviation"].startswith("7日 "))
 
-    def test_suspension_gap_keeps_pre_resume_returns_for_rolling_rules(self):
-        """停牌缺口不补 0，滚动规则仍保留停牌前的有效交易日。"""
+    def test_suspension_gap_retains_raw_vectors_for_event_ledger(self):
+        """原始向量供同向事件账本复核；偏离窗口另按 resetDate 起算。"""
         index = [{"date": day, "return": 0.0} for day in ("2026-09-21", "2026-09-22", "2026-09-23", "2026-09-24", "2026-09-25")]
         stock = [
             {"date": "2026-09-21", "return": 80.0},
@@ -1835,8 +1849,8 @@ class MarketVectorTests(unittest.TestCase):
         self.assertAlmostEqual(metrics["deviations"][30], 142.32581068, places=6)
         self.assertEqual(metrics["window_lengths"][10], 10)
 
-    def test_xinhua_resume_keeps_pre_suspension_valid_days_for_rolling_rules(self):
-        """新华传媒停牌日不补 0，复牌后滚动规则保留停牌前的有效交易日。"""
+    def test_xinhua_resume_retains_raw_vectors_for_event_ledger(self):
+        """新华传媒复牌保留原始向量，计算层按复牌首个有效日重置偏离。"""
         service = self.service
         service._clock = lambda: datetime(2026, 10, 16)
         service.set_monitor_provider(lambda: {"items": [{
@@ -1847,6 +1861,10 @@ class MarketVectorTests(unittest.TestCase):
             "ruleResetConfirmed": True, "ruleResetDate": "20261013",
             "resetEvidence": reset_evidence("severe-10d"),
         }]})
+        service.client.suspend_d = lambda *_args: SimpleNamespace(to_dict=lambda *_args, **_kwargs: [
+            {"ts_code": "600825.SH", "trade_date": day, "suspend_type": "S"}
+            for day in ("20261013", "20261014", "20261015")
+        ])
         stock = {"ts_code": "600825.SH", "symbol": "600825"}
         stock_vector = [
             {"date": "2026-10-12", "return": 10.0},
@@ -1859,6 +1877,56 @@ class MarketVectorTests(unittest.TestCase):
         self.assertEqual(meta["resetDate"], "20261016")
         self.assertEqual(meta["ruleResetDate"], "20261013")
         self.assertEqual(monitoring["monitorType"], "10日严重异动")
+
+    def test_severe_notice_effective_during_pause_resets_again_on_first_resumed_session(self):
+        self.service.set_monitor_provider(lambda: {
+            "items": [],
+            "resetFacts": [{
+                "sourceId": "severe-during-pause", "symbol": "000001", "riskTone": "severe-10d",
+                "ruleResetConfirmed": True, "ruleResetDate": "20260923",
+                "resetEvidence": reset_evidence("severe-10d"),
+            }],
+            "dataQuality": {"sourceHealth": {"issuerBackup": "available"}},
+        })
+        self.service.client.suspend_d = lambda *_args: SimpleNamespace(to_dict=lambda *_args, **_kwargs: [
+            {"ts_code": "000001.SZ", "trade_date": day, "suspend_type": "S"}
+            for day in ("20260923", "20260924")
+        ])
+        stock = [
+            {"date": "20260921", "return": 8.0},
+            {"date": "20260922", "return": 8.0},
+            {"date": "20260925", "return": 5.0},
+        ]
+        index = [{"date": day, "return": 0.0} for day in ("20260921", "20260922", "20260923", "20260924", "20260925")]
+        _, _, context, _ = self.service._rule_vectors_for_stock(
+            {"symbol": "000001", "ts_code": "000001.SZ"}, stock, index,
+        )
+        self.assertEqual(context["priceResetDates"], ["20260925"])
+        self.assertIn("20260925", context["severeResetDates"])
+        metrics = self.service._vector_metrics(
+            stock, index, BOARD_RULES[Board.MAIN],
+            severe_reset_dates=context["severeResetDates"],
+            price_reset_dates=context["priceResetDates"],
+        )
+        self.assertEqual(metrics["deviations"], {3: 0.0, 10: 0.0, 30: 0.0})
+
+    def test_unconfirmed_market_gap_does_not_infer_resume_reset(self):
+        self.service.set_monitor_provider(lambda: {
+            "items": [], "resetFacts": [],
+            "dataQuality": {"sourceHealth": {"issuerBackup": "available"}},
+        })
+        self.service.client.suspend_d = lambda *_args: SimpleNamespace(to_dict=lambda *_args, **_kwargs: [])
+        stock = [
+            {"date": "20260921", "return": 8.0},
+            {"date": "20260922", "return": 8.0},
+            {"date": "20260925", "return": 5.0},
+        ]
+        index = [{"date": day, "return": 0.0} for day in ("20260921", "20260922", "20260923", "20260924", "20260925")]
+        _, _, context, _ = self.service._rule_vectors_for_stock(
+            {"symbol": "000001", "ts_code": "000001.SZ"}, stock, index,
+        )
+        self.assertTrue(context["suspensionGapUnverified"])
+        self.assertEqual(context["priceResetDates"], [])
 
     def test_broker_risk_alert_does_not_reset_market_window(self):
         """18.cn 风险提示不是交易所正文公告，不得截断行情累计。"""
