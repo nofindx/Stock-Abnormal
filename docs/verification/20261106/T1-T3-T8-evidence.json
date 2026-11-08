@@ -1,0 +1,152 @@
+{
+  "businessDate": "20261106",
+  "observedAt": "2026-11-06T17:07:20.653032+08:00",
+  "fixtures": {
+    "evidenceMetadataGate": {
+      "gateId": "G21",
+      "status": "pass",
+      "requiredCount": 11,
+      "missingOrUnapproved": []
+    },
+    "authority": "product_policy",
+    "policyVersion": "PRD-NEXT-20261030.22",
+    "files": [
+      {
+        "path": "server/fixtures/vnext/rule_evidence_manifest.json",
+        "sha256": "2da2ab29d9c7cdca281f1d555c7467513ccbf7b92edac7b72b185ad393500483"
+      },
+      {
+        "path": "server/fixtures/vnext/product_policy_cases.json",
+        "sha256": "7cebeba410688108ab7c0e28d1ea698d6dedcf9ad5b27f5bbf4aab74cfbc1ea2"
+      },
+      {
+        "path": "server/fixtures/vnext/replay_same_direction.json",
+        "sha256": "fcdbc0359725cc90ef18f78ebc0d39fa4eb1a001707bbe41a5b9df1555a1c24c"
+      },
+      {
+        "path": "server/fixtures/production_regression_20261101.json",
+        "sha256": "b6d0fff62a54634ef7e638a8b3d0adc5f89d29fa4fdf123a1108469a94aaa035"
+      },
+      {
+        "path": "server/fixtures/aoya_prediction_boundary_20261103.json",
+        "sha256": "ea98c8df15d00b788b54f19ca01d7f88ceaade7fab1e5aa8d88b9daaa3b44f5a"
+      },
+      {
+        "path": "server/fixtures/huayang_same_direction_next_day_20261104.json",
+        "sha256": "58a258e8e24edad94dba3eb747d8960808c9cd6d68e42dd1030b822c0b290868"
+      }
+    ],
+    "limits": "Metadata/hash pass does not certify all fixture semantics or production paths."
+  },
+  "localPolicyChecks": [
+    {
+      "id": "T1-RESUME-BASELINE",
+      "status": "fail",
+      "expected": "price windows do not include pre-resumption returns",
+      "actual": {
+        "firstRetainedDate": "20260921",
+        "resumeDate": "20260925"
+      }
+    },
+    {
+      "id": "T8-LUNCH-S2",
+      "status": "fail",
+      "expected": false,
+      "actual": true
+    },
+    {
+      "id": "T8-REST-DATE-ROLE",
+      "status": "fail",
+      "expected": {
+        "D": "20261009",
+        "N": "20261012"
+      },
+      "actual": {
+        "tradeDate": "20261012",
+        "targetTradeDate": "20261012",
+        "previousTradeDate": "20261009"
+      }
+    }
+  ],
+  "cloud": {
+    "status": "pass",
+    "health": {
+      "service": "ok",
+      "publications": {
+        "backend": "mysql",
+        "available": true,
+        "factCount": 1125,
+        "outboxPending": 0
+      },
+      "monitor": {
+        "available": true,
+        "snapshotDate": "20261106",
+        "lastStatus": "success",
+        "itemCount": 26
+      },
+      "prediction": {
+        "today": {
+          "status": "ready",
+          "ruleVersion": "v72",
+          "targetTradeDate": "20261106",
+          "available": true
+        },
+        "next_day": {
+          "status": "ready",
+          "ruleVersion": "v72",
+          "targetTradeDate": "20261109",
+          "available": true
+        }
+      }
+    },
+    "context": {
+      "dataset_id": "4c2ac1a0e907882d60a2d35734ce79f1d58f28dde1105eac1f06664879ee1bf3",
+      "dataset_version": "4c2ac1a0e907882d60a2d35734ce79f1d58f28dde1105eac1f06664879ee1bf3",
+      "pool_hash": "2446c6cf3a5ff719910c1e97747936cb3bac5d92cc1584c9b0d06b8c93d82fdb",
+      "pool_count": 2,
+      "rule_version": "v72",
+      "time_context_id": "202611061707",
+      "target_date": "20261106",
+      "expires_at": 1793956349.340937
+    },
+    "phase": "post_close_pending",
+    "tradeDate": "20261105",
+    "targetTradeDate": "20261106",
+    "cards": 2,
+    "authorization": "idempotent/cross-role/cross-page/cross-stock/invalid-token pass",
+    "concurrentReads": {
+      "requests": 16,
+      "concurrency": 4,
+      "identical": true,
+      "sampleP95Ms": 473.6,
+      "maxMs": 502.1
+    },
+    "s2": {
+      "refresh_state": "ready",
+      "result_state": "fresh",
+      "refreshStatus": "not_allowed",
+      "reasons": []
+    },
+    "fantuoFacts": [
+      {
+        "symbol": "301313",
+        "riskTone": "severe-10d",
+        "monitorStartDate": "20261026",
+        "monitorEndDate": "20261106",
+        "days": 0
+      },
+      {
+        "symbol": "301313",
+        "riskTone": "ordinary",
+        "monitorStartDate": "20261026",
+        "monitorEndDate": "20261106",
+        "days": 0
+      }
+    ],
+    "monitorTimeContextPresent": false,
+    "limits": [
+      "no instance identity; does not prove two cloud instances",
+      "point-in-time sample; does not prove a full live cross-day cycle"
+    ]
+  }
+}

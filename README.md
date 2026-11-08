@@ -4,7 +4,9 @@
 
 ## 当前文档
 
-小程序开发版 `1.0.18` 已上传，修复重点监控页旧倒计时闪现及标签切换竞态；后端生产规则为 `v72`，已修正盘后预测中超过板块单日涨幅上限的未触发卡片残留问题。监控规则为 `20261102-product-policy-v34`，产品规则为 `RULE-2026-10-30.1`。后端 361 项和前端 6 组测试通过，线上健康告警和 API 契约验收通过。开发版上传不等于微信提审或正式发布，真机验收由用户进行。详情见 [版本发布记录](docs/版本发布记录.md)。
+> `20261108` 候选更新：小程序 `1.0.19` 时间切换与失败提示修复已提交为 `197cc53`，包含后端 `v73 / 726b691` 复牌基线修复。后端389项、前端7组和时间专项探针通过；待用户发布云托管后核验，再编译/上传小程序，本轮未部署或上传。备案与认证待整改，名称未定。详情见 [本地项目盘点](docs/本地项目盘点与待办_20261108.md) 和 [候选验收记录](docs/候选验收_20261108.md)。
+
+最近已知上传版本为 `1.0.18`，用户已确认提交微信代码审核；最近一次线上验收后端为 `v72`。监控规则为 `20261102-product-policy-v34`，产品规则为 `RULE-2026-10-30.1`。这些是历史发布记录，本轮未重新核验生产。开发版上传、代码审核、备案、认证和正式发布分别记录。详情见 [版本发布记录](docs/版本发布记录.md)。
 
 - [产品需求 PRD](docs/异动查查小程序PRD.md)：产品范围、页面需求、数据源、规则和验收基线。
 - [详细设计](docs/异动查查-详细设计.md)：业务流程、统一接口、规则计算、数据模型、前后端分工、测试和部署约束。
@@ -12,6 +14,7 @@
 - [历史待办清单](docs/archive/TODO-临时工作任务.md)：历史部署迁移记录，不作为当前实现依据。
 - [生产操作手册](docs/生产操作手册.md)：Redis、基础资料、旧表迁移和健康检查的生产步骤。
 - [正式上线清单](docs/正式上线清单.md)：微信提审、隐私合规、真机验收、审核文案和首个交易日检查。
+- [vNext专项门禁验收方式](docs/vNext专项门禁验收方式_20261107.md)：T1–T8 的环境、执行步骤、通过标准和证据模板；仅为待评审方案，不代表门禁已通过。
 - [下一大版本架构研究](docs/next-major/architecture/)：当前发布范围之外的模块化架构评审和迁移建议，不作为本版本实现依据。
 - `docs/archive/`：历史方案和评审记录，不作为当前实现依据。
 - `docs/UI/`：历史 UI 设计稿，不参与运行时构建。
@@ -49,6 +52,15 @@ python3 -m server.app
 
 ```bash
 python3 -m unittest discover -s server -p 'test_*.py'
+node miniprogram/utils/api.test.js
+node miniprogram/pages/monitor/index.test.js
+node miniprogram/pages/prediction/prediction.test.js
+node miniprogram/pages/prediction/index.test.js
+node miniprogram/pages/refresh-lifecycle.test.js
+node miniprogram/pages/stock/simulation.test.js
+node miniprogram/pages/business-boundary.test.js
+node miniprogram/pages/temporal-policy.check.js
+node docs/verification/20261108/time-boundary-audit.js
 python3 server/tools/api_contract_check.py
 python3 server/tools/api_contract_check.py --require-data  # 生产验收
 python3 server/tools/prediction_migration_check.py --require-zero-legacy-reads --require-complete-stock-basic  # 迁移验收

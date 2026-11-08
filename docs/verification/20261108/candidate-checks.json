@@ -1,0 +1,19 @@
+{
+  "businessDate": "20261108",
+  "codeCommit": "197cc53",
+  "backendFixCommit": "726b691",
+  "scope": "Local only; no cloud deployment, production mutation, Mini Program build or upload",
+  "backend": { "command": "python3 -m unittest discover -s server -t . -p 'test_*.py'", "tests": 389, "seconds": 6.777, "status": "pass" },
+  "frontend": {
+    "status": "pass",
+    "scripts": ["miniprogram/utils/api.test.js", "miniprogram/pages/monitor/index.test.js", "miniprogram/pages/prediction/prediction.test.js", "miniprogram/pages/prediction/index.test.js", "miniprogram/pages/refresh-lifecycle.test.js", "miniprogram/pages/stock/simulation.test.js", "miniprogram/pages/business-boundary.test.js"],
+    "utcBoundaryRerun": "pass",
+    "temporalPolicyChecks": 3,
+    "auditReproductionChecks": 2,
+    "auditReproductionStatus": "pass"
+  },
+  "localPolicyDiagnostic": { "command": "python3 server/tools/release_t138_check.py --business-date 20261108 --output /tmp/stock-audit-t138-20261108.json", "metadataGate": "pass", "localChecks": 4, "status": "pass", "limitation": "Does not certify all markets, fixture semantics or production data" },
+  "syntaxAndConfig": "JS syntax and Mini Program app/project JSON pass",
+  "markdownFileTargets": { "files": 40, "missing": 0, "webOrAnchorsChecked": false },
+  "limitations": ["Local Python 3.8 LibreSSL warning remains; container Python 3.11 not built this round", "Actual upload package exclusions need WeChat tool verification", "New candidate device and cloud checks remain pending", "T2/T4/T6 real drills deferred; T5/T7 remain pending"]
+}

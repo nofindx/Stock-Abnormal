@@ -1,0 +1,1222 @@
+{
+  "auditDate": "20261108",
+  "scope": "Local project files only; excludes Git objects, caches, secrets, bytecode and developer temp files. File inventory captured before this audit report was added.",
+  "head": "726b691b03b3738ad8fe3af71e34d4c3098ffa7d",
+  "files": [
+    {
+      "path": ".dockerignore",
+      "bytes": 104,
+      "tracked": true
+    },
+    {
+      "path": ".gitignore",
+      "bytes": 177,
+      "tracked": true
+    },
+    {
+      "path": "Dockerfile",
+      "bytes": 461,
+      "tracked": true
+    },
+    {
+      "path": "LICENSE",
+      "bytes": 1063,
+      "tracked": true
+    },
+    {
+      "path": "README.md",
+      "bytes": 5374,
+      "tracked": true
+    },
+    {
+      "path": "container.config.json",
+      "bytes": 220,
+      "tracked": true
+    },
+    {
+      "path": "docs/T1-T3-T8补验报告_20261106.md",
+      "bytes": 15373,
+      "tracked": false
+    },
+    {
+      "path": "docs/UI/ui-v3/A-简约效率-全页面.html",
+      "bytes": 80918,
+      "tracked": true
+    },
+    {
+      "path": "docs/UI/ui-v3/A-简约效率-全页面总览.png",
+      "bytes": 2315684,
+      "tracked": true
+    },
+    {
+      "path": "docs/UI/ui-v3/A-简约效率-单页/S10状态·-空态（未搜索-无候选-筛选无结果）.png",
+      "bytes": 113251,
+      "tracked": true
+    },
+    {
+      "path": "docs/UI/ui-v3/A-简约效率-单页/S11状态·-刷新失败（保留上次成功数据）.png",
+      "bytes": 138786,
+      "tracked": true
+    },
+    {
+      "path": "docs/UI/ui-v3/A-简约效率-单页/S12状态·-无网络与缓存降级.png",
+      "bytes": 119752,
+      "tracked": true
+    },
+    {
+      "path": "docs/UI/ui-v3/A-简约效率-单页/S1单股计算·-搜索联想.png",
+      "bytes": 107276,
+      "tracked": true
+    },
+    {
+      "path": "docs/UI/ui-v3/A-简约效率-单页/S2单股计算·-当前状态与四项预警.png",
+      "bytes": 158103,
+      "tracked": true
+    },
+    {
+      "path": "docs/UI/ui-v3/A-简约效率-单页/S3单股计算·-T+1-~-T+10-假设表.png",
+      "bytes": 161547,
+      "tracked": true
+    },
+    {
+      "path": "docs/UI/ui-v3/A-简约效率-单页/S4监控池·-当前监控.png",
+      "bytes": 197265,
+      "tracked": true
+    },
+    {
+      "path": "docs/UI/ui-v3/A-简约效率-单页/S5监控池·-历史监控（近-30-个自然日）.png",
+      "bytes": 185916,
+      "tracked": true
+    },
+    {
+      "path": "docs/UI/ui-v3/A-简约效率-单页/S6异动预测·-当日.png",
+      "bytes": 183399,
+      "tracked": true
+    },
+    {
+      "path": "docs/UI/ui-v3/A-简约效率-单页/S7异动预测·-次日.png",
+      "bytes": 181920,
+      "tracked": true
+    },
+    {
+      "path": "docs/UI/ui-v3/A-简约效率-单页/S8规则说明页.png",
+      "bytes": 155336,
+      "tracked": true
+    },
+    {
+      "path": "docs/UI/ui-v3/A-简约效率-单页/S9状态·-骨架屏（首屏-1.5s）.png",
+      "bytes": 38023,
+      "tracked": true
+    },
+    {
+      "path": "docs/UI/ui-v3/B-沉浸体验-全页面.html",
+      "bytes": 78808,
+      "tracked": true
+    },
+    {
+      "path": "docs/UI/ui-v3/B-沉浸体验-全页面总览.png",
+      "bytes": 2900932,
+      "tracked": true
+    },
+    {
+      "path": "docs/UI/ui-v3/B-沉浸体验-单页/B10状态·-空态.png",
+      "bytes": 134432,
+      "tracked": true
+    },
+    {
+      "path": "docs/UI/ui-v3/B-沉浸体验-单页/B11状态·-刷新失败（保留上次数据）.png",
+      "bytes": 181607,
+      "tracked": true
+    },
+    {
+      "path": "docs/UI/ui-v3/B-沉浸体验-单页/B12状态·-无网络与缓存降级.png",
+      "bytes": 143319,
+      "tracked": true
+    },
+    {
+      "path": "docs/UI/ui-v3/B-沉浸体验-单页/B1单股计算·-搜索联想.png",
+      "bytes": 125534,
+      "tracked": true
+    },
+    {
+      "path": "docs/UI/ui-v3/B-沉浸体验-单页/B2单股计算·-状态仪表与四项预警.png",
+      "bytes": 284587,
+      "tracked": true
+    },
+    {
+      "path": "docs/UI/ui-v3/B-沉浸体验-单页/B3单股计算·-T+N-时间轴推演.png",
+      "bytes": 210089,
+      "tracked": true
+    },
+    {
+      "path": "docs/UI/ui-v3/B-沉浸体验-单页/B4监控池·-当前监控.png",
+      "bytes": 250582,
+      "tracked": true
+    },
+    {
+      "path": "docs/UI/ui-v3/B-沉浸体验-单页/B5监控池·-历史监控.png",
+      "bytes": 176592,
+      "tracked": true
+    },
+    {
+      "path": "docs/UI/ui-v3/B-沉浸体验-单页/B6异动预测·-当日（扫描态与结果）.png",
+      "bytes": 299555,
+      "tracked": true
+    },
+    {
+      "path": "docs/UI/ui-v3/B-沉浸体验-单页/B7异动预测·-次日.png",
+      "bytes": 231893,
+      "tracked": true
+    },
+    {
+      "path": "docs/UI/ui-v3/B-沉浸体验-单页/B8规则说明页.png",
+      "bytes": 147171,
+      "tracked": true
+    },
+    {
+      "path": "docs/UI/ui-v3/B-沉浸体验-单页/B9状态·-骨架屏（深色微光）.png",
+      "bytes": 56511,
+      "tracked": true
+    },
+    {
+      "path": "docs/UI/ui-v3/C-内容导向-全页面.html",
+      "bytes": 72446,
+      "tracked": true
+    },
+    {
+      "path": "docs/UI/ui-v3/C-内容导向-全页面总览.png",
+      "bytes": 2406329,
+      "tracked": true
+    },
+    {
+      "path": "docs/UI/ui-v3/C-内容导向-单页/C10状态·-空态.png",
+      "bytes": 138320,
+      "tracked": true
+    },
+    {
+      "path": "docs/UI/ui-v3/C-内容导向-单页/C11状态·-刷新失败.png",
+      "bytes": 150493,
+      "tracked": true
+    },
+    {
+      "path": "docs/UI/ui-v3/C-内容导向-单页/C12状态·-无网络与缓存降级.png",
+      "bytes": 158176,
+      "tracked": true
+    },
+    {
+      "path": "docs/UI/ui-v3/C-内容导向-单页/C1单股计算·-搜索与首次引导.png",
+      "bytes": 165673,
+      "tracked": true
+    },
+    {
+      "path": "docs/UI/ui-v3/C-内容导向-单页/C2单股计算·-结论卡与四项解读.png",
+      "bytes": 153618,
+      "tracked": true
+    },
+    {
+      "path": "docs/UI/ui-v3/C-内容导向-单页/C3单股计算·-T+N-分步推演.png",
+      "bytes": 144799,
+      "tracked": true
+    },
+    {
+      "path": "docs/UI/ui-v3/C-内容导向-单页/C4监控池·-当前监控（分组）.png",
+      "bytes": 181879,
+      "tracked": true
+    },
+    {
+      "path": "docs/UI/ui-v3/C-内容导向-单页/C5监控池·-历史监控.png",
+      "bytes": 170549,
+      "tracked": true
+    },
+    {
+      "path": "docs/UI/ui-v3/C-内容导向-单页/C6异动预测·-当日（分组）.png",
+      "bytes": 161548,
+      "tracked": true
+    },
+    {
+      "path": "docs/UI/ui-v3/C-内容导向-单页/C7异动预测·-次日.png",
+      "bytes": 182038,
+      "tracked": true
+    },
+    {
+      "path": "docs/UI/ui-v3/C-内容导向-单页/C8规则说明页·-问答式.png",
+      "bytes": 203565,
+      "tracked": true
+    },
+    {
+      "path": "docs/UI/ui-v3/C-内容导向-单页/C9状态·-骨架屏.png",
+      "bytes": 51046,
+      "tracked": true
+    },
+    {
+      "path": "docs/UI/ui-v4/D-精简优化版-全页面.html",
+      "bytes": 38832,
+      "tracked": true
+    },
+    {
+      "path": "docs/UI/ui-v4/D-精简优化版-全页面总览.png",
+      "bytes": 1470256,
+      "tracked": true
+    },
+    {
+      "path": "docs/UI/ui-v4/D-精简优化版-单页/D1单股计算-搜索与未选股.png",
+      "bytes": 101907,
+      "tracked": true
+    },
+    {
+      "path": "docs/UI/ui-v4/D-精简优化版-单页/D2单股计算-状态与四项预警.png",
+      "bytes": 137577,
+      "tracked": true
+    },
+    {
+      "path": "docs/UI/ui-v4/D-精简优化版-单页/D3单股计算-T+N（默认-5-行）.png",
+      "bytes": 114037,
+      "tracked": true
+    },
+    {
+      "path": "docs/UI/ui-v4/D-精简优化版-单页/D4监控池-单列表（去分段器）.png",
+      "bytes": 116194,
+      "tracked": true
+    },
+    {
+      "path": "docs/UI/ui-v4/D-精简优化版-单页/D5异动预测-当日-次日（含失败数）.png",
+      "bytes": 113259,
+      "tracked": true
+    },
+    {
+      "path": "docs/UI/ui-v4/D-精简优化版-单页/D6规则说明-阈值表-+-折叠诊断.png",
+      "bytes": 145770,
+      "tracked": true
+    },
+    {
+      "path": "docs/UI/ui-v4/D-精简优化版-单页/D7状态-骨架屏与空态.png",
+      "bytes": 73408,
+      "tracked": true
+    },
+    {
+      "path": "docs/UI/ui-v4/D-精简优化版-单页/D8状态-刷新失败与无网缓存.png",
+      "bytes": 118676,
+      "tracked": true
+    },
+    {
+      "path": "docs/UI/ui-v5/A-清单流-单页/A1单股-状态与四项预警.png",
+      "bytes": 108325,
+      "tracked": true
+    },
+    {
+      "path": "docs/UI/ui-v5/A-清单流-单页/A2单股-T+N-假设表（默认-2-日）.png",
+      "bytes": 73585,
+      "tracked": true
+    },
+    {
+      "path": "docs/UI/ui-v5/A-清单流-单页/A3监控池-当前-已出监管.png",
+      "bytes": 97980,
+      "tracked": true
+    },
+    {
+      "path": "docs/UI/ui-v5/A-清单流-单页/A4异动预测-当日-次日.png",
+      "bytes": 98079,
+      "tracked": true
+    },
+    {
+      "path": "docs/UI/ui-v5/A-清单流-单页/A5异常状态标识（极简）.png",
+      "bytes": 72326,
+      "tracked": true
+    },
+    {
+      "path": "docs/UI/ui-v5/B-卡片流-单页/B1监控池-卡片流.png",
+      "bytes": 80769,
+      "tracked": true
+    },
+    {
+      "path": "docs/UI/ui-v5/B-卡片流-单页/B2单股-状态与四项预警（卡片化）.png",
+      "bytes": 108419,
+      "tracked": true
+    },
+    {
+      "path": "docs/UI/ui-v5/C-双列网格-单页/C1监控池-双列网格.png",
+      "bytes": 86681,
+      "tracked": true
+    },
+    {
+      "path": "docs/UI/ui-v5/C-双列网格-单页/C2异动预测-双列网格.png",
+      "bytes": 92656,
+      "tracked": true
+    },
+    {
+      "path": "docs/UI/ui-v5/异动查查-三方案本地全览.html",
+      "bytes": 36070,
+      "tracked": true
+    },
+    {
+      "path": "docs/UI/ui-v5/异动查查-三方案本地全览.png",
+      "bytes": 1390149,
+      "tracked": true
+    },
+    {
+      "path": "docs/UI/异动查查-方案A-清单流.md",
+      "bytes": 25556,
+      "tracked": true
+    },
+    {
+      "path": "docs/UI/异动查查-方案B-卡片流.md",
+      "bytes": 7321,
+      "tracked": true
+    },
+    {
+      "path": "docs/UI/异动查查-方案C-双列网格.md",
+      "bytes": 7978,
+      "tracked": true
+    },
+    {
+      "path": "docs/UI/异动查查-方案D-精简优化版-设计说明.md",
+      "bytes": 13852,
+      "tracked": true
+    },
+    {
+      "path": "docs/archive/TODO-临时工作任务.md",
+      "bytes": 3191,
+      "tracked": true
+    },
+    {
+      "path": "docs/archive/异动查查-三方案汇总与评审结论.md",
+      "bytes": 15219,
+      "tracked": true
+    },
+    {
+      "path": "docs/archive/异动查查-三方案评审结论.md",
+      "bytes": 11621,
+      "tracked": true
+    },
+    {
+      "path": "docs/next-major/PRD-vNext.md",
+      "bytes": 42105,
+      "tracked": true
+    },
+    {
+      "path": "docs/next-major/README.md",
+      "bytes": 3968,
+      "tracked": true
+    },
+    {
+      "path": "docs/next-major/architecture/模块化架构评审回执_2026-10-27.md",
+      "bytes": 3921,
+      "tracked": true
+    },
+    {
+      "path": "docs/next-major/review/2026-10-27/上线验收与回归方案_关千锤.md",
+      "bytes": 47006,
+      "tracked": true
+    },
+    {
+      "path": "docs/next-major/review/2026-10-27/后端服务与规则计算设计_霍承钧.md",
+      "bytes": 109806,
+      "tracked": true
+    },
+    {
+      "path": "docs/next-major/review/2026-10-27/小程序前端契约与开发设计_夏小笺.md",
+      "bytes": 88144,
+      "tracked": true
+    },
+    {
+      "path": "docs/next-major/review/2026-10-27/总评审报告_研发部_2026-10-28.md",
+      "bytes": 15499,
+      "tracked": true
+    },
+    {
+      "path": "docs/next-major/review/2026-10-27/数据模型与性能设计_宋砚秋.md",
+      "bytes": 113126,
+      "tracked": true
+    },
+    {
+      "path": "docs/next-major/review/2026-10-27/架构评审与模块开发设计_顾图南.md",
+      "bytes": 135741,
+      "tracked": true
+    },
+    {
+      "path": "docs/next-major/review/2026-10-27/部署运维与发布方案_韩渡川.md",
+      "bytes": 69283,
+      "tracked": true
+    },
+    {
+      "path": "docs/next-major/testing/发布竞争与首次刷新复核_20261102.md",
+      "bytes": 5117,
+      "tracked": true
+    },
+    {
+      "path": "docs/next-major/testing/整体复核与数据重采验收_20261101.md",
+      "bytes": 21741,
+      "tracked": true
+    },
+    {
+      "path": "docs/next-major/testing/测试用例与门禁-vNext.md",
+      "bytes": 31937,
+      "tracked": true
+    },
+    {
+      "path": "docs/next-major/实施前置门禁执行计划_20261029.md",
+      "bytes": 7739,
+      "tracked": true
+    },
+    {
+      "path": "docs/next-major/实施进展与门禁证据_20261029.md",
+      "bytes": 7621,
+      "tracked": true
+    },
+    {
+      "path": "docs/next-major/待确认事项与最终评审清单_20261028.md",
+      "bytes": 6911,
+      "tracked": true
+    },
+    {
+      "path": "docs/next-major/模块化架构设计-vNext.md",
+      "bytes": 24215,
+      "tracked": true
+    },
+    {
+      "path": "docs/next-major/综合评审结论与实施计划_20261028.md",
+      "bytes": 16582,
+      "tracked": true
+    },
+    {
+      "path": "docs/next-major/规则证据认定标准-vNext.md",
+      "bytes": 1888,
+      "tracked": true
+    },
+    {
+      "path": "docs/next-major/详细开发设计-vNext.md",
+      "bytes": 126413,
+      "tracked": true
+    },
+    {
+      "path": "docs/vNext专项门禁验收方式_20261107.md",
+      "bytes": 9243,
+      "tracked": false
+    },
+    {
+      "path": "docs/verification/20261106/T1-T3-T8-evidence.json",
+      "bytes": 4411,
+      "tracked": false
+    },
+    {
+      "path": "docs/verification/20261106/T1-local-policy.json",
+      "bytes": 2462,
+      "tracked": false
+    },
+    {
+      "path": "docs/verification/20261106/T3-T8-page-policy.json",
+      "bytes": 799,
+      "tracked": false
+    },
+    {
+      "path": "docs/verification/20261106/backend-unittest.log",
+      "bytes": 754,
+      "tracked": false
+    },
+    {
+      "path": "docs/verification/20261106/backend-unittest.txt",
+      "bytes": 803,
+      "tracked": false
+    },
+    {
+      "path": "docs/发布验收_20261104.md",
+      "bytes": 11882,
+      "tracked": true
+    },
+    {
+      "path": "docs/异动查查-详细设计.md",
+      "bytes": 58058,
+      "tracked": true
+    },
+    {
+      "path": "docs/异动查查小程序PRD.md",
+      "bytes": 38618,
+      "tracked": true
+    },
+    {
+      "path": "docs/正式上线清单.md",
+      "bytes": 21739,
+      "tracked": true
+    },
+    {
+      "path": "docs/测试规范与用例.md",
+      "bytes": 31036,
+      "tracked": true
+    },
+    {
+      "path": "docs/版本发布记录.md",
+      "bytes": 44071,
+      "tracked": true
+    },
+    {
+      "path": "docs/生产操作手册.md",
+      "bytes": 3953,
+      "tracked": true
+    },
+    {
+      "path": "docs/隔离环境演练安排_20261106.md",
+      "bytes": 3939,
+      "tracked": false
+    },
+    {
+      "path": "miniprogram/app.js",
+      "bytes": 1305,
+      "tracked": true
+    },
+    {
+      "path": "miniprogram/app.json",
+      "bytes": 1057,
+      "tracked": true
+    },
+    {
+      "path": "miniprogram/app.wxss",
+      "bytes": 4007,
+      "tracked": true
+    },
+    {
+      "path": "miniprogram/assets/clear-history.svg",
+      "bytes": 4505,
+      "tracked": true
+    },
+    {
+      "path": "miniprogram/assets/monitor-active.png",
+      "bytes": 1217,
+      "tracked": true
+    },
+    {
+      "path": "miniprogram/assets/monitor.png",
+      "bytes": 1222,
+      "tracked": true
+    },
+    {
+      "path": "miniprogram/assets/prediction-active.png",
+      "bytes": 702,
+      "tracked": true
+    },
+    {
+      "path": "miniprogram/assets/prediction.png",
+      "bytes": 703,
+      "tracked": true
+    },
+    {
+      "path": "miniprogram/assets/query-active.png",
+      "bytes": 753,
+      "tracked": true
+    },
+    {
+      "path": "miniprogram/assets/query.png",
+      "bytes": 754,
+      "tracked": true
+    },
+    {
+      "path": "miniprogram/assets/refresh.svg",
+      "bytes": 557,
+      "tracked": true
+    },
+    {
+      "path": "miniprogram/custom-tab-bar/index.js",
+      "bytes": 881,
+      "tracked": true
+    },
+    {
+      "path": "miniprogram/custom-tab-bar/index.json",
+      "bytes": 24,
+      "tracked": true
+    },
+    {
+      "path": "miniprogram/custom-tab-bar/index.wxml",
+      "bytes": 514,
+      "tracked": true
+    },
+    {
+      "path": "miniprogram/custom-tab-bar/index.wxss",
+      "bytes": 898,
+      "tracked": true
+    },
+    {
+      "path": "miniprogram/pages/monitor/index.js",
+      "bytes": 6331,
+      "tracked": true
+    },
+    {
+      "path": "miniprogram/pages/monitor/index.json",
+      "bytes": 145,
+      "tracked": true
+    },
+    {
+      "path": "miniprogram/pages/monitor/index.test.js",
+      "bytes": 4249,
+      "tracked": true
+    },
+    {
+      "path": "miniprogram/pages/monitor/index.wxml",
+      "bytes": 3450,
+      "tracked": true
+    },
+    {
+      "path": "miniprogram/pages/monitor/index.wxss",
+      "bytes": 7919,
+      "tracked": true
+    },
+    {
+      "path": "miniprogram/pages/prediction/index.js",
+      "bytes": 7912,
+      "tracked": true
+    },
+    {
+      "path": "miniprogram/pages/prediction/index.json",
+      "bytes": 145,
+      "tracked": true
+    },
+    {
+      "path": "miniprogram/pages/prediction/index.test.js",
+      "bytes": 2605,
+      "tracked": true
+    },
+    {
+      "path": "miniprogram/pages/prediction/index.wxml",
+      "bytes": 3988,
+      "tracked": true
+    },
+    {
+      "path": "miniprogram/pages/prediction/index.wxss",
+      "bytes": 9951,
+      "tracked": true
+    },
+    {
+      "path": "miniprogram/pages/prediction/prediction.test.js",
+      "bytes": 713,
+      "tracked": true
+    },
+    {
+      "path": "miniprogram/pages/privacy/index.js",
+      "bytes": 73,
+      "tracked": true
+    },
+    {
+      "path": "miniprogram/pages/privacy/index.json",
+      "bytes": 138,
+      "tracked": true
+    },
+    {
+      "path": "miniprogram/pages/privacy/index.wxml",
+      "bytes": 2390,
+      "tracked": true
+    },
+    {
+      "path": "miniprogram/pages/privacy/index.wxss",
+      "bytes": 713,
+      "tracked": true
+    },
+    {
+      "path": "miniprogram/pages/refresh-lifecycle.test.js",
+      "bytes": 4076,
+      "tracked": true
+    },
+    {
+      "path": "miniprogram/pages/rules/index.js",
+      "bytes": 85,
+      "tracked": true
+    },
+    {
+      "path": "miniprogram/pages/rules/index.json",
+      "bytes": 129,
+      "tracked": true
+    },
+    {
+      "path": "miniprogram/pages/rules/index.wxml",
+      "bytes": 3247,
+      "tracked": true
+    },
+    {
+      "path": "miniprogram/pages/rules/index.wxss",
+      "bytes": 2168,
+      "tracked": true
+    },
+    {
+      "path": "miniprogram/pages/stock/index.js",
+      "bytes": 47626,
+      "tracked": true
+    },
+    {
+      "path": "miniprogram/pages/stock/index.json",
+      "bytes": 145,
+      "tracked": true
+    },
+    {
+      "path": "miniprogram/pages/stock/index.wxml",
+      "bytes": 9499,
+      "tracked": true
+    },
+    {
+      "path": "miniprogram/pages/stock/index.wxss",
+      "bytes": 24986,
+      "tracked": true
+    },
+    {
+      "path": "miniprogram/pages/stock/simulation.test.js",
+      "bytes": 38965,
+      "tracked": true
+    },
+    {
+      "path": "miniprogram/pages/temporal-policy.check.js",
+      "bytes": 3609,
+      "tracked": false
+    },
+    {
+      "path": "miniprogram/project.config.json",
+      "bytes": 1036,
+      "tracked": true
+    },
+    {
+      "path": "miniprogram/project.private.config.json",
+      "bytes": 601,
+      "tracked": true
+    },
+    {
+      "path": "miniprogram/sitemap.json",
+      "bytes": 88,
+      "tracked": true
+    },
+    {
+      "path": "miniprogram/utils/api.js",
+      "bytes": 3980,
+      "tracked": true
+    },
+    {
+      "path": "miniprogram/utils/api.test.js",
+      "bytes": 4445,
+      "tracked": true
+    },
+    {
+      "path": "miniprogram/utils/cache.js",
+      "bytes": 500,
+      "tracked": true
+    },
+    {
+      "path": "miniprogram/utils/format.js",
+      "bytes": 487,
+      "tracked": true
+    },
+    {
+      "path": "miniprogram/utils/open-pdf.js",
+      "bytes": 1528,
+      "tracked": true
+    },
+    {
+      "path": "miniprogram/utils/request.js",
+      "bytes": 2575,
+      "tracked": true
+    },
+    {
+      "path": "server/.env.example",
+      "bytes": 1076,
+      "tracked": true
+    },
+    {
+      "path": "server/Dockerfile",
+      "bytes": 266,
+      "tracked": true
+    },
+    {
+      "path": "server/__init__.py",
+      "bytes": 37,
+      "tracked": true
+    },
+    {
+      "path": "server/app.py",
+      "bytes": 36867,
+      "tracked": true
+    },
+    {
+      "path": "server/calculations/__init__.py",
+      "bytes": 73,
+      "tracked": true
+    },
+    {
+      "path": "server/calculations/engine.py",
+      "bytes": 23954,
+      "tracked": true
+    },
+    {
+      "path": "server/core/__init__.py",
+      "bytes": 1253,
+      "tracked": true
+    },
+    {
+      "path": "server/core/abnormal_rules.py",
+      "bytes": 267,
+      "tracked": true
+    },
+    {
+      "path": "server/core/models.py",
+      "bytes": 5509,
+      "tracked": true
+    },
+    {
+      "path": "server/core/test_abnormal_rules.py",
+      "bytes": 8227,
+      "tracked": true
+    },
+    {
+      "path": "server/data/__init__.py",
+      "bytes": 232,
+      "tracked": true
+    },
+    {
+      "path": "server/data/fact_ledger.py",
+      "bytes": 9555,
+      "tracked": true
+    },
+    {
+      "path": "server/data/publication_store.py",
+      "bytes": 15000,
+      "tracked": true
+    },
+    {
+      "path": "server/data/stock_state.py",
+      "bytes": 4003,
+      "tracked": true
+    },
+    {
+      "path": "server/data/test_publication_store.py",
+      "bytes": 8968,
+      "tracked": true
+    },
+    {
+      "path": "server/data/test_stock_state.py",
+      "bytes": 3340,
+      "tracked": true
+    },
+    {
+      "path": "server/domain/__init__.py",
+      "bytes": 251,
+      "tracked": true
+    },
+    {
+      "path": "server/domain/contracts.py",
+      "bytes": 2602,
+      "tracked": true
+    },
+    {
+      "path": "server/fixtures/aoya_prediction_boundary_20261103.json",
+      "bytes": 1389,
+      "tracked": true
+    },
+    {
+      "path": "server/fixtures/huayang_same_direction_next_day_20261104.json",
+      "bytes": 1838,
+      "tracked": true
+    },
+    {
+      "path": "server/fixtures/prediction_cases.json",
+      "bytes": 1199,
+      "tracked": true
+    },
+    {
+      "path": "server/fixtures/production_regression_20261101.json",
+      "bytes": 128018,
+      "tracked": true
+    },
+    {
+      "path": "server/fixtures/vnext/product_policy_cases.json",
+      "bytes": 2960,
+      "tracked": true
+    },
+    {
+      "path": "server/fixtures/vnext/replay_same_direction.json",
+      "bytes": 807,
+      "tracked": true
+    },
+    {
+      "path": "server/fixtures/vnext/rule_evidence_manifest.json",
+      "bytes": 4583,
+      "tracked": true
+    },
+    {
+      "path": "server/fixtures/vnext/source_policy_continuous.env.json",
+      "bytes": 713,
+      "tracked": true
+    },
+    {
+      "path": "server/fixtures/vnext/source_policy_continuous.json",
+      "bytes": 1026,
+      "tracked": true
+    },
+    {
+      "path": "server/migrations/001_vnext_foundation.sql",
+      "bytes": 2740,
+      "tracked": true
+    },
+    {
+      "path": "server/migrations/002_vnext_core.sql",
+      "bytes": 14556,
+      "tracked": true
+    },
+    {
+      "path": "server/migrations/003_shared_publications.sql",
+      "bytes": 1867,
+      "tracked": true
+    },
+    {
+      "path": "server/migrations/__init__.py",
+      "bytes": 60,
+      "tracked": true
+    },
+    {
+      "path": "server/migrations/__main__.py",
+      "bytes": 2076,
+      "tracked": true
+    },
+    {
+      "path": "server/migrations/runner.py",
+      "bytes": 3679,
+      "tracked": true
+    },
+    {
+      "path": "server/migrations/test_runner.py",
+      "bytes": 3233,
+      "tracked": true
+    },
+    {
+      "path": "server/release.py",
+      "bytes": 1730,
+      "tracked": true
+    },
+    {
+      "path": "server/requirements.txt",
+      "bytes": 503,
+      "tracked": true
+    },
+    {
+      "path": "server/resets/__init__.py",
+      "bytes": 265,
+      "tracked": true
+    },
+    {
+      "path": "server/resets/decisions.py",
+      "bytes": 5745,
+      "tracked": true
+    },
+    {
+      "path": "server/resets/test_decisions.py",
+      "bytes": 2610,
+      "tracked": true
+    },
+    {
+      "path": "server/rules/__init__.py",
+      "bytes": 379,
+      "tracked": true
+    },
+    {
+      "path": "server/rules/catalog.py",
+      "bytes": 4590,
+      "tracked": true
+    },
+    {
+      "path": "server/rules/evidence_gate.py",
+      "bytes": 1584,
+      "tracked": true
+    },
+    {
+      "path": "server/rules/test_catalog.py",
+      "bytes": 1080,
+      "tracked": true
+    },
+    {
+      "path": "server/rules/test_evidence_gate.py",
+      "bytes": 2511,
+      "tracked": true
+    },
+    {
+      "path": "server/rules/test_release_recalculation.py",
+      "bytes": 8617,
+      "tracked": true
+    },
+    {
+      "path": "server/rules/test_vnext_replay.py",
+      "bytes": 4681,
+      "tracked": true
+    },
+    {
+      "path": "server/rules/vnext_replay.py",
+      "bytes": 4641,
+      "tracked": true
+    },
+    {
+      "path": "server/services/__init__.py",
+      "bytes": 34,
+      "tracked": true
+    },
+    {
+      "path": "server/services/announcement_service.py",
+      "bytes": 28929,
+      "tracked": true
+    },
+    {
+      "path": "server/services/context_service.py",
+      "bytes": 6254,
+      "tracked": true
+    },
+    {
+      "path": "server/services/fact_ledger.py",
+      "bytes": 202,
+      "tracked": true
+    },
+    {
+      "path": "server/services/market_calc_repository.py",
+      "bytes": 47778,
+      "tracked": true
+    },
+    {
+      "path": "server/services/market_service.py",
+      "bytes": 244709,
+      "tracked": true
+    },
+    {
+      "path": "server/services/monitor_service.py",
+      "bytes": 104384,
+      "tracked": true
+    },
+    {
+      "path": "server/services/read_publications.py",
+      "bytes": 7172,
+      "tracked": true
+    },
+    {
+      "path": "server/services/read_refresh_jobs.py",
+      "bytes": 2017,
+      "tracked": true
+    },
+    {
+      "path": "server/services/realtime/__init__.py",
+      "bytes": 239,
+      "tracked": true
+    },
+    {
+      "path": "server/services/realtime/coordinator.py",
+      "bytes": 7108,
+      "tracked": true
+    },
+    {
+      "path": "server/services/realtime/test_coordinator.py",
+      "bytes": 3375,
+      "tracked": true
+    },
+    {
+      "path": "server/services/realtime_quote.py",
+      "bytes": 8283,
+      "tracked": true
+    },
+    {
+      "path": "server/services/source_policy.py",
+      "bytes": 4272,
+      "tracked": true
+    },
+    {
+      "path": "server/services/test_announcement_service.py",
+      "bytes": 10144,
+      "tracked": true
+    },
+    {
+      "path": "server/services/test_context_service.py",
+      "bytes": 3105,
+      "tracked": true
+    },
+    {
+      "path": "server/services/test_market_service.py",
+      "bytes": 134837,
+      "tracked": true
+    },
+    {
+      "path": "server/services/test_monitor_service.py",
+      "bytes": 81352,
+      "tracked": true
+    },
+    {
+      "path": "server/services/test_observability.py",
+      "bytes": 11518,
+      "tracked": true
+    },
+    {
+      "path": "server/services/test_prediction_boundaries.py",
+      "bytes": 9300,
+      "tracked": true
+    },
+    {
+      "path": "server/services/test_prediction_contract.py",
+      "bytes": 11184,
+      "tracked": true
+    },
+    {
+      "path": "server/services/test_production_regression.py",
+      "bytes": 11178,
+      "tracked": true
+    },
+    {
+      "path": "server/services/test_read_api.py",
+      "bytes": 10736,
+      "tracked": true
+    },
+    {
+      "path": "server/services/test_same_direction_forecast_boundary.py",
+      "bytes": 4292,
+      "tracked": true
+    },
+    {
+      "path": "server/services/test_simulation_contract.py",
+      "bytes": 5235,
+      "tracked": true
+    },
+    {
+      "path": "server/services/test_source_policy.py",
+      "bytes": 3888,
+      "tracked": true
+    },
+    {
+      "path": "server/services/tushare_client.py",
+      "bytes": 10437,
+      "tracked": true
+    },
+    {
+      "path": "server/test_release.py",
+      "bytes": 1094,
+      "tracked": true
+    },
+    {
+      "path": "server/tools/api_contract_check.py",
+      "bytes": 6095,
+      "tracked": true
+    },
+    {
+      "path": "server/tools/health_alert_check.py",
+      "bytes": 3854,
+      "tracked": true
+    },
+    {
+      "path": "server/tools/prediction_migration_check.py",
+      "bytes": 2464,
+      "tracked": true
+    },
+    {
+      "path": "server/tools/production_acceptance_check.py",
+      "bytes": 6080,
+      "tracked": true
+    },
+    {
+      "path": "server/tools/release_t138_check.py",
+      "bytes": 11502,
+      "tracked": true
+    },
+    {
+      "path": "server/tools/same_direction_check.py",
+      "bytes": 4720,
+      "tracked": true
+    }
+  ],
+  "missingTrackedFiles": [
+    "docs/next-major/architecture/模块化架构与迁移计划.md",
+    "docs/next-major/architecture/模块化架构评审回执_2026-10-24.md",
+    "docs/next-major/architecture/模块化架构评审稿.md"
+  ]
+}

@@ -1,0 +1,19 @@
+Business date: 20261106
+Command: python3 -m unittest discover -s server -t . -p 'test_*.py'
+Baseline commit: d5892b96f8952d8723f58a103af15e75b4264abe plus this review's test additions
+
+Ran 382 tests in 12.618s
+OK
+
+Frontend commands: all six passed
+node miniprogram/utils/api.test.js
+node miniprogram/pages/monitor/index.test.js
+node miniprogram/pages/prediction/prediction.test.js
+node miniprogram/pages/prediction/index.test.js
+node miniprogram/pages/refresh-lifecycle.test.js
+node miniprogram/pages/stock/simulation.test.js
+
+Independent product-policy checks are not included in the above pass count:
+release_t138_check.py: exit 1, four policy gaps reproduced
+temporal-policy.check.js: exit 1, three page behavior gaps reproduced
+See adjacent JSON reports for input hashes and actual/expected values.

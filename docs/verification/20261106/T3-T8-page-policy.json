@@ -1,0 +1,32 @@
+{
+  "checks": [
+    {
+      "id": "T8-OPEN-PAGE-0900",
+      "status": "fail",
+      "expected": "invalidate old current-day conclusions at business boundary; do not repeat automatic S2",
+      "actual": {
+        "s1Reads": 1,
+        "s2Requests": 0,
+        "oldTriggeredCards": 1
+      }
+    },
+    {
+      "id": "T8-OPEN-MONITOR-MIDNIGHT",
+      "status": "fail",
+      "expected": "remove or explicitly invalidate expired facts after business date changes",
+      "actual": {
+        "reads": 1,
+        "expiredCardsRetained": 1
+      }
+    },
+    {
+      "id": "T3-FAILED-STALE-PAGE",
+      "status": "fail",
+      "expected": "page visibly distinguishes failed/stale S2 from a successful refresh",
+      "actual": {
+        "error": "",
+        "dataUnavailable": false
+      }
+    }
+  ]
+}
