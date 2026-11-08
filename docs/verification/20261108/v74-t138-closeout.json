@@ -1,0 +1,161 @@
+{
+  "businessDate": "20261108",
+  "observedAt": "2026-11-08T20:52:26.651043+08:00",
+  "fixtures": {
+    "evidenceMetadataGate": {
+      "gateId": "G21",
+      "status": "pass",
+      "requiredCount": 11,
+      "missingOrUnapproved": []
+    },
+    "authority": "product_policy",
+    "policyVersion": "PRD-NEXT-20261030.22",
+    "files": [
+      {
+        "path": "server/fixtures/vnext/rule_evidence_manifest.json",
+        "sha256": "2da2ab29d9c7cdca281f1d555c7467513ccbf7b92edac7b72b185ad393500483"
+      },
+      {
+        "path": "server/fixtures/vnext/product_policy_cases.json",
+        "sha256": "7cebeba410688108ab7c0e28d1ea698d6dedcf9ad5b27f5bbf4aab74cfbc1ea2"
+      },
+      {
+        "path": "server/fixtures/vnext/replay_same_direction.json",
+        "sha256": "fcdbc0359725cc90ef18f78ebc0d39fa4eb1a001707bbe41a5b9df1555a1c24c"
+      },
+      {
+        "path": "server/fixtures/production_regression_20261101.json",
+        "sha256": "b6d0fff62a54634ef7e638a8b3d0adc5f89d29fa4fdf123a1108469a94aaa035"
+      },
+      {
+        "path": "server/fixtures/aoya_prediction_boundary_20261103.json",
+        "sha256": "ea98c8df15d00b788b54f19ca01d7f88ceaade7fab1e5aa8d88b9daaa3b44f5a"
+      },
+      {
+        "path": "server/fixtures/huayang_same_direction_next_day_20261104.json",
+        "sha256": "58a258e8e24edad94dba3eb747d8960808c9cd6d68e42dd1030b822c0b290868"
+      }
+    ],
+    "limits": "Metadata/hash pass does not certify all fixture semantics or production paths."
+  },
+  "localPolicyChecks": [
+    {
+      "id": "T1-ADJUSTED-REFERENCE-INCREMENT",
+      "status": "pass",
+      "expected": {
+        "dailyReturn": 2.0,
+        "reference": "5.1 / 5.0 - 1"
+      },
+      "actual": {
+        "dailyReturn": 2.0,
+        "reference": "source pct_chg, falling back to same-row pre_close"
+      }
+    },
+    {
+      "id": "T1-RESUME-BASELINE",
+      "status": "pass",
+      "expected": {
+        "deviationsOnResumeDate": {
+          "3": 0,
+          "10": 0,
+          "30": 0
+        },
+        "ordinaryEventCountContinues": 1
+      },
+      "actual": {
+        "deviations": {
+          "3": 0.0,
+          "10": 0.0,
+          "30": 0.0
+        },
+        "upCount": 1,
+        "resumeDate": "20260925"
+      }
+    },
+    {
+      "id": "T8-LUNCH-S2",
+      "status": "pass",
+      "expected": false,
+      "actual": false
+    },
+    {
+      "id": "T8-REST-DATE-ROLE",
+      "status": "pass",
+      "expected": {
+        "D": "20261009",
+        "N": "20261012"
+      },
+      "actual": {
+        "tradeDate": "20261009",
+        "targetTradeDate": "20261012",
+        "previousTradeDate": "20261009"
+      }
+    }
+  ],
+  "cloud": {
+    "status": "pass",
+    "health": {
+      "service": "ok",
+      "publications": {
+        "backend": "mysql",
+        "available": true,
+        "factCount": 1151,
+        "outboxPending": 0
+      },
+      "monitor": {
+        "available": true,
+        "snapshotDate": "20261108",
+        "lastStatus": "success",
+        "itemCount": 22
+      },
+      "prediction": {
+        "today": {
+          "status": "ready",
+          "ruleVersion": "v74",
+          "targetTradeDate": "20261106",
+          "available": true
+        },
+        "next_day": {
+          "status": "ready",
+          "ruleVersion": "v74",
+          "targetTradeDate": "20261109",
+          "available": true
+        }
+      }
+    },
+    "context": {
+      "dataset_id": "4b22a3f95092e02fb3f728ce1e96d6ccb330214a6f7aaa42595dfaa4cd925639",
+      "dataset_version": "4b22a3f95092e02fb3f728ce1e96d6ccb330214a6f7aaa42595dfaa4cd925639",
+      "pool_hash": "2446c6cf3a5ff719910c1e97747936cb3bac5d92cc1584c9b0d06b8c93d82fdb",
+      "pool_count": 2,
+      "rule_version": "v74",
+      "time_context_id": "202611082052",
+      "target_date": "20261106",
+      "expires_at": 1794142648.70862
+    },
+    "phase": "rest_day",
+    "tradeDate": "20261105",
+    "targetTradeDate": "20261106",
+    "cards": 2,
+    "authorization": "idempotent/cross-role/cross-page/cross-stock/invalid-token pass",
+    "concurrentReads": {
+      "requests": 16,
+      "concurrency": 4,
+      "identical": true,
+      "sampleP95Ms": 234.9,
+      "maxMs": 246.7
+    },
+    "s2": {
+      "refresh_state": "ready",
+      "result_state": "fresh",
+      "refreshStatus": "not_allowed",
+      "reasons": []
+    },
+    "fantuoFacts": [],
+    "monitorTimeContextPresent": false,
+    "limits": [
+      "no instance identity; does not prove two cloud instances",
+      "point-in-time sample; does not prove a full live cross-day cycle"
+    ]
+  }
+}
