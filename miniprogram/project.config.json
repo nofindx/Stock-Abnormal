@@ -1,7 +1,10 @@
 {
   "description": "异动查查微信小程序开发配置",
   "packOptions": {
-    "ignore": [],
+    "ignore": [
+      { "type": "suffix", "value": ".test.js" },
+      { "type": "suffix", "value": ".check.js" }
+    ],
     "include": []
   },
   "setting": {

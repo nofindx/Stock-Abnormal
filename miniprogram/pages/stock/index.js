@@ -1,5 +1,6 @@
 // 单股查询页：基础行情与当前状态来自后端，未来假设输入在本地即时重算。
 const { searchStocks, getStockDetail, refreshStockDetail } = require('../../utils/api')
+const { businessDateKey: stockBusinessDateKey, businessBoundaryKey, startBoundaryWatch, stopBoundaryWatch } = require('../../utils/business-boundary')
 
 function formatSimulationDate(value) {
   const text = String(value == null ? '' : value).trim()
@@ -620,6 +621,16 @@ Page({
         this.chooseStock(pending)
       }
     }
+    startBoundaryWatch(this, this.checkTimeBoundary)
+  },
+  checkTimeBoundary() {
+    const date = stockBusinessDateKey()
+    const boundary = businessBoundaryKey()
+    const changed = (this._stockBusinessDate && date !== this._stockBusinessDate)
+      || (this._stockBoundaryKey && boundary !== this._stockBoundaryKey)
+    this._stockBusinessDate = date
+    this._stockBoundaryKey = boundary
+    if (changed && this.data.selected) return this.reloadStockS1ForBoundary()
   },
   syncTabBar() {
     const tabBar = this.getTabBar && this.getTabBar()
@@ -666,6 +677,9 @@ Page({
       ? this.data.suggestions[eventOrStock.currentTarget.dataset.index]
       : eventOrStock
     if (!stock || !stock.ts_code) return
+    this._stockBusinessDate = stockBusinessDateKey()
+    this._stockBoundaryKey = businessBoundaryKey()
+    const initialBoundary = this._stockBoundaryKey
     getApp().globalData.lastStock = stock
     const recentStocks = [{ ts_code: stock.ts_code, symbol: stock.symbol || stock.ts_code.split('.')[0], name: stock.name || stock.ts_code }, ...(this.data.recentStocks || []).filter(item => item.ts_code !== stock.ts_code)].slice(0, 8)
     wx.setStorageSync(STOCK_HISTORY_KEY, recentStocks)
@@ -680,9 +694,13 @@ Page({
       return detail
     }
     return getStockDetail(stock.ts_code).then(render).then(detail => {
-      if (requestId !== this.detailRequestId || !detail.realtimeRefreshAllowed) return
+      if (requestId !== this.detailRequestId || initialBoundary !== businessBoundaryKey() || !detail.realtimeRefreshAllowed) return
       return refreshStockDetail(stock.ts_code, detail).then(render)
-        .catch(() => { /* S2 failure retains the visible, confirmed S1. */ })
+        .catch(() => {
+          if (requestId === this.detailRequestId) {
+            this.setData({ detailError: '实时行情刷新失败，当前保留上次数据（可能已过期），请下拉刷新重试' })
+          }
+        })
     }).catch((error) => {
       if (requestId !== this.detailRequestId) return
       const message = error && error.message ? String(error.message) : ''
@@ -709,6 +727,22 @@ Page({
       wx.stopPullDownRefresh()
     })
     return this.detailRefreshPromise
+  },
+  reloadStockS1ForBoundary() {
+    const stock = this.data.selected
+    if (!stock) return Promise.resolve()
+    const requestId = this.detailRequestId = (this.detailRequestId || 0) + 1
+    this.stockReadResult = null
+    const inputRows = createInputRows(this.data.visibleDays)
+    this.setData({ detail: null, detailLoading: true, detailError: '', dataUpdatedAt: '', futureTradeDates: [], simulationReady: false, inputRows, matrixGroups: buildMatrixGroups(inputRows), nextDayForecastLine: '', nextDayForecastText: '正在核对下一交易日预测…', nextDayForecastNotice: '' })
+    return getStockDetail(stock.ts_code).then(detail => {
+      if (requestId !== this.detailRequestId) return
+      this.stockReadResult = detail
+      this.renderStockDetail(detail, { items: detail.monitoringFacts || [] }, stock, requestId)
+      // Boundary changes replace S1 only; S2 remains first-open/manual only.
+    }).catch(() => {
+      if (requestId === this.detailRequestId) this.setData({ detailLoading: false, detailError: '行情暂时不可用，请手动刷新重试' })
+    })
   },
   renderStockDetail(detail, monitorSnapshot, stock, requestId) {
       if (requestId !== this.detailRequestId) return
@@ -813,7 +847,11 @@ Page({
     const inputRows = calculateSimulationRows(createInputRows(this.data.visibleDays, this.data.futureTradeDates), this.data.detail)
     this.setData({ inputRows, matrixGroups: buildMatrixGroups(inputRows) })
   },
+  onHide() { stopBoundaryWatch(this) },
   onUnload() {
+    stopBoundaryWatch(this)
+    this.detailRequestId = (this.detailRequestId || 0) + 1
+    this.searchRequestId = (this.searchRequestId || 0) + 1
     if (this.searchTimer) clearTimeout(this.searchTimer)
   },
 })

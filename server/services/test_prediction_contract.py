@@ -5,6 +5,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from server.services.market_service import MarketService, PREDICTION_RULE_VERSION, SHANGHAI_TZ
+from server.services.read_publications import ReadPublications
 
 
 class PredictionBoundaryTests(unittest.TestCase):
@@ -50,6 +51,44 @@ class PredictionBoundaryTests(unittest.TestCase):
         self.assertEqual(result["requestedCount"], 2)
         self.assertEqual(result["returnedCount"], 1)
         self.assertFalse(result["persisted"])
+
+    def test_business_boundary_caps_context_at_open_and_midnight(self):
+        for before, after in [("2026-10-12T08:59:59", "2026-10-12T09:00:00"),
+                              ("2026-10-12T09:14:59", "2026-10-12T09:15:00"),
+                              ("2026-10-12T14:59:59", "2026-10-12T15:00:00"),
+                              ("2026-10-12T23:59:59", "2026-10-13T00:00:00")]:
+            with self.subTest(before=before):
+                now = datetime.fromisoformat(before).replace(tzinfo=SHANGHAI_TZ)
+                expected = datetime.fromisoformat(after).replace(tzinfo=SHANGHAI_TZ)
+                self.assertEqual(ReadPublications.next_boundary(now), expected.timestamp())
+
+    def test_rest_day_disables_quotes_and_retains_distinct_target_dates(self):
+        self.service.set_clock(lambda: datetime(2026, 10, 11, 12, tzinfo=SHANGHAI_TZ))
+        state = self.service._prediction_state()
+        self.assertEqual(state["phase"], "rest_day")
+        self.assertEqual(state["previousTradeDate"], "20261009")
+        self.assertEqual(state["targetTradeDate"], "20261012")
+        self.assertFalse(state["realtimeRefreshAllowed"])
+        self.assertFalse(self.service._detail_realtime_allowed())
+        # This captures the current production contract. PRD's D/N names are
+        # separately audited, not certified by this legacy-behavior assertion.
+
+    def test_close_confirmation_requires_persisted_formal_data(self):
+        self.service.set_clock(lambda: datetime(2026, 10, 12, 15, tzinfo=SHANGHAI_TZ))
+        self.service._confirmed_market_trade_date = lambda: "20261009"
+        pending = self.service._prediction_state()
+        self.assertEqual(pending["phase"], "post_close_pending")
+        self.assertFalse(self.service._next_day_dataset_available(
+            pending["phase"], pending, "20261013", True, "formal"))
+        self.assertTrue(self.service._next_day_dataset_available(
+            pending["phase"], pending, "20261013", True, "initial"))
+        self.service._confirmed_market_trade_date = lambda: "20261012"
+        confirmed = self.service._prediction_state()
+        self.assertEqual(confirmed["phase"], "post_close_confirmed")
+        self.assertFalse(self.service._next_day_dataset_available(
+            confirmed["phase"], confirmed, "20261013", True, "initial"))
+        self.assertTrue(self.service._next_day_dataset_available(
+            confirmed["phase"], confirmed, "20261013", True, "formal"))
 
 
 class FixtureContractTests(unittest.TestCase):

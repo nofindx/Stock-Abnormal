@@ -44,6 +44,46 @@ async function run() {
   assert.strictEqual(calls[1].url, '/api/v2/jobs/job-a')
   assert.strictEqual(calls[1].data.read_token, 's1-token')
   assert.strictEqual(result.read_token.value, 's2-token')
+
+  calls = []
+  handler = options => options.url === '/api/v2/context'
+    ? Promise.resolve({ data: { read_token: { value: 'replacement' } } })
+    : Promise.reject(Object.assign(new Error('still expired'), { code: 40902 }))
+  await assert.rejects(api.refreshPredictions('today', saved), /still expired/)
+  assert.strictEqual(calls.length, 3, 'only one context reacquisition is allowed')
+
+  calls = []
+  handler = () => Promise.resolve({ data: {
+    items: [{ ts_code: '002724.SZ' }], refresh_state: 'failed', result_state: 'stale',
+    reasons: ['REALTIME_REFRESH_FAILED'], read_token: { value: 'fallback-token' }
+  } })
+  result = await api.refreshPredictions('today', saved)
+  assert.strictEqual(result.result_state, 'stale')
+  assert.strictEqual(result.items[0].ts_code, '002724.SZ')
+  assert.strictEqual(calls.length, 1, 'a failed terminal must not start another job')
+
+  const realSetTimeout = global.setTimeout
+  global.setTimeout = callback => { callback(); return 0 }
+  try {
+    calls = []
+    handler = () => Promise.resolve({ data: { refresh_state: 'queued', job_id: 'job-b' } })
+    await assert.rejects(api.refreshPredictions('today', saved), error => error.code === 20201)
+    assert.strictEqual(calls.length, 25, 'queued polling has a fixed upper bound')
+
+    calls = []
+    handler = options => {
+      if (calls.length === 1) return Promise.resolve({ data: { refresh_state: 'queued', job_id: 'job-c' } })
+      if (calls.length === 2) return Promise.reject(Object.assign(new Error('expired while polling'), { code: 40902 }))
+      if (options.url === '/api/v2/context') return Promise.resolve({ data: { read_token: { value: 'new-poll-context' } } })
+      return Promise.resolve({ data: { items: [], refresh_state: 'ready', read_token: { value: 'new-view' } } })
+    }
+    result = await api.refreshPredictions('today', saved)
+    assert.strictEqual(calls.length, 4)
+    assert.strictEqual(calls[3].data.read_token, 'new-poll-context')
+    assert.strictEqual(result.read_token.value, 'new-view')
+  } finally {
+    global.setTimeout = realSetTimeout
+  }
   console.log('API context reuse and expiry recovery tests passed')
 }
 run().catch(error => { console.error(error); process.exitCode = 1 })

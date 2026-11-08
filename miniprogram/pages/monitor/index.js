@@ -1,13 +1,28 @@
 // 重点监控页面：监控期、风险类型和剩余天数全部使用后端结果。
 const { getMonitor } = require('../../utils/api')
 const { openPdf } = require('../../utils/open-pdf')
+const { businessDateKey, startBoundaryWatch, stopBoundaryWatch } = require('../../utils/business-boundary')
 
 Page({
   data: { type: 'all', items: [], rawItems: [], visibleCount: 0, updatedAt: '', loading: false, refreshing: false, error: '', skeletonRows: [0, 1, 2, 3], types: [{ key: 'all', label: '全部' }, { key: 'risk', label: '风险提示' }, { key: 'severe', label: '严重异动' }, { key: 'delisting', label: '退市整理' }] },
-  onLoad() { this.loadData() },
+  onLoad() { this._monitorBusinessDate = businessDateKey(); this.loadData() },
   onShow() {
     const tabBar = this.getTabBar && this.getTabBar()
     if (tabBar) tabBar.setData({ selected: 1 })
+    this._monitorHidden = false
+    startBoundaryWatch(this, this.checkTimeBoundary, true)
+    if (this.data.refreshing && !this.pollTimer) this.schedulePoll()
+  },
+  checkTimeBoundary() {
+    const date = businessDateKey()
+    if (this._monitorBusinessDate && date !== this._monitorBusinessDate) {
+      this._monitorBusinessDate = date
+      if (this.pollTimer) clearTimeout(this.pollTimer)
+      this.pollTimer = null
+      this.pollAttempts = 0
+      this.setData({ items: [], rawItems: [], visibleCount: 0, updatedAt: '', error: '', loading: true, refreshing: false })
+      return this.loadData()
+    }
   },
   onPullDownRefresh() { this.loadData().finally(() => wx.stopPullDownRefresh()) },
   refreshNow() {
@@ -46,6 +61,7 @@ Page({
     return request
   },
   schedulePoll() {
+    if (this._monitorHidden) return
     if (this.pollTimer) clearTimeout(this.pollTimer)
     this.pollAttempts = (this.pollAttempts || 0) + 1
     if (this.pollAttempts > 15) {
@@ -55,6 +71,7 @@ Page({
     const pollType = this.data.type
     const pollRequestId = this.requestSeq
     this.pollTimer = setTimeout(() => {
+      this.pollTimer = null
       getMonitor({ status: 'current', type: pollType }).then((result) => {
         if (pollRequestId !== this.requestSeq || pollType !== this.data.type) return
         const items = result.items || []
@@ -66,7 +83,9 @@ Page({
         this.setData({ loading: waiting && !(this.data.rawItems || []).length, refreshing: Boolean(result.refreshing), error: result.error || '' })
         if (result.refreshing) this.schedulePoll()
         else this.pollAttempts = 0
-      }).catch(() => this.schedulePoll())
+      }).catch(() => {
+        if (pollRequestId === this.requestSeq && pollType === this.data.type) this.schedulePoll()
+      })
     }, 1200)
   },
   applyFilters(items) {
@@ -95,7 +114,15 @@ Page({
       onError: () => wx.showToast({ title: '公告暂时无法打开，请稍后重试', icon: 'none' })
     }).catch(() => {}).finally(() => { this.openingSource = false })
   },
+  onHide() {
+    this._monitorHidden = true
+    stopBoundaryWatch(this)
+    if (this.pollTimer) clearTimeout(this.pollTimer)
+    this.pollTimer = null
+  },
   onUnload() {
+    this.onHide()
+    this.requestSeq = (this.requestSeq || 0) + 1
     if (this.pollTimer) clearTimeout(this.pollTimer)
   }
 })
@@ -117,4 +144,4 @@ function isVisibleMonitorItem(item) {
   return !(code && /^[15]/.test(code[0])) && !/^\*?ST/.test(name) && !name.includes('退')
 }
 
-if (typeof module !== 'undefined') module.exports = { isVisibleMonitorItem }
+if (typeof module !== 'undefined') module.exports = { isVisibleMonitorItem, businessDateKey }

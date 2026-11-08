@@ -1,6 +1,6 @@
 const assert = require('assert')
 global.Page = () => {}
-const { normalizeItems } = require('./index')
+const { normalizeItems, refreshFailureMessage, predictionBoundaryKey } = require('./index')
 
 const triggered = normalizeItems([{
   ts_code: '301313.SZ',
@@ -62,5 +62,11 @@ assert.strictEqual(negativeUpwardBoundary.triggered, false)
 assert.strictEqual(negativeUpwardBoundary.todayTriggered, false)
 assert.strictEqual(negativeUpwardBoundary.cardTone, '')
 assert.strictEqual(negativeUpwardBoundary.riskTone, 'severe')
+assert.strictEqual(refreshFailureMessage({ refresh_state: 'failed', result_state: 'stale' }),
+  '实时行情刷新失败，当前保留上次数据（可能已过期），请手动重试')
+assert.strictEqual(refreshFailureMessage({ result_state: 'stale' }),
+  '当前显示上次数据（可能已过期），请手动刷新')
+assert.notStrictEqual(predictionBoundaryKey(new Date('2026-11-06T08:59:59+08:00')),
+  predictionBoundaryKey(new Date('2026-11-06T09:00:00+08:00')))
 
 console.log('prediction page tests passed')

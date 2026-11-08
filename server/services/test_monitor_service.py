@@ -214,6 +214,19 @@ class MonitorWindowTests(unittest.TestCase):
         self.assertEqual(self.service._remaining_natural_days("2026-10-14", "2026-09-27"), 17)
         self.assertTrue(self.service._is_expired("2026-09-28", "2026-09-29"))
 
+    def test_fantuo_expiry_is_applied_when_reading_same_snapshot_across_midnight(self):
+        event = self.event("2026-10-23", "2026-11-06", "severe-10d")
+        event.update(symbol="301313", name="凡拓数创", monitorStartDate="2026-10-26")
+        self.service.repository.active_snapshot = lambda: {
+            "snapshotDate": "20261106", "updatedAt": "2026-11-06 18:00", "items": [event]}
+        self.service.repository.states = lambda: {"last_status": "success"}
+        self.service._clock = lambda: datetime(2026, 11, 6, 23, 59, 59, tzinfo=SHANGHAI_TZ)
+        current = self.service.read("current", "all")["items"]
+        self.assertEqual(len(current), 1)
+        self.assertEqual(current[0]["days"], 0)
+        self.service._clock = lambda: datetime(2026, 11, 7, 0, 0, tzinfo=SHANGHAI_TZ)
+        self.assertEqual(self.service.read("current", "all")["items"], [])
+
     def test_health_count_matches_current_active_items(self):
         today = datetime.now(SHANGHAI_TZ).strftime("%Y-%m-%d")
         yesterday = (datetime.now(SHANGHAI_TZ) - timedelta(days=1)).strftime("%Y-%m-%d")

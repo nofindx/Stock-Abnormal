@@ -1,5 +1,6 @@
 // 异动预测页面：只请求后端批量快照，不在前端逐票扫描或模拟刷新。
 const { getPredictions, refreshPredictions } = require('../../utils/api')
+const { businessBoundaryKey: predictionBoundaryKey, startBoundaryWatch, stopBoundaryWatch } = require('../../utils/business-boundary')
 
 function isIntradayRefreshResult(result = {}) {
   const quality = result.dataQuality || {}
@@ -29,6 +30,16 @@ function formatUpdatedAt(value) {
   return String(value || '').replace('T', ' ')
 }
 
+function refreshFailureMessage(result = {}) {
+  if (result.refresh_state === 'failed' || result.refreshStatus === 'failed') {
+    return result.result_state === 'stale'
+      ? '实时行情刷新失败，当前保留上次数据（可能已过期），请手动重试'
+      : '实时行情刷新失败，请手动重试'
+  }
+  if (result.result_state === 'stale' || result.stale === true) return '当前显示上次数据（可能已过期），请手动刷新'
+  return result.error || ''
+}
+
 function preserveItemOrder(currentItems, nextItems) {
   const nextByKey = new Map(nextItems.map(item => [item.predictionKey, item]))
   const ordered = currentItems.map(item => nextByKey.get(item.predictionKey)).filter(Boolean)
@@ -41,8 +52,10 @@ Page({
   onLoad() {
     // A tab page lives across onShow calls. Initialize once per page instance;
     // subsequent quote updates are explicit pull-down refreshes.
+    this._predictionBoundaryKey = predictionBoundaryKey()
+    const initialBoundary = this._predictionBoundaryKey
     this.initialLoad = this.loadData().then((result) => {
-      if (result && result.realtimeRefreshAllowed && this.data.scope === 'today') return this.refresh()
+      if (result && initialBoundary === this._predictionBoundaryKey && initialBoundary === predictionBoundaryKey() && result.realtimeRefreshAllowed && this.data.scope === 'today') return this.refresh()
       return result
     })
     return this.initialLoad
@@ -50,6 +63,17 @@ Page({
   onShow() {
     const tabBar = this.getTabBar && this.getTabBar()
     if (tabBar) tabBar.setData({ selected: 2 })
+    startBoundaryWatch(this, this.checkTimeBoundary)
+  },
+  checkTimeBoundary() {
+    const boundary = predictionBoundaryKey()
+    if (this._predictionBoundaryKey && boundary !== this._predictionBoundaryKey) {
+      this._predictionBoundaryKey = boundary
+      // Business-boundary changes replace S1 only. S2 remains first-open/manual.
+      this.readResult = null
+      this.setData({ items: [], quoteUpdatedAt: '', dataQuality: {}, dataUnavailable: false, refreshing: false })
+      return this.loadData()
+    }
   },
   switchScope(event) {
     const scope = event.currentTarget.dataset.scope
@@ -68,7 +92,14 @@ Page({
       return
     }
     if (scope === this.data.scope) return
-    this.setData({ scope, items: [], error: '' }, () => this.loadData())
+    this.readResult = null
+    this.setData({ scope, items: [], quoteUpdatedAt: '', refreshing: false, error: '' }, () => this.loadData())
+  },
+  returnToTodayIfClosed(result, scope) {
+    if (scope !== 'next_day' || result.nextDayAvailable !== false) return false
+    this.readResult = null
+    this.setData({ scope: 'today', items: [], quoteUpdatedAt: '', dataQuality: {}, dataUnavailable: false, refreshing: false, nextDayAvailable: false, nextDayReason: result.nextDayReason || '' })
+    return true
   },
   loadData() {
     const scope = this.data.scope
@@ -76,9 +107,10 @@ Page({
     this.setData({ loading: true, error: '' })
     return getPredictions(scope).then((result) => {
       if (requestId !== this.readRequestId || scope !== this.data.scope) return null
+      if (this.returnToTodayIfClosed(result, scope)) return this.loadData()
       this.readResult = result
       const quoteUpdatedAt = formatUpdatedAt(result.quoteUpdatedAt)
-      this.setData({ items: normalizeItems(result.items, this.data.scope), quoteUpdatedAt, dataQuality: result.dataQuality || {}, dataUnavailable: Boolean(result.dataUnavailable), loading: false, refreshing: false, error: result.error || '', nextDayAvailable: result.nextDayAvailable !== false, nextDayReason: result.nextDayReason || '' })
+      this.setData({ items: normalizeItems(result.items, this.data.scope), quoteUpdatedAt, dataQuality: result.dataQuality || {}, dataUnavailable: Boolean(result.dataUnavailable), loading: false, refreshing: false, error: refreshFailureMessage(result), nextDayAvailable: result.nextDayAvailable !== false, nextDayReason: result.nextDayReason || '' })
       getApp().globalData.lastPredictionRefresh = result.quoteUpdatedAt || null
       return result
     }).catch(() => {
@@ -93,10 +125,11 @@ Page({
     const requestId = this.readRequestId
     return refreshPredictions(scope, this.readResult).then((result) => {
       if (requestId !== this.readRequestId || scope !== this.data.scope) return null
+      if (this.returnToTodayIfClosed(result, scope)) return this.loadData()
       this.readResult = result
       const items = preserveItemOrder(this.data.items, normalizeItems(result.items, this.data.scope))
       const quoteUpdatedAt = formatUpdatedAt(result.quoteUpdatedAt)
-      this.setData({ refreshing: false, items, quoteUpdatedAt, dataQuality: result.dataQuality || {}, dataUnavailable: Boolean(result.dataUnavailable), error: result.error || '', nextDayAvailable: result.nextDayAvailable !== false, nextDayReason: result.nextDayReason || '' })
+      this.setData({ refreshing: false, items, quoteUpdatedAt, dataQuality: result.dataQuality || {}, dataUnavailable: Boolean(result.dataUnavailable), error: refreshFailureMessage(result), nextDayAvailable: result.nextDayAvailable !== false, nextDayReason: result.nextDayReason || '' })
       getApp().globalData.lastPredictionRefresh = result.quoteUpdatedAt || null
       return result
     }).catch(() => {
@@ -115,9 +148,12 @@ Page({
     getApp().globalData.pendingStock = stock
     wx.switchTab({ url: '/pages/stock/index' })
   },
+  onHide() { stopBoundaryWatch(this) },
   onUnload() {
+    stopBoundaryWatch(this)
+    this.readRequestId = (this.readRequestId || 0) + 1
     if (this.nextDayNoticeTimer) clearTimeout(this.nextDayNoticeTimer)
   },
 })
 
-module.exports = { isIntradayRefreshResult, normalizeItems }
+module.exports = { isIntradayRefreshResult, normalizeItems, predictionBoundaryKey, refreshFailureMessage }

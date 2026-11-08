@@ -22,6 +22,20 @@ class ContextServiceTests(unittest.TestCase):
         self.assertEqual(context.expires_at, 1300)
         self.assertEqual(self.service.verify(token), context)
 
+    def test_switch_and_view_expiry_each_override_token_ttl(self):
+        for overrides, expected in [({"next_switch_at": 1100}, 1100),
+                                    ({"stale_until": 1050}, 1050),
+                                    ({"next_switch_at": 1200, "stale_until": 1100}, 1100)]:
+            with self.subTest(overrides=overrides):
+                context, _ = self._context(**overrides)
+                self.assertEqual(context.expires_at, expected)
+
+    def test_signing_key_change_rejects_old_token(self):
+        _context, token = self._context()
+        other = ContextService("y" * 32, clock=lambda: self.now[0])
+        with self.assertRaises(ContextExpired):
+            other.verify(token)
+
     def test_token_tamper_and_expiry_are_rejected(self):
         _context, token = self._context()
         with self.assertRaises(ContextExpired):
