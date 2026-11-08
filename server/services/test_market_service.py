@@ -834,6 +834,24 @@ class MarketVectorTests(unittest.TestCase):
 
         self.assertIsNotNone(active)
         self.assertEqual(active["monitorType"], "10日严重异动")
+        self.assertEqual(active["monitorStartDate"], "20261009")
+        self.assertEqual(active["monitorEndDate"], "20261022")
+        self.assertTrue(all(len(value) == 8 for value in active["monitorDates"]))
+
+    def test_compact_monitor_dates_are_active_and_expire_consistently(self):
+        service = self.service
+        service._clock = lambda: datetime(2026, 11, 8)
+        stock = {"symbol": "002724", "ts_code": "002724.SZ"}
+        service.set_monitor_provider(lambda: {"items": [{
+            "symbol": "002724", "riskTone": "severe-10d",
+            "announcementDate": "20261106", "monitorStartDate": "20261109",
+            "monitorEndDate": "20261120", "monitorDates": ["20261109", "2026-11-10"],
+        }]})
+        active = service._active_monitor_for_stock(stock)
+        self.assertIsNotNone(active)
+        self.assertEqual(active["monitorStartDate"], "20261109")
+        service._clock = lambda: datetime(2026, 11, 21)
+        self.assertIsNone(service._active_monitor_for_stock(stock))
 
     def test_detail_monitoring_prefers_severe_fact_over_ordinary_risk_prompt(self):
         """同一股票同时有风险提示和严重异动时，详情卡片优先显示严重异动。"""
@@ -917,6 +935,42 @@ class MarketVectorTests(unittest.TestCase):
 
         self.service._append_daily_rows(calculations, {"20260930": Frame()}, ["20260930"])
         self.assertEqual(calculations["000001.SZ"]["stock_return_vector"][-1]["return"], 20.0)
+
+    def test_history_bootstrap_and_new_stock_keep_first_source_return(self):
+        """首条日线已有pct_chg/pre_close，不应为了相邻收盘配对而丢掉。"""
+        def frame(rows):
+            return SimpleNamespace(empty=not rows, to_dict=lambda *_args: rows)
+        dates = ["20260921", "20260922"]
+        stock = {"ts_code": "600825.SH", "symbol": "600825", "name": "新华传媒", "board": "主板", "market": "SSE"}
+        rows = [
+            {"ts_code": "600825.SH", "trade_date": dates[0], "close": 5.84, "pre_close": 5.31, "pct_chg": 9.9812},
+            {"ts_code": "600825.SH", "trade_date": dates[1], "close": 6.42, "pre_close": 5.84, "pct_chg": 9.9315},
+        ]
+        for new_stock in (False, True):
+            with self.subTest(new_stock=new_stock):
+                saved = []
+                existing = {"000001.SZ": {"as_of_trade_date": "20260921"}} if new_stock else {}
+                self.service._calc_repository = SimpleNamespace(
+                    available=True, ensure_schema=lambda: None, all_calculations=lambda: existing,
+                    all_indexes=lambda: {}, upsert_market=lambda *args, **_kwargs: saved.append(args),
+                    record_failure=lambda message: self.fail(message),
+                )
+                self.service.client.latest_trade_date = lambda: dates[-1]
+                self.service.client.stock_basic = lambda **_kwargs: frame([stock])
+                calendar = [(date(2026, 9, 22) - timedelta(days=offset)).strftime("%Y%m%d") for offset in range(45)]
+                self.service.client.trade_cal = lambda *_args: frame([{"cal_date": day, "is_open": 1} for day in calendar])
+                self.service.client.daily = lambda **kwargs: frame(rows if kwargs.get("ts_code") else [r for r in rows if r["trade_date"] == kwargs["trade_date"]])
+                self.service._normalise_stock_row = lambda row: row
+                self.service._is_trade_day = lambda _day: True
+                self.service._latest_data_stage = lambda: "formal"
+                self.service._index_daily = lambda *_args: frame(rows)
+                self.service._rule_vectors_for_stock = lambda _stock, sv, iv: (sv, iv, {}, None)
+                result = self.service.update_market_data()
+                self.assertTrue(result["updated"])
+                calc = next(item for item in saved[-1][1] if item["ts_code"] == "600825.SH")
+                self.assertEqual(calc["stock_return_vector"], [
+                    {"date": "20260921", "return": 9.9812}, {"date": "20260922", "return": 9.9315},
+                ])
 
     def test_same_direction_consolidates_overlapping_qualifying_windows(self):
         """同一个持续达标区间中的重叠窗口只计一次。"""
@@ -1232,7 +1286,7 @@ class MarketVectorTests(unittest.TestCase):
         self.assertIsNotNone(monitoring)
         self.assertTrue(monitoring["active"])
         self.assertEqual(monitoring["riskTone"], "severe-10d")
-        self.assertEqual(monitoring["monitorStartDate"], "2026-10-26")
+        self.assertEqual(monitoring["monitorStartDate"], "20261026")
 
     def test_ordinary_reset_does_not_reset_severe_deviation_windows(self):
         dates = [f"2026-08-{index:02d}" for index in range(1, 11)]
@@ -1877,6 +1931,79 @@ class MarketVectorTests(unittest.TestCase):
         self.assertEqual(meta["resetDate"], "20261016")
         self.assertEqual(meta["ruleResetDate"], "20261013")
         self.assertEqual(monitoring["monitorType"], "10日严重异动")
+
+    def test_history_prefix_is_not_an_internal_suspension_gap(self):
+        stock = [{"date": day, "return": 1.0} for day in ("20260922", "20260923")]
+        index = [{"date": day, "return": 0.0} for day in ("20260918", "20260921", "20260922", "20260923")]
+        self.service.client.suspend_d = lambda *_args: self.fail("prefix coverage must not query suspension")
+        _, _, meta, _ = self.service._rule_vectors_for_stock({"ts_code": "600825.SH"}, stock, index)
+        self.assertEqual(meta["missingDates"], [])
+        self.assertEqual(meta["priceResetDates"], [])
+        self.assertFalse(meta.get("suspensionGapUnverified", False))
+
+    def test_xinhua_prefix_does_not_invalidate_confirmed_october_resume(self):
+        stock = [{"date": day, "return": 1.0} for day in ("20260922", "20261012", "20261016")]
+        index = [{"date": day, "return": 0.0} for day in (
+            "20260918", "20260921", "20260922", "20261012", "20261013", "20261014", "20261015", "20261016",
+        )]
+        calls = []
+        def suspend(start, end):
+            calls.append((start, end))
+            return SimpleNamespace(to_dict=lambda *_args: [
+                {"ts_code": "600825.SH", "trade_date": day, "suspend_type": "S"}
+                for day in ("20261013", "20261014", "20261015")
+            ])
+        self.service.client.suspend_d = suspend
+        _, _, meta, _ = self.service._rule_vectors_for_stock({"ts_code": "600825.SH"}, stock, index)
+        self.assertEqual(calls, [("20261013", "20261015")])
+        self.assertEqual(meta["priceResetDates"], ["20261016"])
+        self.assertEqual(meta["lastStockDateBeforeGap"], "20261012")
+        self.assertFalse(meta.get("suspensionGapUnverified", False))
+
+    def test_old_internal_gap_is_covered_by_effective_severe_reset(self):
+        self.service.set_monitor_provider(lambda: {"items": [], "resetFacts": [{
+            "symbol": "000001", "riskTone": "severe-10d", "ruleResetConfirmed": True,
+            "ruleResetDate": "20261012", "resetEvidence": reset_evidence("severe-10d"),
+        }]})
+        self.service.client.suspend_d = lambda *_args: self.fail("pre-reset gap must not require suspension lookup")
+        stock = [{"date": day, "return": 1.0} for day in ("20261008", "20261012", "20261013")]
+        index = [{"date": day, "return": 0.0} for day in ("20261008", "20261009", "20261012", "20261013")]
+        _, _, context, _ = self.service._rule_vectors_for_stock({"symbol": "000001", "ts_code": "000001.SZ"}, stock, index)
+        self.assertEqual(context["severeResetDate"], "20261012")
+        self.assertFalse(context.get("suspensionGapUnverified", False))
+
+    def test_ordinary_or_future_reset_does_not_cover_gap_for_long_windows(self):
+        for tone, effective in (("ordinary-abnormality", "20261012"), ("severe-10d", "20261014")):
+            with self.subTest(tone=tone):
+                self.service.set_monitor_provider(lambda tone=tone, effective=effective: {"items": [], "resetFacts": [{
+                    "symbol": "000001", "riskTone": tone, "ruleResetConfirmed": True,
+                    "ruleResetDate": effective, "resetEvidence": reset_evidence(tone),
+                }]})
+                self.service.client.suspend_d = lambda *_args: SimpleNamespace(to_dict=lambda *_a, **_k: [])
+                stock = [{"date": day, "return": 1.0} for day in ("20261008", "20261012", "20261013")]
+                index = [{"date": day, "return": 0.0} for day in ("20261008", "20261009", "20261012", "20261013")]
+                _, _, context, _ = self.service._rule_vectors_for_stock({"symbol": "000001", "ts_code": "000001.SZ"}, stock, index)
+                self.assertTrue(context.get("suspensionGapUnverified", False))
+
+    def test_gap_after_effective_severe_reset_remains_unverified(self):
+        self.service.set_monitor_provider(lambda: {"items": [], "resetFacts": [{
+            "symbol": "000001", "riskTone": "severe-10d", "ruleResetConfirmed": True,
+            "ruleResetDate": "20261012", "resetEvidence": reset_evidence("severe-10d"),
+        }]})
+        self.service.client.suspend_d = lambda *_args: SimpleNamespace(to_dict=lambda *_a, **_k: [])
+        stock = [{"date": day, "return": 1.0} for day in ("20261008", "20261012", "20261014")]
+        index = [{"date": day, "return": 0.0} for day in ("20261008", "20261012", "20261013", "20261014")]
+        _, _, context, _ = self.service._rule_vectors_for_stock({"symbol": "000001", "ts_code": "000001.SZ"}, stock, index)
+        self.assertTrue(context.get("suspensionGapUnverified", False))
+
+    def test_latest_suspension_uses_its_own_preceding_stock_date(self):
+        stock = [{"date": day, "return": 1.0} for day in ("20261009", "20261013", "20261016")]
+        index = [{"date": day, "return": 0.0} for day in (
+            "20261009", "20261012", "20261013", "20261014", "20261015", "20261016",
+        )]
+        _, _, meta = self.service._trim_vectors_after_suspension(stock, index)
+        self.assertEqual(meta["lastStockDateBeforeGap"], "20261013")
+        self.assertEqual(meta["resetDate"], "20261016")
 
     def test_severe_notice_effective_during_pause_resets_again_on_first_resumed_session(self):
         self.service.set_monitor_provider(lambda: {

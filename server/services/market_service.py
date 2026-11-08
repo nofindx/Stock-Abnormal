@@ -62,7 +62,7 @@ SHANGHAI_TZ = ZoneInfo("Asia/Shanghai") if ZoneInfo else timezone(timedelta(hour
 # 版本变化会触发服务启动时从已确认收盘行情重建计算基础数据与预测集。
 # Keep the persisted identifier compact: existing production schemas use a
 # 40-character rule-version column; the human-readable rationale lives in docs.
-PREDICTION_RULE_VERSION = "v73"
+PREDICTION_RULE_VERSION = "v74"
 _has_auditable_reset_evidence = has_auditable_reset_evidence
 
 
@@ -1281,13 +1281,17 @@ class MarketService:
 
         stock_latest = cls._date_key(ordered_stock[-1].get("date"))
         index_latest = cls._date_key(ordered_index[-1].get("date"))
-        missing = [day for day in index_dates if day < stock_latest and day not in stock_dates]
+        # 两条滚动向量起点可能不同（停牌会使股票有效收益日少于指数）。
+        # 起点之前是历史覆盖差异，不能据此推断一次停复牌。
+        stock_first = cls._date_key(ordered_stock[0].get("date"))
+        missing = [day for day in index_dates if stock_first < day < stock_latest and day not in stock_dates]
         reset_date = ""
         last_gap_date = ""
         last_stock_before_gap = ""
         if missing:
             last_gap_date = missing[-1]
-            last_stock_before_gap = max((day for day in stock_dates if day < missing[0]), default="")
+            # 最近一段缺口的前一个股票交易日，而非所有缺口之前的日期。
+            last_stock_before_gap = max((day for day in stock_dates if day < last_gap_date), default="")
             resumed = [cls._date_key(item.get("date")) for item in ordered_stock if cls._date_key(item.get("date")) > last_gap_date]
             reset_date = resumed[0] if resumed else ""
 
@@ -1358,7 +1362,7 @@ class MarketService:
         if not self._monitor_provider:
             return None
         symbol = str(stock.get("symbol") or stock.get("ts_code") or "").split(".")[0]
-        today = self._now().strftime("%Y-%m-%d")
+        today = self._now().strftime("%Y%m%d")
         try:
             snapshot = self._monitor_provider() or {}
             matches = []
@@ -1366,9 +1370,9 @@ class MarketService:
                 item_symbol = str(item.get("symbol") or item.get("ts_code") or "").split(".")[0]
                 if item_symbol != symbol:
                     continue
-                dates = {str(value)[:10] for value in (item.get("monitorDates") or [])}
-                start_date = str(item.get("monitorStartDate") or "")[:10]
-                end_date = str(item.get("monitorEndDate") or "")[:10]
+                dates = {self._date_key(value) for value in (item.get("monitorDates") or [])}
+                start_date = self._date_key(item.get("monitorStartDate"))
+                end_date = self._date_key(item.get("monitorEndDate"))
                 # 监管事实按公告确认的起止日期持续有效；monitorDates 只描述
                 # 监管交易日，不能用它排除周末或节假日的详情状态。
                 if start_date:
@@ -1380,8 +1384,8 @@ class MarketService:
                     # event; the period dates remain unchanged for display.
                     announced_severe = (
                         str(item.get("riskTone") or "") in {"severe-10d", "severe-30d"}
-                        and str(item.get("announcementDate") or "")[:10]
-                        and str(item.get("announcementDate") or "")[:10] <= today
+                        and self._date_key(item.get("announcementDate"))
+                        and self._date_key(item.get("announcementDate")) <= today
                     )
                     if (today < start_date and not announced_severe) or (end_date and today > end_date):
                         continue
@@ -1399,7 +1403,7 @@ class MarketService:
                 matches,
                 key=lambda value: (
                     self._monitor_priority(value),
-                    str(value.get("monitorEndDate") or ""),
+                    self._date_key(value.get("monitorEndDate")),
                 ),
                 reverse=True,
             )[0]
@@ -1410,11 +1414,11 @@ class MarketService:
                 "title": item.get("title") or "",
                 "eventDirection": item.get("eventDirection") or "",
                 "ruleText": item.get("ruleText") or item.get("monitorReason") or "",
-                "monitorStartDate": item.get("monitorStartDate") or "",
-                "monitorEndDate": item.get("monitorEndDate") or "",
+                "monitorStartDate": self._date_key(item.get("monitorStartDate")),
+                "monitorEndDate": self._date_key(item.get("monitorEndDate")),
                 # 公告后的首个监管交易日是新的监管事实起点；规则累计从
                 # 该日起的下一个有效收益区间开始，不能把公告前涨幅跨周期带入。
-                "monitorDates": [str(value)[:10] for value in (item.get("monitorDates") or [])],
+                "monitorDates": [self._date_key(value) for value in (item.get("monitorDates") or [])],
                 "sourceType": item.get("sourceType") or "",
                 "sourceRole": item.get("sourceRole") or "",
                 "sourceRelation": item.get("sourceRelation") or "",
@@ -1586,10 +1590,28 @@ class MarketService:
         """统一应用停牌重置和正式普通/严重异动公告后的规则重置。"""
 
         stock_vector, index_vector, suspension = self._trim_vectors_after_suspension(stock_vector, index_vector)
+        monitoring = self._active_monitor_for_stock(stock)
+        reset_facts = self._rule_reset_facts_for_stock(stock)
+        reset_context = build_reset_context(reset_facts)
+        ordinary_reset_dates = reset_context.ordinary_reset_dates
+        severe_reset_dates = reset_context.severe_reset_dates
+        paired_dates = {self._date_key(row.get("date")) for row in stock_vector} & {
+            self._date_key(row.get("date")) for row in index_vector
+        }
+        cutoff = max(paired_dates, default="")
+        full_reset = max((day for day in severe_reset_dates if day <= cutoff), default="")
         missing_dates = suspension.get("missingDates") or []
         if suspension.get("resetDate") and missing_dates:
+            candidate_resume = self._date_key(suspension["resetDate"])
+            preceding = self._date_key(suspension.get("lastStockDateBeforeGap"))
+            latest_gap = [day for day in missing_dates if day > preceding]
+            # 旧缺口仍保留在审计信息中，但不能跨已生效的全量价格重置
+            # 污染当前窗口。普通异动仅重置 3 日，不能豁免 10/30 日缺口。
+            relevant = [day for day in missing_dates if not full_reset or day >= full_reset]
+            needed = sorted(set(relevant + (latest_gap if candidate_resume > full_reset else [])))
+            confirmed = set()
             try:
-                frame = self.client.suspend_d(missing_dates[0], missing_dates[-1])
+                frame = self.client.suspend_d(needed[0], needed[-1]) if needed else []
                 rows = frame.to_dict("records") if hasattr(frame, "to_dict") else list(frame or [])
                 code = str(stock.get("ts_code") or "").upper()
                 confirmed = {
@@ -1598,17 +1620,15 @@ class MarketService:
                     if str(row.get("ts_code") or "").upper() == code
                     and str(row.get("suspend_type") or "").upper() == "S"
                 }
-                if not set(missing_dates).issubset(confirmed):
-                    suspension["suspensionGapUnverified"] = True
-                    suspension["resetDate"] = ""
             except Exception:  # noqa: BLE001 - never infer a reset from a data gap alone
-                suspension["suspensionGapUnverified"] = True
+                confirmed = set()
+            if not set(latest_gap).issubset(confirmed) or candidate_resume <= full_reset:
                 suspension["resetDate"] = ""
-        monitoring = self._active_monitor_for_stock(stock)
-        reset_facts = self._rule_reset_facts_for_stock(stock)
-        reset_context = build_reset_context(reset_facts)
-        ordinary_reset_dates = reset_context.ordinary_reset_dates
-        severe_reset_dates = reset_context.severe_reset_dates
+            verified_resume = self._date_key(suspension.get("resetDate"))
+            baseline = max(full_reset, verified_resume)
+            unresolved = [day for day in missing_dates if day not in confirmed and (not baseline or day >= baseline)]
+            suspension["suspensionGapUnverified"] = bool(unresolved)
+            suspension["unverifiedMissingDates"] = unresolved
         suspension_reset_date = self._date_key(suspension.get("resetDate"))
         last_stock_before_gap = self._date_key(suspension.get("lastStockDateBeforeGap"))
         # A verified severe reset effective inside a suspension gap identifies
@@ -2558,7 +2578,11 @@ class MarketService:
             {"warnings": warnings, "status": status},
             projection_facts,
             data_available=projection_available,
-            data_error=rule_facts_quality.get("message", ""),
+            data_error=(
+                "股票行情存在未核实的交易日缺口，不能确定复牌收益基线"
+                if suspension.get("suspensionGapUnverified") else
+                ("股票与指数缺少共同有效行情" if not common_days else rule_facts_quality.get("message", ""))
+            ),
             market_data_state="complete" if common_days and not suspension.get("suspensionGapUnverified") else "unavailable",
             facts_data_state=facts_status,
         )
@@ -2880,7 +2904,7 @@ class MarketService:
                         ]
                         rows.sort(key=lambda row: str(row.get("trade_date")))
                         vector = []
-                        for previous, current in zip(rows, rows[1:]):
+                        for current in rows:
                             entry = self._daily_return_entry(current, str(current["trade_date"]))
                             if entry is not None:
                                 vector.append(entry)
@@ -2897,7 +2921,7 @@ class MarketService:
                         frame = self.client.daily(ts_code=stock["ts_code"], start_date=history_start, end_date=latest)
                         rows = [] if frame is None or frame.empty else sorted(frame.to_dict("records"), key=lambda row: str(row.get("trade_date")))
                         vector = []
-                        for previous, current in zip(rows, rows[1:]):
+                        for current in rows:
                             entry = self._daily_return_entry(current, str(current["trade_date"]))
                             if entry is not None:
                                 vector.append(entry)
