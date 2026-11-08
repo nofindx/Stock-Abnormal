@@ -1,0 +1,13 @@
+{
+  "date": "20261108",
+  "version": "1.0.19",
+  "appid": "wxfcc1de5372046e6c",
+  "sourceHead": "de0fc36173cafb4fba14e08d0146b8e0980999e5",
+  "preview": { "status": "success", "size": { "total": 189444, "packages": [{ "name": "TOTAL", "size": 189444 }] } },
+  "upload": { "status": "success", "size": { "total": 191049, "packages": [{ "name": "TOTAL", "size": 191049 }] } },
+  "receiptSource": "WeChat DevTools CLI preview/upload exit 0 and --info-output JSON",
+  "description": "修复页面跨日及09:00/09:15/15:00切换、同股跳转旧结果和刷新失败提示；保留首次及手动实时刷新。后端v73。",
+  "reviewSubmissionPerformed": false,
+  "formalReleasePerformed": false,
+  "existingReviewVersion": "1.0.18"
+}
