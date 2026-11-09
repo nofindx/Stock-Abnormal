@@ -1,0 +1,65 @@
+{
+  "gate": "T2",
+  "executionDate": "20261109",
+  "timezone": "Asia/Shanghai",
+  "baseCommit": "5d1df45fbcab8a7d08eb54d60b8dd51f36c87140",
+  "inputFilesSha256": {
+    "server/tools/recovery_check.py": "6418c6270a1b833001b0fa5df00e03190fb0d1c1af63bbc7b81dfcf3e5b74bd8",
+    "server/migrations/test_recovery_check.py": "17f1bcb1b33987ecb240078d73069a4b0e42eb04f7124ca238332a1c496a6778",
+    "server/migrations/test_mysql_recovery.py": "fccb17d731317b4f5eb469d324da1966f4cbb2475c07f871b36d84ed7f136aa5",
+    "server/migrations/001_vnext_foundation.sql": "caba1bcc0589fed223bde6c35c5507c503becd4b1174d5abcc342a751c1c2571",
+    "server/migrations/002_vnext_core.sql": "16749c5c5ff25d3f781946939d1249408ea8df1936d6471a83169dfcfc430212",
+    "server/migrations/003_shared_publications.sql": "d514bb472c397db4e3ddf024d5fb46fde4bf15d324ad2338112287c7e043d77c"
+  },
+  "environment": "local Python 3.8; no MySQL server, T2 connection settings or backup files available",
+  "status": "incomplete_waiting_for_isolated_mysql_and_backup",
+  "commands": [
+    {
+      "command": "python3 -m unittest discover -s server -p 'test_*.py'",
+      "exitCode": 0,
+      "testsRun": 407,
+      "passed": 406,
+      "skipped": 1,
+      "durationSeconds": 6.546,
+      "skippedTest": "MySQLRecoveryDrill.test_real_ddl_disconnect_reconnect_retry_and_publication_transaction",
+      "skipReason": "real isolated MySQL not configured"
+    },
+    {
+      "command": "python3 -m unittest server.migrations.test_recovery_check server.migrations.test_runner server.migrations.test_mysql_recovery -v",
+      "exitCode": 0,
+      "testsRun": 15,
+      "passed": 14,
+      "skipped": 1
+    },
+    {
+      "command": "python3 -m server.tools.recovery_check --help",
+      "exitCode": 0
+    },
+    {
+      "command": "python3 -m py_compile server/tools/recovery_check.py server/migrations/test_mysql_recovery.py server/migrations/test_recovery_check.py",
+      "exitCode": 0
+    },
+    {
+      "command": "git diff --check",
+      "exitCode": 0
+    }
+  ],
+  "productionDatabaseWrites": false,
+  "productionDeployment": false,
+  "miniProgramUpload": false,
+  "rpoSeconds": null,
+  "rtoSeconds": null,
+  "pending": [
+    "recent successful backup/recovery point and independent MySQL restore target",
+    "real schema migration interruption/retry in isolated t2 schema",
+    "old production schema upgrade compatibility along actual release path",
+    "backup restore and exact content/schema reconciliation at same recovery point",
+    "restored-input derived replay and read-only API verification",
+    "actual RPO <= 24h and end-to-end RTO <= 2h"
+  ],
+  "limits": [
+    "Local regression and migration mocks do not constitute MySQL restore acceptance.",
+    "SQL inventory equality does not by itself prove API/replay compatibility or RPO/RTO.",
+    "Existing host LibreSSL warning remains; no runtime dependency changed in this work."
+  ]
+}
