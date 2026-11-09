@@ -892,7 +892,8 @@ class MarketVectorTests(unittest.TestCase):
             "stock_return_vector": [{"date": "20261011", "return": 0.0}, {"date": "20261012", "return": 0.0}],
         }
         result = service._detail_from_repository(stock, calc)
-        self.assertEqual(result["change"], "+0.00%")
+        self.assertEqual(result["change"], "+6.19%")
+        self.assertEqual(result["currentPrice"], "106.19")
         self.assertEqual(result["calculationInput"]["stock"][-1]["date"], "20261012")
         self.assertEqual(result["dataQuality"]["source"], "CloudBase MySQL")
 
@@ -2398,7 +2399,7 @@ class MarketVectorTests(unittest.TestCase):
         service = self.service
         service._calc_repository = SimpleNamespace(
             available=True,
-            get_prediction=lambda scope: {"scope": scope, "items": [{"ts_code": "001216.SZ", "ruleKey": "severe_10d", "predictionWindow": 10, "scope": "次日", "deviation": "10日 +95.00%", "currentPrice": "28.00", "change": "+1.00%", "trigger": "10日偏离达到 +100.00%", "triggerCondition": "10日偏离达到 +100.00%", "triggerValue": "+100.00%", "triggered": False, "cardTone": ""}]},
+            get_prediction=lambda scope: {"scope": scope, "target_trade_date": "20260930", "items": [{"ts_code": "001216.SZ", "ruleKey": "severe_10d", "predictionWindow": 10, "scope": "次日", "deviation": "10日 +95.00%", "currentPrice": "28.00", "change": "+1.00%", "trigger": "10日偏离达到 +100.00%", "triggerCondition": "10日偏离达到 +100.00%", "triggerValue": "+100.00%", "triggered": False, "cardTone": ""}]},
             all_calculations=lambda: {"001216.SZ": {"ts_code": "001216.SZ", "latest_close": 28.0, "stock_return_vector": [{"date": f"2026-09-{index:02d}", "return": 0.0} for index in range(1, 31)]}},
             all_indexes=lambda: {"399107.SZ": {"index_code": "399107.SZ", "latest_close": 10.0, "index_return_vector": [{"date": f"2026-09-{index:02d}", "return": 0.0} for index in range(1, 31)]}},
         )
@@ -2411,17 +2412,17 @@ class MarketVectorTests(unittest.TestCase):
         }))
         result = service._refresh_existing_prediction_scope("next_day")
         self.assertEqual(["001216.SZ", "399107.SZ"], requested)
-        self.assertNotIn("currentPrice", result[0])
+        self.assertEqual(result[0]["currentPrice"], "28.20")
         self.assertFalse(result[0]["triggered"])
         self.assertEqual(result[0]["cardTone"], "")
         self.assertEqual(result[0]["trigger"], result[0]["triggerCondition"])
-        self.assertNotEqual(result[0]["deviation"], "10日 +95.00%")
-        self.assertTrue(result[0]["deviation"].endswith("-0.29%"))
+        self.assertEqual(result[0]["deviation"], "10日 +95.00%", "next-day conditions must remain pinned")
         today_result = service._refresh_existing_prediction_scope("next_day", "today")
         self.assertEqual(today_result[0]["scope"], "当日")
+        self.assertTrue(today_result[0]["deviation"].endswith("-0.29%"))
         self.assertNotEqual(today_result[0]["triggerValue"], result[0]["triggerValue"])
         quote_state["current"] = 60.0
-        recovered = service._refresh_existing_prediction_scope("next_day")
+        recovered = service._refresh_existing_prediction_scope("next_day", "today")
         self.assertTrue(recovered[0]["triggered"])
         self.assertEqual(recovered[0]["cardTone"], "triggered")
         self.assertEqual(recovered[0]["trigger"], recovered[0]["triggerCondition"])

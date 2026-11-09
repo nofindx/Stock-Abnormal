@@ -1,6 +1,6 @@
 """免费实时行情辅助源。
 
-Tushare 负责历史行情和规则计算；腾讯行情只用于盘中展示最新价和涨跌幅。
+Tushare 负责历史收盘数据；腾讯/新浪/东方财富全时段提供最新可用报价。
 接口失败时由业务层回退到 Tushare 最近交易日收盘数据。
 """
 
@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 import re
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from threading import Lock
 from typing import Any, Dict, Iterable
 from urllib.parse import quote
@@ -163,7 +163,7 @@ class RealtimeQuoteClient:
         for code in codes:
             symbol, _, market = str(code).upper().partition(".")
             market_id = {"SH": "1", "SZ": "0", "BJ": "0"}.get(market, "0")
-            url = self.eastmoney_endpoint + "?" + quote(f"secid={market_id}.{symbol}&fields=f43,f57,f58,f60,f86", safe="=&,")
+            url = self.eastmoney_endpoint + "?" + quote(f"secid={market_id}.{symbol}&fltt=2&fields=f43,f57,f58,f60,f86", safe="=&,")
             request = Request(url, headers={"User-Agent": "Stock-Abnormal/1.0", "Referer": "https://quote.eastmoney.com/"})
             payload = json.loads(urlopen(request, timeout=4).read().decode("utf-8"))
             data = payload.get("data") or {}
@@ -174,7 +174,7 @@ class RealtimeQuoteClient:
                 "current": current,
                 "preClose": pre_close,
                 "pctChg": (current / pre_close - 1) * 100,
-                "updatedAt": str(data.get("f86") or ""),
+                "updatedAt": datetime.fromtimestamp(float(data.get("f86") or 0), timezone(timedelta(hours=8))).isoformat(),
                 "source": "东方财富行情",
             }
         return result

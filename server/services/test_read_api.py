@@ -5,6 +5,7 @@ import threading
 import time
 import unittest
 from copy import deepcopy
+from datetime import datetime
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 from urllib.error import HTTPError
@@ -35,6 +36,8 @@ class ReadApiTests(unittest.TestCase):
         self.contexts = ContextService("test-only-signing-secret-32-bytes-minimum", store=self.store)
         self.patches = patch.multiple(app, SERVICE=self.service, READS=self.reads, READ_JOBS=self.jobs, CONTEXTS=self.contexts)
         self.patches.start()
+        self.ready_patch = patch.object(app, "_realtime_ready", return_value=True)
+        self.ready_patch.start()
         self.http = ThreadingHTTPServer(("127.0.0.1", 0), app.ApiHandler)
         self.thread = threading.Thread(target=self.http.serve_forever, daemon=True)
         self.thread.start()
@@ -44,6 +47,7 @@ class ReadApiTests(unittest.TestCase):
         self.http.server_close()
         self.thread.join()
         self.jobs.close()
+        self.ready_patch.stop()
         self.patches.stop()
         self.fixture.tearDown()
         self.temp.cleanup()
@@ -61,8 +65,8 @@ class ReadApiTests(unittest.TestCase):
             response = exc
         return response.status, json.loads(response.read())
 
-    def context(self, page="prediction", code="", entry="entry-a"):
-        status, response = self.call("/api/v2/context", {"page": page, "role": "current", "security_id": code, "entry_id": entry})
+    def context(self, page="prediction", code="", entry="entry-a", role="current"):
+        status, response = self.call("/api/v2/context", {"page": page, "role": role, "security_id": code, "entry_id": entry})
         self.assertEqual(status, 200)
         return response["data"]
 
@@ -98,7 +102,8 @@ class ReadApiTests(unittest.TestCase):
         self.assertTrue(response["data"]["dataQuality"]["isComplete"])
         status, response = self.call("/api/v2/realtime/refresh", {"read_token": token, "page": "stock", "security_id": "600825.SH"}, "POST")
         self.assertEqual(status, 200)
-        self.assertEqual(response["data"]["refreshStatus"], "not_allowed")
+        self.assertEqual(response["data"]["refreshStatus"], "fallback")
+        self.assertEqual(response["data"]["result_state"], "stale")
         self.assertEqual(response["data"]["dataset_id"], context["dataset_id"])
 
     def test_stock_token_cannot_read_or_refresh_another_security(self):
@@ -134,7 +139,7 @@ class ReadApiTests(unittest.TestCase):
         def refresh(service, *_args):
             pinned = service._calc_repository.get_prediction("today")["items"]
             self.assertEqual([x["ts_code"] for x in pinned], ["002724.SZ"])
-            return [dict(pinned[0], changeSource="realtime", change="+1.00%")]
+            return [dict(pinned[0], changeSource="realtime", change="+1.00%", quoteAvailable=True, calculationQuoteAvailable=True)]
 
         with patch.object(app, "_realtime_ready", return_value=True), patch.object(
                 type(self.service), "_refresh_existing_prediction_scope", refresh):
@@ -149,6 +154,124 @@ class ReadApiTests(unittest.TestCase):
         self.assertNotIn("change", first["data"]["items"][0])
         _, second = self.call("/api/v2/predictions", {"read_token": s2["read_token"]["value"], "role": "current"})
         self.assertEqual(second["data"]["items"], s2["items"])
+
+    def test_latest_stock_price_refreshes_at_lunch_after_close_weekend_and_preopen(self):
+        for iteration, moment in enumerate(("2026-10-30T12:05:00", "2026-10-30T16:00:00", "2026-11-01T12:00:00", "2026-11-02T08:30:00", "2026-11-02T09:10:00")):
+            with self.subTest(moment=moment):
+                # Shared jobs intentionally merge calls within three seconds.
+                # These cases represent separate sessions, not repeated taps.
+                self.store.clock = lambda iteration=iteration: time.time() + iteration * 10
+                self.service.set_clock(lambda moment=moment: datetime.fromisoformat(moment))
+                requested = []
+                quotes = {code: {"current": price, "preClose": price, "pctChg": 0,
+                                  "source": "腾讯行情", "updatedAt": "2026-10-30T11:30:00"}
+                          for code, price in (("600825.SH", 12.34), ("000002.SH", 100))}
+                self.service._fetch_realtime_many = lambda codes: (requested.extend(codes) or quotes)
+                context = self.context("stock", "600825.SH", entry=moment)
+                token = context["read_token"]["value"]
+                status, result = self.call("/api/v2/realtime/refresh", {
+                    "page": "stock", "security_id": "600825.SH", "read_token": token}, "POST")
+                self.assertEqual(status, 200)
+                self.assertIn("600825.SH", requested)
+                self.assertEqual(result["data"]["currentPrice"], "12.34")
+                self.assertEqual(result["data"]["dataQuality"]["quoteUpdatedAt"], "2026-10-30T11:30:00")
+                self.assertEqual(result["data"]["refreshStatus"], "applied")
+                self.assertEqual(result["data"]["result_state"], "fresh")
+                self.assertEqual(result["data"]["calculationInput"]["stock"][-1]["date"], "20261030")
+
+    def test_calendar_failure_does_not_disable_latest_quote_retrieval(self):
+        with patch.object(self.service, "_prediction_state", side_effect=RuntimeError("calendar unavailable")):
+            self.assertTrue(self.service._detail_realtime_allowed())
+
+    def test_next_prediction_refreshes_prices_without_recomputing_future_thresholds(self):
+        self.body["targetTradeDate"] = "20261102"
+        self.body["items"][0].update(triggerValue="+8.12%", deviationLabel="10日 +90.00%", change="+0.00%", triggered=False)
+        self.service._fetch_realtime_many = lambda codes: {
+            code: {"current": 12.34, "preClose": 12, "pctChg": 2.83,
+                   "source": "腾讯行情", "updatedAt": "2026-10-30T15:00:00"} for code in codes}
+        context = self.context(role="next")
+        token = context["read_token"]["value"]
+        status, result = self.call("/api/v2/realtime/refresh", {"scope": "next_day", "read_token": token}, "POST")
+        self.assertEqual(status, 200)
+        data = result["data"]
+        self.assertEqual(data["result_state"], "fresh")
+        self.assertEqual(data["quoteUpdatedAt"], "2026-10-30T15:00:00")
+        self.assertEqual(data["targetTradeDate"], "20261102")
+        self.assertEqual(data["items"][0]["currentPrice"], "12.34")
+        for field in ("triggerValue", "deviationLabel", "triggered"):
+            self.assertEqual(data["items"][0][field], self.body["items"][0][field])
+
+    def test_current_prediction_fetches_at_lunch_and_preserves_pool_on_partial_or_failed_quotes(self):
+        self.service.set_clock(lambda: datetime(2026, 10, 30, 12, 5))
+        requested = []
+        quote = {"current": 12.34, "preClose": 12, "pctChg": 2.83,
+                 "source": "腾讯行情", "updatedAt": "2026-10-30T11:30:00"}
+        self.service._fetch_realtime_many = lambda codes: (requested.extend(codes) or {code: quote for code in codes})
+        context = self.context()
+        token = context["read_token"]["value"]
+        _, response = self.call("/api/v2/realtime/refresh", {"scope": "today", "read_token": token}, "POST")
+        self.assertIn("002724.SZ", requested)
+        self.assertEqual(response["data"]["result_state"], "fresh")
+        self.assertEqual(response["data"]["quoteUpdatedAt"], quote["updatedAt"])
+        self.assertEqual([x["ts_code"] for x in response["data"]["items"]], ["002724.SZ"])
+        for iteration, quotes in enumerate(({"002724.SZ": quote}, {}), start=1):
+            with self.subTest(quotes=bool(quotes)):
+                self.store.clock = lambda iteration=iteration: time.time() + iteration * 10
+                self.service._fetch_realtime_many = lambda codes, quotes=quotes: quotes
+                _, response = self.call("/api/v2/realtime/refresh", {"scope": "today", "read_token": token}, "POST")
+                data = response["data"]
+                self.assertEqual(data["result_state"], "stale")
+                self.assertEqual(data["reasons"], ["INDEX_QUOTE_UNAVAILABLE" if quotes else "REALTIME_SOURCE_UNAVAILABLE"])
+                self.assertEqual([x["ts_code"] for x in data["items"]], ["002724.SZ"])
+                if not quotes:
+                    self.assertEqual(data["items"], self.body["items"])
+
+    def test_redis_or_source_policy_failure_blocks_off_hours_quotes_too(self):
+        for role in ("current", "next"):
+            context = self.context(entry=role, role=role)
+            with patch.object(app, "_realtime_ready", return_value=False):
+                status, response = self.call("/api/v2/realtime/refresh", {
+                    "scope": "today" if role == "current" else "next_day", "read_token": context["read_token"]["value"]}, "POST")
+            self.assertEqual(status, 503)
+            self.assertEqual(response["data"]["reasons"], ["SOURCE_POLICY_OR_REDIS_NOT_READY"])
+
+    def test_stock_price_updates_without_index_and_failed_quotes_preserve_s1(self):
+        self.service._fetch_realtime_many = lambda codes: {"600825.SH": {
+            "current": 12.34, "preClose": 12, "pctChg": 2.83,
+            "source": "腾讯行情", "updatedAt": "2026-10-30T15:00:00"}}
+        context = self.context("stock", "600825.SH")
+        token = context["read_token"]["value"]
+        _, before = self.call("/api/v2/stocks/detail", {"read_token": token, "security_id": "600825.SH"})
+        _, response = self.call("/api/v2/realtime/refresh", {
+            "page": "stock", "security_id": "600825.SH", "read_token": token}, "POST")
+        data = response["data"]
+        self.assertEqual(data["currentPrice"], "12.34")
+        self.assertEqual(data["result_state"], "stale")
+        self.assertEqual(data["reasons"], ["INDEX_QUOTE_UNAVAILABLE"])
+        self.assertEqual(data["calculationInput"], before["data"]["calculationInput"])
+        last_view_token = data["read_token"]["value"]
+
+        self.store.clock = lambda: time.time() + 10
+        self.service._fetch_realtime_many = lambda codes: {}
+        _, response = self.call("/api/v2/realtime/refresh", {
+            "page": "stock", "security_id": "600825.SH", "read_token": token}, "POST")
+        self.assertEqual(response["data"]["currentPrice"], before["data"]["currentPrice"])
+        self.assertEqual(response["data"]["reasons"], ["REALTIME_SOURCE_UNAVAILABLE"])
+        self.assertEqual(response["data"]["refreshStatus"], "fallback")
+        _, response = self.call("/api/v2/realtime/refresh", {
+            "page": "stock", "security_id": "600825.SH", "read_token": last_view_token}, "POST")
+        self.assertEqual(response["data"]["currentPrice"], "12.34")
+        self.assertEqual(response["data"]["reasons"], ["REALTIME_SOURCE_UNAVAILABLE"])
+
+    def test_invalid_undated_old_and_future_quotes_cannot_replace_prices(self):
+        self.service.set_clock(lambda: datetime(2026, 11, 1, 12))
+        for quote in ({"current": 0, "updatedAt": "2026-10-30T15:00:00"},
+                      {"current": float("nan"), "updatedAt": "2026-10-30T15:00:00"},
+                      {"current": 12.34},
+                      {"current": 12.34, "updatedAt": "2026-10-29T15:00:00"},
+                      {"current": 12.34, "updatedAt": "2026-11-01T12:01:00"}):
+            with self.subTest(quote=quote):
+                self.assertFalse(self.service._usable_latest_quote(quote, "20261030"))
 
     def test_queued_job_is_authorized_and_returns_failed_stale_s1_on_source_failure(self):
         first = self.context()

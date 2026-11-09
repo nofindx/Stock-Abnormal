@@ -1,7 +1,8 @@
 import unittest
 from datetime import datetime, timedelta
 from types import SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
+import json
 
 from server.services.market_service import MarketService, PREDICTION_RULE_VERSION, SHANGHAI_TZ
 from server.services.realtime_quote import RealtimeQuoteClient
@@ -30,6 +31,17 @@ class TushareHealthTests(unittest.TestCase):
 
 
 class RealtimeHealthTests(unittest.TestCase):
+    def test_eastmoney_prices_are_decimal_and_epoch_keeps_shanghai_time(self):
+        client = RealtimeQuoteClient()
+        stamp = int(datetime(2026, 11, 9, 11, 30, tzinfo=SHANGHAI_TZ).timestamp())
+        response = Mock()
+        response.read.return_value = json.dumps({"data": {"f43": 12.34, "f60": 12.0, "f86": stamp}}).encode()
+        with patch("server.services.realtime_quote.urlopen", return_value=response) as request:
+            result = client._fetch_eastmoney(["000001.SZ"])["000001.SZ"]
+        self.assertIn("fltt=2", request.call_args[0][0].full_url)
+        self.assertEqual(result["current"], 12.34)
+        self.assertEqual(result["updatedAt"], "2026-11-09T11:30:00+08:00")
+
     def test_source_stats_record_fallback_attempts(self):
         client = RealtimeQuoteClient()
         client._fetch_tencent = Mock(side_effect=RuntimeError("timeout"))
@@ -223,7 +235,7 @@ class DetailDataQualityTests(unittest.TestCase):
             self.assertEqual(result["currentPrice"], "10.00")
             self.assertFalse(result["dataQuality"]["realtime"])
             self.assertTrue(result["dataQuality"]["fallback"])
-            self.assertEqual(result["dataQuality"]["message"], "实时行情暂不可用")
+            self.assertEqual(result["dataQuality"]["message"], "最新行情暂不可用")
         finally:
             service.close()
 

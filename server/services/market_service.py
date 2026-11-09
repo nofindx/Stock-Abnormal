@@ -2340,6 +2340,21 @@ class MarketService:
         value = str((quote or {}).get("updatedAt") or "")
         return value[:10] if len(value) >= 10 else ""
 
+    def _usable_latest_quote(self, quote: Optional[Dict[str, Any]], base_date: str = "") -> bool:
+        """Accept a dated price without regressing the published price basis.
+
+        A weekend/holiday quote keeps its actual trading date; never relabel
+        it as today's return. Missing timestamps and future quotes are invalid.
+        """
+        try:
+            price = float((quote or {}).get("current"))
+            stamp = datetime.fromisoformat(str((quote or {}).get("updatedAt") or "").replace("Z", "+00:00"))
+            stamp = stamp.replace(tzinfo=SHANGHAI_TZ) if stamp.tzinfo is None else stamp.astimezone(SHANGHAI_TZ)
+            day = stamp.strftime("%Y%m%d")
+            return math.isfinite(price) and price > 0 and self._date_key(base_date) <= day and stamp <= self._now()
+        except (TypeError, ValueError, OverflowError):
+            return False
+
     @classmethod
     def _quotes_share_snapshot(cls, stock_quote: Optional[Dict[str, Any]], index_quote: Optional[Dict[str, Any]]) -> bool:
         """只允许同源、同交易日且时间相差不超过五分钟的行情共同参与计算。"""
@@ -2448,8 +2463,12 @@ class MarketService:
         quotes = self._fetch_realtime_many([stock["ts_code"], index_code]) if use_realtime and self._detail_realtime_allowed() else {}
         quote = quotes.get(stock["ts_code"].upper())
         index_quote = quotes.get(index_code.upper())
+        quote = quote if self._usable_latest_quote(quote, stored_stock_date) else None
+        index_quote = index_quote if self._usable_latest_quote(index_quote, stored_index_date) else None
         realtime = self._quotes_share_snapshot(quote, index_quote)
-        display_quote = quote if realtime else None
+        # The stock price remains useful even when its index quote is missing.
+        # Only paired observations may change regulatory calculation vectors.
+        display_quote = quote
         if realtime:
             stock_vector = self._apply_quote_to_vector(stock_vector, calc.get("latest_close"), quote)
             index_vector = self._apply_quote_to_vector(index_vector, index.get("latest_close"), index_quote)
@@ -2501,7 +2520,8 @@ class MarketService:
             current_change = stock_vector[-1].get("return")
         else:
             current_change = None
-        latest_date = self._quote_date_string(display_quote) or str(calc.get("as_of_trade_date") or "")
+        # A stock-only quote must not advance the calculation/simulation date.
+        latest_date = (self._quote_date_string(quote) if realtime else "") or str(calc.get("as_of_trade_date") or "")
         try:
             future_dates = self._future_trade_dates(latest_date.replace("-", ""), 10)
         except Exception:
@@ -2603,6 +2623,7 @@ class MarketService:
             "currentPrice": f"{float(current_price):.2f}" if current_price is not None else "--",
             "change": _pct(current_change),
             "tradeDate": latest_date,
+            "quoteTradeDate": self._quote_date_string(display_quote),
             "futureTradeDates": future_dates,
             "nextDayForecast": {
                 "baseTradeDate": forecast_base_date,
@@ -2627,6 +2648,8 @@ class MarketService:
                 "stage": str(calc.get("data_stage") or "formal"),
                 "intraday": realtime,
                 "realtime": realtime,
+                "quoteAvailable": bool(display_quote),
+                "quoteSource": display_quote.get("source", "") if display_quote else "",
                 "fallback": not realtime,
                 # A reset starts a valid shorter baseline. Thirty rows are not
                 # a prerequisite for displaying the available calculations.
@@ -2654,7 +2677,9 @@ class MarketService:
                 "message": (
                     f"历史数据覆盖 {common_days} 个共同交易日，按现有数据计算"
                     if common_days < 30 else ""
-                ) + (("；" if common_days < 30 else "") + "实时行情暂不可用" if not realtime else ""),
+                ) + (("；" if common_days < 30 else "") + (
+                    "价格已更新，指数行情未匹配，规则计算保留已确认基线" if display_quote else "最新行情暂不可用"
+                ) if use_realtime and not realtime else ""),
             },
         }
 
@@ -3728,17 +3753,9 @@ class MarketService:
         return output
 
     def _detail_realtime_allowed(self) -> bool:
-        now = self._now()
-        minute_of_day = now.hour * 60 + now.minute
-        in_continuous_session = 9 * 60 + 15 <= minute_of_day < 11 * 60 + 30 or 13 * 60 <= minute_of_day < 15 * 60
-        if now.weekday() >= 5 or not in_continuous_session:
-            return False
-        try:
-            return bool(self._prediction_state().get("realtimeRefreshAllowed"))
-        except Exception:
-            # A calendar-source failure cannot make a valid stored calculation
-            # fail, nor authorize realtime fetching on an unknown trading day.
-            return False
+        # Quote retrieval is independent of the market calendar. The provider
+        # supplies its actual latest timestamp, including outside sessions.
+        return True
 
     def _prediction_state(self) -> Dict[str, Any]:
         """按上海交易日和时钟决定预测页的显示状态。
@@ -3773,8 +3790,6 @@ class MarketService:
             # 交易日历只说明今天应当交易；是否已经入盘必须看计算数据集
             # 的真实 as_of_trade_date，不能用 calendar 的日期代替。
             phase = "post_close_confirmed" if self._confirmed_market_trade_date() == today_value else "post_close_pending"
-        minute_of_day = now.hour * 60 + now.minute
-        realtime_session = 9 * 60 + 15 <= minute_of_day < 11 * 60 + 30 or 13 * 60 <= minute_of_day < 15 * 60
         # tradeDate 是当前业务基准日 D；休市时回到最近完成交易日。
         # targetTradeDate 是当前预测目标日，休市时指向下一交易日 N。
         state = {
@@ -3786,7 +3801,7 @@ class MarketService:
             # 09:00 切换前继续保留上一交易日收盘的 today（包括已触发卡）；
             # 09:00 后上一轮 next_day 才成为当前 today。
             "todaySourceScope": "next_day" if phase in ("dataset_open_pending", "intraday") else "today",
-            "realtimeRefreshAllowed": phase == "intraday" and realtime_session,
+            "realtimeRefreshAllowed": True,
         }
         self._prediction_state_cache = (now, state)
         return state
@@ -4163,21 +4178,31 @@ class MarketService:
             index = (indexes or {}).get(index_code)
             quote = quotes.get(str(item.get("ts_code") or "").upper())
             index_quote = quotes.get(index_code.upper()) if index_code else None
+            quote = quote if self._usable_latest_quote(quote, str((calc or {}).get("as_of_trade_date") or "")) else None
+            index_quote = index_quote if self._usable_latest_quote(index_quote, str((index or {}).get("as_of_trade_date") or "")) else None
             paired_quote = self._quotes_share_snapshot(quote, index_quote)
-            if paired_quote:
+            item["quoteAvailable"] = bool(quote)
+            item["calculationQuoteAvailable"] = bool(paired_quote and calc and index)
+            if quote:
                 item["currentPrice"] = f"{float(quote.get('current')):.2f}"
                 item["change"] = _pct(quote.get("pctChg"))
                 item["changeSource"] = "realtime"
                 item["quoteUpdatedAt"] = quote.get("updatedAt", "")
                 item["quoteSource"] = quote.get("source", "腾讯行情")
             # 只有股票和对应指数同时成功，才临时修正偏离值，避免混合时点。
-            if paired_quote and calc and index:
+            # Refresh display prices at any time, but never turn Friday's
+            # quote into Monday's return or recompute next-day thresholds as
+            # if that future trading day had already happened.
+            quote_matches_target = self._date_key(self._quote_date_string(quote)) == self._date_key(target)
+            if paired_quote and quote_matches_target and forecast_scope == "today" and calc and index:
                 stock_vector = self._apply_quote_to_vector(self._vector_entries(calc.get("stock_return_vector")), calc.get("latest_close"), quote)
                 index_vector = self._apply_quote_to_vector(self._vector_entries(index.get("index_return_vector")), index.get("latest_close"), index_quote)
                 stock_vector, index_vector, suspension, _monitoring = self._rule_vectors_for_stock(
                     stock, stock_vector, index_vector
                 )
                 if suspension.get("suspended") or suspension.get("suspensionGapUnverified"):
+                    item["calculationQuoteAvailable"] = False
+                    output.append(item)
                     continue
                 rule = BOARD_RULES[BOARD_BY_MARKET.get(stock.get("board"), Board.MAIN)]
                 metrics = self._vector_metrics(
@@ -4226,24 +4251,20 @@ class MarketService:
                     item["cardTone"] = "triggered" if item["triggered"] else ""
             if forecast_scope == "today":
                 item["scope"] = "当日"
-            item.pop("currentPrice", None)
             output.append(item)
         return output
 
     def refresh_predictions(self, requested_scope: str = "today") -> Dict[str, Any]:
-        """处理预测页刷新按钮，不让 GET 或 Tab 切换触发采集。
-
-        盘前刷新当前日数据；盘中刷新页面当前展示的上一交易日次日结果，
-        只对历史筛选出的候选股票请求实时行情。收盘后按钮只读取后台已准备
-        的数据集，避免一次点击再次扫描全市场。
-        """
+        """Refresh only the published pool's latest quotes, in every session."""
 
         state = self._prediction_state()
-        # 只有盘中刷新实时行情，而且只请求已生成的当日预测池；其他时段
-        # 直接读取后台结果集。多个用户同时刷新时共享同一个 in-flight 请求。
-        if state.get("realtimeRefreshAllowed") and requested_scope == "today":
+        # 只请求已发布名单，多个用户共享 in-flight 工作；行情日期由来源提供。
+        if requested_scope in ("today", "next_day"):
             # 盘中当日页映射到当前目标日的 next_day 数据集；只刷新该数据集已有卡片。
             source_scope = state["todaySourceScope"] if requested_scope == "today" else "next_day"
+            result = self.predictions(requested_scope)
+            if result.get("dataUnavailable") or requested_scope == "next_day" and result.get("nextDayAvailable") is False:
+                return result
             with self._intraday_refresh_lock:
                 future = self._intraday_refresh_futures.get(source_scope)
                 if future is None or future.done():
@@ -4262,31 +4283,31 @@ class MarketService:
             except Exception as exc:
                 self._prediction_last_error[source_scope] = str(exc)
             if not refresh_succeeded:
-                return self.predictions(requested_scope)
-            result = self.predictions(requested_scope)
-            result["items"] = self._sort_prediction_items(self._normalize_prediction_items(items))
-            quote_times = [str(item.get("quoteUpdatedAt") or "") for item in items if item.get("quoteUpdatedAt")]
+                result.update(refresh_state="failed", result_state="stale", refreshStatus="fallback", reasons=["REALTIME_REFRESH_FAILED"])
+                return result
+            by_key = {(x.get("ts_code"), x.get("ruleKey")): x for x in items if x.get("quoteAvailable")}
+            originals = result["items"]
+            result["items"] = self._sort_prediction_items(self._normalize_prediction_items([
+                by_key.get((x.get("ts_code"), x.get("ruleKey")), x) for x in originals
+            ]))
+            prices_available = not originals or len(items) == len(originals) and all(item.get("quoteAvailable") for item in items)
+            fresh = prices_available and all(item.get("calculationQuoteAvailable") for item in items)
+            quote_times = [str(item.get("quoteUpdatedAt") or "") for item in items if item.get("quoteAvailable") and item.get("quoteUpdatedAt")]
             quote_updated_at = max(quote_times, default="")
             result.update({
                 "quoteUpdatedAt": quote_updated_at or result.get("quoteUpdatedAt", ""),
-                "dataStage": "realtime",
-                "refreshStatus": "applied",
+                "refresh_state": "ready",
+                "result_state": "fresh" if fresh else "stale",
+                "refreshStatus": "applied" if prices_available else "fallback",
+                "reasons": [] if fresh else ["INDEX_QUOTE_UNAVAILABLE" if prices_available else "REALTIME_SOURCE_UNAVAILABLE"],
                 "dataQuality": {
                     **(result.get("dataQuality") or {}),
                     "source": "腾讯/新浪/东方财富",
-                    "intraday": True,
-                    "quality": "realtime",
-                    "stage": "realtime",
-                    "message": "",
+                    "quoteAvailable": prices_available,
                 },
                 "dataUnavailable": False,
                 "refreshing": False,
             })
             return result
         result = self.predictions(requested_scope)
-        if state.get("realtimeRefreshAllowed") and requested_scope == "next_day":
-            result["refreshStatus"] = "not_allowed"
-            result["refresh_state"] = "ready"
-            result["result_state"] = "unavailable"
-            result["reasons"] = ["NEXT_DAY_REALTIME_REFRESH_NOT_ALLOWED"]
         return result

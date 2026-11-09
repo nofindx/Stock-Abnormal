@@ -24,12 +24,13 @@ class PredictionBoundaryTests(unittest.TestCase):
 
     def test_phase_boundaries_are_recomputed_without_thirty_second_cache(self):
         cases = [
-            ("08:59:59", "pre_open", False, "today"),
-            ("09:00:00", "dataset_open_pending", False, "next_day"),
-            ("09:14:59", "dataset_open_pending", False, "next_day"),
+            ("08:59:59", "pre_open", True, "today"),
+            ("09:00:00", "dataset_open_pending", True, "next_day"),
+            ("09:14:59", "dataset_open_pending", True, "next_day"),
             ("09:15:00", "intraday", True, "next_day"),
+            ("12:00:00", "intraday", True, "next_day"),
             ("14:59:59", "intraday", True, "next_day"),
-            ("15:00:00", "post_close_pending", False, "today"),
+            ("15:00:00", "post_close_pending", True, "today"),
         ]
         for clock_text, phase, allowed, source in cases:
             value = datetime.fromisoformat(f"2026-10-12 {clock_text}").replace(tzinfo=SHANGHAI_TZ)
@@ -62,14 +63,14 @@ class PredictionBoundaryTests(unittest.TestCase):
                 expected = datetime.fromisoformat(after).replace(tzinfo=SHANGHAI_TZ)
                 self.assertEqual(ReadPublications.next_boundary(now), expected.timestamp())
 
-    def test_rest_day_disables_quotes_and_retains_distinct_target_dates(self):
+    def test_rest_day_allows_latest_quotes_and_retains_distinct_target_dates(self):
         self.service.set_clock(lambda: datetime(2026, 10, 11, 12, tzinfo=SHANGHAI_TZ))
         state = self.service._prediction_state()
         self.assertEqual(state["phase"], "rest_day")
         self.assertEqual(state["previousTradeDate"], "20261009")
         self.assertEqual(state["targetTradeDate"], "20261012")
-        self.assertFalse(state["realtimeRefreshAllowed"])
-        self.assertFalse(self.service._detail_realtime_allowed())
+        self.assertTrue(state["realtimeRefreshAllowed"])
+        self.assertTrue(self.service._detail_realtime_allowed())
         # This captures the current production contract. PRD's D/N names are
         # separately audited, not certified by this legacy-behavior assertion.
 

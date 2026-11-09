@@ -31,7 +31,8 @@ def check_prediction(payload: dict, scope: str) -> None:
             assert field in item, (scope, field, item)
         assert item.get("triggerValue", "") and "上涨" not in item.get("triggerValue", ""), item
         assert "已达到阈值" not in str(item), item
-        assert "currentPrice" not in item and "price" not in item, item
+        if item.get("quoteAvailable"):
+            assert float(item["currentPrice"]) > 0 and item.get("quoteUpdatedAt"), item
         assert bool(item.get("triggered")) == (item.get("cardTone") == "triggered"), item
 
 
@@ -86,7 +87,8 @@ def main() -> int:
         return 0
     assert status == 200 and refreshed.get("code") == 0, refreshed
     if (refreshed.get("data") or {}).get("refreshStatus") == "applied":
-        assert (refreshed.get("data") or {}).get("dataStage") == "realtime", refreshed
+        assert (refreshed.get("data") or {}).get("dataQuality", {}).get("quoteAvailable"), refreshed
+        assert (refreshed.get("data") or {}).get("quoteUpdatedAt"), refreshed
         status, stable = request_json(f"{base}/api/predictions?scope=today")
         assert status == 200 and stable.get("code") == 0, stable
         assert (stable.get("data") or {}).get("dataStage") != "realtime", "GET 不应读取盘中刷新结果"

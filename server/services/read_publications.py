@@ -79,30 +79,45 @@ class ReadPublications:
             all_indexes=lambda: deepcopy(basis["indexes"]),
             get_prediction=lambda *_args, **_kwargs: deepcopy(records),
         )
-        if not self.service._detail_realtime_allowed() or scope["role"] != "current":
-            saved.update(refresh_state="ready", result_state="fresh", refreshStatus="not_allowed", reasons=[])
-        elif scope["page"] == "prediction":
-            items = service._refresh_existing_prediction_scope("today", "today")
+        if scope["page"] == "prediction":
+            forecast_scope = "today" if scope["role"] == "current" else "next_day"
+            items = service._refresh_existing_prediction_scope(forecast_scope, forecast_scope)
             allowed = {(x.get("ts_code"), x.get("ruleKey")) for x in records["items"]}
             if any((x.get("ts_code"), x.get("ruleKey")) not in allowed for x in items):
                 raise PublicationUnavailable("realtime refresh exceeded authorized pool")
             # Failure must retain S1 contents, never publish an empty success.
-            by_key = {(x.get("ts_code"), x.get("ruleKey")): x for x in items}
+            by_key = {(x.get("ts_code"), x.get("ruleKey")): x for x in items if x.get("quoteAvailable")}
             saved["items"] = [by_key.get((x.get("ts_code"), x.get("ruleKey")), x) for x in records["items"]]
-            fresh = not records["items"] or bool(items) and all(x.get("changeSource") == "realtime" for x in items)
+            prices_available = not records["items"] or len(items) == len(records["items"]) and all(x.get("quoteAvailable") for x in items)
+            fresh = prices_available and all(x.get("calculationQuoteAvailable") for x in items)
             saved.update(refresh_state="ready", result_state="fresh" if fresh else "stale",
-                         refreshStatus="applied" if fresh else "fallback", reasons=[] if fresh else ["REALTIME_SOURCE_UNAVAILABLE"])
-            saved["dataQuality"] = dict(saved.get("dataQuality") or {}, intraday=fresh)
+                         refreshStatus="applied" if prices_available else "fallback",
+                         reasons=[] if fresh else ["INDEX_QUOTE_UNAVAILABLE" if prices_available else "REALTIME_SOURCE_UNAVAILABLE"])
+            saved["dataQuality"] = dict(saved.get("dataQuality") or {},
+                quoteAvailable=prices_available, source="腾讯/新浪/东方财富" if prices_available else (saved.get("dataQuality") or {}).get("source", ""))
+            times = [str(x.get("quoteUpdatedAt")) for x in items if x.get("quoteAvailable") and x.get("quoteUpdatedAt")]
+            if times:
+                saved["quoteUpdatedAt"] = max(times)
+            saved["realtimeRefreshAllowed"] = True
         elif scope["page"] == "stock":
             code = scope["security_id"]
+            previous = saved
             saved = service._detail_from_repository(basis["stocks"][code], basis["calculations"][code])
             if saved is None:
                 raise PublicationUnavailable("pinned calculation basis unavailable")
+            if not (saved.get("dataQuality") or {}).get("quoteAvailable") and (previous.get("dataQuality") or {}).get("quoteUpdatedAt"):
+                # A later failed manual refresh retains this authorized view's
+                # last price, rather than regressing to its older S1 close.
+                saved = previous
+                saved["dataQuality"] = dict(saved.get("dataQuality") or {},
+                    quoteAvailable=False, realtime=False, fallback=True, message="最新行情暂不可用，保留上次数据")
             saved["monitoringFacts"] = deepcopy(basis["monitor"].get("items") or [])
             saved["realtimeRefreshAllowed"] = True
-            fresh = bool((saved.get("dataQuality") or {}).get("realtime"))
+            price_available = bool((saved.get("dataQuality") or {}).get("quoteAvailable"))
+            fresh = price_available and bool((saved.get("dataQuality") or {}).get("realtime"))
             saved.update(refresh_state="ready", result_state="fresh" if fresh else "stale",
-                         reasons=[] if fresh else ["REALTIME_SOURCE_UNAVAILABLE"])
+                         refreshStatus="applied" if price_available else "fallback",
+                         reasons=[] if fresh else ["INDEX_QUOTE_UNAVAILABLE" if price_available else "REALTIME_SOURCE_UNAVAILABLE"])
         else:
             raise PublicationUnavailable("scope does not support realtime refresh")
         view = self.store.freeze_read({"scope": scope, "data": saved, "basis": basis}, scope)

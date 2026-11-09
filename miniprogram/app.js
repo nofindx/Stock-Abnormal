@@ -1,5 +1,6 @@
 // 小程序启动文件：初始化微信云托管，不收集用户身份信息。
 const CLOUD_ENV = 'prod-d1g25zvvkd79d524b'
+const releaseInfo = require('./release-info.json')
 
 App({
   onLaunch() {
@@ -18,6 +19,7 @@ App({
     }
   },
   globalData: {
+    releaseInfo,
     // 生产环境通过 callContainer 访问云托管，不需要配置 request 合法域名。
     cloudEnv: CLOUD_ENV,
     cloudService: 'flask-9a5y',

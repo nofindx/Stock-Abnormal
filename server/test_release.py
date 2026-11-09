@@ -1,10 +1,20 @@
 import unittest
+import json
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 from server.release import prepare
 
 
 class ReleaseTests(unittest.TestCase):
+    def test_frontend_backend_release_identifiers_match(self):
+        root = Path(__file__).resolve().parents[1]
+        backend = json.loads((root / "server/release_info.json").read_text())
+        frontend = json.loads((root / "miniprogram/release-info.json").read_text())
+        self.assertEqual(backend, frontend)
+        self.assertRegex(backend["miniProgramVersion"], r"^\d+\.\d+\.\d+$")
+        self.assertEqual(backend["quoteRefreshPolicy"], "latest-available-all-hours")
+
     def test_release_applies_only_additive_003_before_api(self):
         repository = MagicMock()
         repository.available = True

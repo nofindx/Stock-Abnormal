@@ -1,10 +1,11 @@
 # 异动查查 vNext 详细开发设计
 
-> 版本：DEV-NEXT-20261104.30
+> 版本：DEV-NEXT-20261109.31
+> 20261109：S2最新报价全时段可请求，current/next均可更新显示价格；next不得重算未来条件。此修订覆盖旧的交易时段门槛。
 > 20261104 模拟口径校正：按 PRD §5.3，“距最近阈值”为模拟价格到最近上涨触发价的剩余股票涨幅，保留 `%`；不是偏离差，表格下方不另显示说明。
 > 20261102 补充：首次自动 S1/S2 绑定页面实例的 onLoad；onShow 仅同步导航状态，不自动获取行情。当日/次日标签仅切换已发布视图；单股首次选择证券初始化，返回同股不重复请求。预测与单股后续实时更新由用户下拉发起；下文“进入会话”均按此边界解释。
 > 编制日期：20261028；统一时区：Asia/Shanghai  
-> 当前上游：PRD-NEXT-20261104.24、ARCH-NEXT-20261104.23
+> 当前上游：PRD-NEXT-20261109.25、ARCH-NEXT-20261109.24
 > 专家评审输入：PRD-NEXT-20261027.6、ARCH-NEXT-20261027.5；原始报告不追认本轮之后的修订。  
 > 评审收敛：[综合评审结论与实施计划](./综合评审结论与实施计划_20261028.md)  
 > 评审状态：用户已批准基于本文进入实施；后续修订按版本和变更记录追踪。
@@ -378,10 +379,10 @@ JS 模拟采用确定精度的十进制工具/整数标度，或采用与后端�
 | --- | --- | --- | --- |
 | 交易日前 09:00 | 最近完成日 D 的结果 | N 的条件结果 | 保留 D 的触发标签到 N 09:00 |
 | 当日 09:00 至实时有效报价前 | 当前业务日已切换；旧收盘只作最后结果 | 对新 N 的数据未就绪明确不可用 | 不把昨日触发改成今日触发，不伪造报价 |
-| 配置允许的竞价/连续交易时段 | 同一盘中视图下当日结果 | 次日列表按产品政策关闭 | 首开/主动按钮可请求 S2，午休不回源 |
+| 竞价/连续交易/午休 | 同一读取视图下当日结果 | 次日列表按产品政策关闭 | 首开/主动刷新均可S2，午休不禁用 |
 | 15:00 后正式收盘集未发布 | 最后盘中数据标临时，或上一收盘标历史 | 等待当日基线，不能显示旧日期的新次日预测 | 不用实时快照伪造正式收盘集 |
 | 新收盘集发布后 | 当日正式四项 | 下一交易日条件结果 | 统一指针可用，页面取新上下文 |
-| 周末、假日、临时休市 | 最近完成交易日 | 下一交易日 | 无实时刷新；事实自然日期有效性照常判断 |
+| 周末、假日、临时休市 | 最近完成交易日 | 下一交易日 | 首开/手动获取最新报价，保留实际时间；事实有效性照常判断 |
 
 ### 9.2 读取令牌
 
@@ -395,7 +396,7 @@ JS 模拟采用确定精度的十进制工具/整数标度，或采用与后端�
 
 ### 10.1 前端编排
 
-预测页每次首次进入会话执行两个逻辑刷新阶段：S1 刷新并读取当前最新已发布当日股票池数据集，固定 `dataset_version + pool_version + pool_hash + pool_count + rule_version + time_context_id`，再用该 S1 `read_token` 读取预测首屏列表；这两个调用合称 S1 阶段，不能分别取不同指针。S1 阶段成功且 `intraday_eligible=true` 后执行一次 S2，取得该固定股票池及其指数的盘中实时覆盖，并用 S2 返回的新 `read_token/realtime_view_id` 整体替换首屏结果，不允许把新行情卡片拼进旧列表上下文。两阶段分别可观察、会话内各执行一次，不限定 HTTP 请求数。S1 任一必要调用失败不得启动 S2；S2 不改池、不增删候选、不生成 next。单股详情也先执行 S1，再在适用交易时段只获取所选证券和指数。`onLoad/onShow` 合并同一次进入，不用设备永久标志。切后台恢复或再进入时，依上下文有效期及节流重新确认，不能永久跳过；同一会话并发请求去重。
+预测页面实例首次加载执行S1→S2。S1固定 `dataset_version + pool_version + pool_hash + pool_count + rule_version + time_context_id`，使用同一token读首屏；任一必要调用失败不启动S2。S2不依赖intraday_eligible，所有时段获取固定名单及指数最新可用报价，以返回的新token/视图整体替换。单股首次选股同理。S2不改池、不生成next，next仅更新显示价格与涨跌幅，不重算条件。非交易日报价保留真实交易日；股票有效而指数缺失时价格可更新、计算保留并明确stale及INDEX_QUOTE_UNAVAILABLE。返回/切标签/边界不重复自动S2，后续用户手动刷新；同一会话并发请求去重。
 
 主动刷新图标执行 S1 并在允许时 S2；单股首页和详情下拉保持关闭。监控/预测若保留原下拉，建议仅 S1；不在无用户确认下改成新增交互。所有按钮动效结束与请求完成绑定，减少动态效果偏好下禁用持续动画。
 
@@ -519,7 +520,7 @@ MySQL 是结构化事实、修订、结果和任务的真值；PDF 仅按 §15 �
 | `GET /api/v2/stocks/{security_id}` | read_token | 状态卡、四项 current/next、模拟基础；交易上下文无次日结果时明确不可用，盘中 S2 不产生 next |
 | `GET /api/v2/monitor` | read_token、type、cursor、limit≤50 | 有效事实列表、期限和状态、分页；按目标日期筛选 |
 | `GET /api/v2/predictions` | read_token、role=current/next、cursor、limit≤50 | 已发布名单或同基线名单实时结果、排除汇总、范围完整性、next_access |
-| `POST /api/v2/realtime/refresh` | `read_token.value`、scope=prediction/stock、security_id（stock）、HTTP `Idempotency-Key`/`request_id` | S2：ready/queued/failed、可选替换 read_token、当前结果/任务；股票范围由绑定的 pool_version 名单或单股决定，不接受任意全市场名单；超时重试复用 request_id；next 禁止 |
+| `POST /api/v2/realtime/refresh` | `read_token.value`、scope=prediction/stock、security_id（stock）、HTTP `Idempotency-Key`/`request_id` | S2：ready/queued/failed、可选替换 read_token、当前结果/任务；范围绑定固定名单或单股；超时重试复用request_id；全时段允许，next仅刷新价格，不重算未来条件 |
 | `GET /api/v2/jobs/{public_job_id}` | 只读限速令牌 | 进度、阶段、retry_after_ms、已生成的读取上下文；无内部异常细节 |
 | `GET /api/v2/rules` | read_token 或明确 rule_version | 同数据集规则说明、阈值/来源/产品口径、展示政策、模拟兼容能力 |
 | `GET /api/v2/facts/{fact_id}` | read_token | 选定事实修订、来源证据、有效期、更正关联、附件能力 |
@@ -587,7 +588,7 @@ MySQL 是结构化事实、修订、结果和任务的真值；PDF 仅按 §15 �
 
 样例故意将无法证明的收盘具体行情时刻置 null；数据集有真实 published_at 不代表能捏造报价时刻。源若有准确时间就填写实际时间。
 
-S1 是一个逻辑阶段、可由多个 HTTP 请求组成：`POST /context` 固定一次 pointer 并返回 context；随后以该 `read_token.value` 调 `GET /predictions?role=current&limit=20` 取得首屏。列表响应必须回显同一 `dataset_version,pool_version,pool_hash,pool_count,rule_version,time_context_id`。只有 context 与首屏列表均成功且版本回显相同，S1 才算成功并允许交易时段启动 S2；任一失败都不启动 S2。S2 ready 后用响应的新 context/token 整体重取同一名单首屏，不得只替换各卡实时字段。
+S1可由多个HTTP请求组成：context固定pointer，随后用同token取得首屏，版本回显一致才启动S2，全时段适用；任一必要调用失败不启动S2。S2后用新context/token整体替换同名单视图，不拼接不同上下文。
 
 ### 12.3 单股和指标对象
 
@@ -705,7 +706,7 @@ Redis 短租约只负责 API/worker 对同一实时报价或实时视图的短�
 | `announcement_parse` | 下载产物到达 | 文本/OCR及结构化事实；有界 CPU 池，超时重试，死信可补跑 |
 | `dataset_build` | 输入齐备/事实修订/规则换版 | 固定输入后计算、匹配、按生效顺序重放；每项独立缺因 |
 | `dataset_validate_publish` | 构建封存 | 适用门禁完成后 CAS 发布；失败保留旧指针 |
-| `prediction_realtime_refresh` | 首开/主动刷新、有效交易时段 | 仅当日预测名单和对应指数；不刷新全市场、不生成 next |
+| `prediction_realtime_refresh` | 首开/主动刷新，全时段 | 仅已发布名单及指数；next仅更新价格；不扩池或重算next |
 | `single_realtime_refresh` | 单股首开/主动刷新 | 当前选股；共享同版结果，失败保留时间明确的最后结果 |
 | `catchup_scan` | 定期检查任务计划与成功记录 | 补跑漏执行/中断/死信；不靠进程记忆判断今天做完 |
 | `retention_cleanup` | 每日 | PDF/临时视图/无引用结果清理，审计留痕 |
@@ -920,7 +921,7 @@ API/worker账号按需DML，migrate独立DDL权限；生产禁用本地key文件
 | T10 故障隔离 | 源失败/未找到/正文坏/不匹配/指数错日/规则不支持；区分行情依赖与公告事实依赖；公告源失败不阻断行情可确定结果；不可用有因、无失败造0、安全；已知严重不被覆盖 |
 | T11 并发发布 | 10发布竞争仅一个CAS成功；旧worker失租拒写；封存后不可改；补采修订不混入计算；outbox丢失重试；回滚generation加一 |
 | T12 跨页/旧版 | 同令牌三页字段同值；新发布旧响应乱序；新选股旧请求；分页版本换代；旧客户端与v2共享同真值 |
-| T13 实时与性能 | Tushare日频静态数据回归；盘中沿用当前实时适配器及回退顺序；预测首次进入S1股票池+S2实时两逻辑阶段各一次且会话去重；非交易/午休跳过S2；名单外不扩池；失败不伪造实时 |
+| T13 实时与性能 | Tushare日频静态数据回归；全时段沿用当前报价适配器及回退顺序；首次S1→S2各一次；返回不重复；实际时间、不扩池、next不重算、失败及部分成功明确标记 |
 | T16 Redis 实时协作 | 云托管私网 PING/TTL；正常有效租约内同 key/来源/批次最多一轮上游请求；一次租约接管最多重发一次、该来源/报价桶总计不超过两轮，超限返回 queued/unavailable 且不得第三次回源；旧持有者结果拒写；租约续期/compare-token释放；视图部分写入不可见；报价/指数 skew 超差使对应盘中指标不可用；Redis 故障时后端无本地副本回退/无逐实例直连，持久排队或 unavailable；客户端旧画面 stale 仅展示；`context_expired` 重取 S1；MySQL 任务租约与 Redis 短租约分工可验证 |
 | T17 PDF | 当前有效条目能下载并在小程序内打开；无效 key、非 PDF、到期事实或无可信来源不生成入口；可信来源缓存未命中时仍返回受控 key并懒重取；清理临时文件且不影响事实 |
 | T15 前端/隐私 | iOS/Android长数字和%、20rpx、输入居中、图标动效、历史8只、Tab/读屏顺序、4.5:1、输入与搜索不上传日志 |

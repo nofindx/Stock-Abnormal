@@ -691,6 +691,7 @@ Page({
     const render = detail => {
       if (requestId === this.detailRequestId) this.stockReadResult = detail
       this.renderStockDetail(detail, { items: detail.monitoringFacts || [] }, stock, requestId)
+      this.showQuoteRefreshState(detail, requestId)
       return detail
     }
     return getStockDetail(stock.ts_code).then(render).then(detail => {
@@ -719,6 +720,7 @@ Page({
       if (requestId !== this.detailRequestId) return
       this.stockReadResult = detail
       this.renderStockDetail(detail, { items: detail.monitoringFacts || [] }, stock, requestId)
+      this.showQuoteRefreshState(detail, requestId)
     }).catch(() => {
       if (requestId === this.detailRequestId) wx.showToast({ title: '刷新失败，请稍后重试', icon: 'none' })
     })
@@ -727,6 +729,15 @@ Page({
       wx.stopPullDownRefresh()
     })
     return this.detailRefreshPromise
+  },
+  showQuoteRefreshState(detail, requestId) {
+    if (requestId !== this.detailRequestId) return
+    const reasons = detail.reasons || []
+    if (reasons.includes('INDEX_QUOTE_UNAVAILABLE')) {
+      this.setData({ detailError: '价格已更新，指数行情未匹配，规则计算保留已确认基线' })
+    } else if (detail.refresh_state === 'failed' || detail.result_state === 'stale') {
+      this.setData({ detailError: '最新行情刷新失败，当前保留上次数据，请下拉刷新重试' })
+    }
   },
   reloadStockS1ForBoundary() {
     const stock = this.data.selected

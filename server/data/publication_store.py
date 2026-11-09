@@ -164,7 +164,9 @@ class PublicationStore:
 
     def refresh_job(self, context, job_id=None, *, claim=False):
         """Authorize/claim a shared S2 job; a changed owner fences late work."""
-        request_hash = hashlib.sha256((context.dataset_id + ':' + context.query_hash).encode()).hexdigest()
+        # Fallback retains the caller's authorized input view. Different
+        # realtime views must not share a job that can return an older price.
+        request_hash = hashlib.sha256((context.dataset_id + ':' + context.query_hash + ':' + getattr(context, "realtime_view_id", "")).encode()).hexdigest()
         create = job_id is None
         if create:
             job_id = hashlib.sha256((request_hash + ':' + str(int(self.clock() // 3))).encode()).hexdigest()

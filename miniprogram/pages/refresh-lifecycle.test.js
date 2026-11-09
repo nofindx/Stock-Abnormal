@@ -65,6 +65,10 @@ async function run() {
   assert.deepStrictEqual([stockReads, stockQuotes], [1, 2])
   await stock.chooseStock({ ts_code: '603278.SH', name: '大业股份' })
   assert.deepStrictEqual([stockReads, stockQuotes], [2, 3], 'opening a different security initializes its quotes once')
+  stock.showQuoteRefreshState({ result_state: 'stale', reasons: ['INDEX_QUOTE_UNAVAILABLE'] }, stock.detailRequestId)
+  assert.match(stock.data.detailError, /价格已更新.*计算保留/, 'partial success must distinguish display price from calculation')
+  stock.showQuoteRefreshState({ result_state: 'stale', reasons: ['REALTIME_SOURCE_UNAVAILABLE'] }, stock.detailRequestId)
+  assert.match(stock.data.detailError, /最新行情刷新失败/, 'failed quotes must not appear as a fresh result')
 
   let monitorReads = 0
   api.getMonitor = async () => { monitorReads++; return { items: [], refreshing: false } }

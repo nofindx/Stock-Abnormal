@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import os
 import re
+from pathlib import Path
 from dataclasses import replace
 from html import escape
 from datetime import datetime
@@ -41,6 +42,7 @@ PUBLICATIONS = PublicationStore(SERVICE._calc_repository)
 CONTEXTS = ContextService(_CONTEXT_SECRET, store=PUBLICATIONS) if len(_CONTEXT_SECRET.encode("utf-8")) >= 32 else None
 READS = ReadPublications(SERVICE, PUBLICATIONS)
 READ_JOBS = ReadRefreshJobs(READS, PUBLICATIONS)
+RELEASE_INFO = json.loads(Path(__file__).with_name("release_info.json").read_text(encoding="utf-8"))
 
 
 def _realtime_health() -> dict:
@@ -287,6 +289,7 @@ class ApiHandler(BaseHTTPRequestHandler):
                     publication_health = {"available": False, "backend": "mysql", "errorType": type(exc).__name__}
                 health_payload = {"code": 0, "data": {
                     "service": "ok",
+                    "release": RELEASE_INFO,
                     "tushareConfigured": SERVICE.client.available,
                     "marketCalc": {
                         "available": market_calc_available,
@@ -559,7 +562,7 @@ class ApiHandler(BaseHTTPRequestHandler):
                     allowed = page == "prediction" and scope in ("today", "next_day") and CONTEXTS.scope_matches(context, page="prediction", role=role)
                 if not allowed:
                     raise ApiError(40301, "read_token 不包含此实时刷新范围", 403)
-                if context.role == "current" and SERVICE._detail_realtime_allowed() and not _realtime_ready():
+                if not _realtime_ready():
                     self._respond({"code": 50303, "data": {"items": [], "refresh_state": "failed", "result_state": "unavailable", "reasons": ["SOURCE_POLICY_OR_REDIS_NOT_READY"]}, "message": "实时行情策略或共享协调服务尚未通过发布门禁"}, status=503)
                     return
                 self._respond_read_job(context, READ_JOBS.request(context, wait_seconds=1))
@@ -567,14 +570,10 @@ class ApiHandler(BaseHTTPRequestHandler):
             scope = query.get("scope", ["today"])[0]
             if scope not in ("today", "next_day"):
                 raise ApiError(40001, "scope 必须是 today 或 next_day", 400)
-            if scope == "today" and SERVICE._prediction_state().get("realtimeRefreshAllowed") and not _realtime_ready():
+            if scope in ("today", "next_day") and not _realtime_ready():
                 self._respond({"code": 50303, "data": {"items": [], "refresh_state": "failed", "result_state": "unavailable", "reasons": ["SOURCE_POLICY_OR_REDIS_NOT_READY"]}, "message": "实时行情策略或共享协调服务尚未通过发布门禁"}, status=503)
                 return
             data = SERVICE.refresh_predictions(scope)
-            applied = data.get("phase") == "intraday"
-            data["refreshStatus"] = "applied" if applied else "not_allowed"
-            data["refresh_state"] = "ready" if applied else "queued"
-            data["result_state"] = "fresh" if applied else "unavailable"
             self._respond({"code": 0, "data": data, "message": "ok"})
         except (PublicationUnavailable, ContextExpired) as exc:
             self._respond({"code": 40902, "data": None, "message": "读取版本已失效，请重新获取上下文"}, status=409)
