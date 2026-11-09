@@ -4,6 +4,8 @@
 
 ## 当前文档
 
+> `20261110`收尾：1.0.20开发版已重新上传启动修正版，前端源码`96538fa`、包大小192229 bytes；替代11月9日首次上传的192005 bytes包。修复微信运行时不支持require(JSON)导致App未注册的问题，本地三页已实际打开且控制台0错误。后端308运行代码不变，配套发布标识仍为20261109.1。新回执及启动证据见[发布验收补记](docs/发布验收_20261109.md)。
+
 > `20261109` 最新：后端`flask-9a5y-308`已部署，小程序开发版`1.0.20`已上传，配套发布标识`20261109.1`。首开/手动全时段获取最新可用报价，返回及切标签不重复自动刷新；线上单股及预测S2已获取11月9日真实报价。源码`2823d4a`，后续文档留档提交不改变运行代码。详见[本轮发布验收](docs/发布验收_20261109.md)及[正式上线清单](docs/正式上线清单.md)。
 
 已上传开发版1.0.20，1.0.18代码审核已通过且原包保持不动；后端预测v74，监控规则`20261102-product-policy-v34`，产品规则`RULE-2026-10-30.1`，本轮未改规则。开发版上传、真机验收、代码审核、备案、认证和正式发布分别记录。详情见[版本发布记录](docs/版本发布记录.md)。
@@ -52,6 +54,7 @@ python3 -m server.app
 
 ```bash
 python3 -m unittest discover -s server -p 'test_*.py'
+node miniprogram/app.test.js
 node miniprogram/utils/api.test.js
 node miniprogram/pages/monitor/index.test.js
 node miniprogram/pages/prediction/prediction.test.js
