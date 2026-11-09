@@ -1,6 +1,6 @@
 // 小程序启动文件：初始化微信云托管，不收集用户身份信息。
 const CLOUD_ENV = 'prod-d1g25zvvkd79d524b'
-const releaseInfo = require('./release-info.json')
+const releaseInfo = require('./release-info')
 
 App({
   onLaunch() {

@@ -11,7 +11,10 @@ class ReleaseTests(unittest.TestCase):
         root = Path(__file__).resolve().parents[1]
         backend = json.loads((root / "server/release_info.json").read_text())
         frontend = json.loads((root / "miniprogram/release-info.json").read_text())
+        runtime_module = (root / "miniprogram/release-info.js").read_text()
+        runtime_metadata = json.loads(runtime_module.split("module.exports =", 1)[1].strip())
         self.assertEqual(backend, frontend)
+        self.assertEqual(backend, runtime_metadata)
         self.assertRegex(backend["miniProgramVersion"], r"^\d+\.\d+\.\d+$")
         self.assertEqual(backend["quoteRefreshPolicy"], "latest-available-all-hours")
 
