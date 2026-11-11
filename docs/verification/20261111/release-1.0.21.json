@@ -1,0 +1,71 @@
+{
+  "checked_at": "2026-11-11",
+  "source_commit": "15fd7f6",
+  "uploaded_miniprogram": "1.0.21",
+  "upload_bytes": 195096,
+  "release_expected": "20261111.1",
+  "production_before_deployment": {
+    "release": {
+      "releaseId": "20261109.1",
+      "miniProgramVersion": "1.0.20",
+      "quoteRefreshPolicy": "latest-available-all-hours"
+    },
+    "prediction": {
+      "today": {
+        "available": true,
+        "phaseAvailable": true,
+        "tradeDate": "20261110",
+        "targetTradeDate": "20261111",
+        "updatedAt": "2026-11-11 17:31",
+        "ageSeconds": 11765,
+        "stale": false,
+        "effectiveScope": "today",
+        "phase": "post_close_confirmed",
+        "itemCount": 10,
+        "datasetQuoteUpdatedAt": "2026-11-11 16:14",
+        "datasetQuoteComplete": true,
+        "exclusionStats": {
+          "excludedByLimit": 10390,
+          "excludedByMonitor": 0,
+          "excludedByTriggered": 1,
+          "excludedByDataQuality": 369,
+          "excludedBySpecialStock": 198
+        },
+        "status": "ready",
+        "dataStage": "formal",
+        "dataQuality": "confirmed",
+        "ruleVersion": "v74",
+        "lastError": ""
+      },
+      "next_day": {
+        "available": true,
+        "phaseAvailable": true,
+        "tradeDate": "20261111",
+        "targetTradeDate": "20261112",
+        "updatedAt": "2026-11-11 17:32",
+        "ageSeconds": 11721,
+        "stale": false,
+        "effectiveScope": "next_day",
+        "phase": "post_close_confirmed",
+        "itemCount": 6,
+        "datasetQuoteUpdatedAt": "2026-11-11 16:14",
+        "datasetQuoteComplete": true,
+        "exclusionStats": {
+          "excludedByLimit": 9952,
+          "excludedByMonitor": 0,
+          "excludedByTriggered": 1,
+          "excludedByDataQuality": 811,
+          "excludedBySpecialStock": 197
+        },
+        "status": "ready",
+        "dataStage": "formal",
+        "dataQuality": "confirmed",
+        "ruleVersion": "v74",
+        "lastError": ""
+      }
+    }
+  },
+  "cloud_deployment": "blocked_mac_locked",
+  "public_release": "not_performed",
+  "review_1_0_20": "unchanged"
+}
