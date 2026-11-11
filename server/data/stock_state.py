@@ -44,7 +44,12 @@ def build_stock_state(
         )
         for item in warnings
     )
-    if severe_triggered:
+    applicability = (calculation or {}).get("ruleApplicability") or {}
+    if applicability.get("applicable") is False:
+        market_risk = "not-applicable"
+    elif applicability.get("applicable") is None and applicability:
+        market_risk = "unknown"
+    elif severe_triggered:
         market_risk = "severe-risk"
     elif ordinary_triggered:
         market_risk = "ordinary-risk"
@@ -83,6 +88,8 @@ def build_stock_state(
         summary_status = "severe-risk"
     elif regulatory_state == "ordinary-warning" or market_risk == "ordinary-risk":
         summary_status = "ordinary-risk"
+    elif market_risk == "not-applicable":
+        summary_status = "not-applicable"
     elif data_state != "available" or market_risk in {"unknown", "incomplete"}:
         summary_status = "unknown"
     else:
@@ -90,6 +97,7 @@ def build_stock_state(
     return {
         "status": summary_status,
         "marketRiskState": market_risk,
+        "ruleApplicability": applicability,
         "regulatoryState": regulatory_state,
         "tradingState": trading_state,
         "dataState": data_state,

@@ -267,6 +267,11 @@ function currentSevereRuleTexts(warnings = []) {
 }
 
 function buildNextDayForecast(forecast = {}, monitoringActive = false, currentSevereRules = [], currentTradeDate = '', ruleFactsStatus = '', marketDataAvailable = true) {
+  const applicability = forecast.ruleApplicability || {}
+  if (applicability.applicable === false) {
+    return { line: '', text: applicability.message || '新股无涨跌幅限制期间，四项预警暂不适用',
+      summaryStatus: '暂不适用', summaryTone: 'unknown' }
+  }
   const candidates = Array.isArray(forecast.rules) ? forecast.rules : []
   const assessment = assessNextDayRules(candidates, monitoringActive)
   const ruleText = [...new Set(assessment.rules.map(item => String(item.rule || '').trim()).filter(Boolean))].join('；')
@@ -421,6 +426,13 @@ function nearestUpwardThreshold(metrics) {
 }
 
 function calculateSimulationRows(rows, detail) {
+  const applicability = (detail && detail.simulationApplicability) || {}
+  if (applicability.applicable === false || applicability.applicable === null) {
+    const text = applicability.applicable === false ? '暂不适用' : '--'
+    return rows.map(row => ({ ...row, deviation10: text, deviation30: text,
+      space: text, deviation10Window: null, deviation30Window: null,
+      deviation10Class: '', deviation30Class: '', deviationClass: '' }))
+  }
   const base = (detail && detail.simulationBase) || { stock: [], index: [] }
   const thresholds = (detail && detail.simulationThresholds) || {}
   const stockBase = Array.isArray(base.stock) ? base.stock : []
@@ -531,6 +543,15 @@ function presentWarnings(warnings = [], options = {}) {
     return hasValue ? 'base' : 'unknown'
   }
   const presented = warnings.map((item) => {
+    if (item.availability === 'not_applicable' || (item.applicability || {}).applicable === null) {
+      const text = item.availability === 'not_applicable' ? '暂不适用' : '暂不可用'
+      const explanation = (item.applicability || {}).message || (item.availability === 'not_applicable'
+        ? '新股无涨跌幅限制期间' : '规则适用性暂不可用')
+      return { ...item, currentText: text, currentNumber: text, currentUnit: '',
+        currentFontSize: 22, remainingText: explanation,
+        target: explanation, ringText: '—', ringValueClass: '',
+        progress: 0, tone: 'unknown', labelTone: 'unknown', toneColor: colors.unknown, valueClass: '' }
+    }
     if (item.title === '10 日同向') {
       if (item.availability === 'unavailable' || item.exact_count === null) {
         return { ...item, currentText: '待核验', currentNumber: '待核验', currentUnit: '', currentFontSize: 22, remainingText: '公告覆盖或方向待核验', ringText: '--', ringValueClass: '', progress: 0, tone: 'unknown', labelTone: 'unknown', toneColor: colors.unknown, valueClass: '' }
@@ -586,7 +607,7 @@ function presentWarnings(warnings = [], options = {}) {
     return { ...item, currentText: actualText, currentNumber: numberText, currentUnit: '%', currentFontSize, target: `阈值 ${positive ? '+' : '-'}${selectedThreshold}%`, remainingText: tone === 'triggered' ? '已触及' : `还差 ${remaining.toFixed(2)}%`, ringText: tone === 'triggered' ? '已触及' : `${remaining.toFixed(2)}%`, ringValueClass: 'metric-ring-value-percent', progress: Number(progress.toFixed(2)), tone, labelTone: ringTone, toneColor: colors[ringTone], valueClass: '' }
   }).sort((left, right) => (order[left.title] ?? 99) - (order[right.title] ?? 99))
   if (!options.forceUnknown) return presented
-  return presented.map(item => ({
+  return presented.map(item => item.availability === 'not_applicable' ? item : ({
     ...item,
     target: /待核验/.test(String(item.target || '')) ? item.target : `${item.target} · 待核验`,
     remainingText: '存在待核验公告',
@@ -811,6 +832,11 @@ Page({
         ruleFactsStatus,
         marketDataAvailable
       )
+      if ((detailWithMonitoring.ruleApplicability || {}).applicable === false) {
+        forecast.summaryStatus = '暂不适用'
+        forecast.summaryTone = 'unknown'
+        forecast.notice = detailWithMonitoring.ruleApplicability.message || '新股无涨跌幅限制期间，四项预警暂不适用'
+      }
       const statusSummary = { text: forecast.summaryStatus, tone: forecast.summaryTone }
       displayDetail.currentTriggered = forecast.currentTriggered
       displayDetail.futureForecastLine = forecast.futureLine || ''

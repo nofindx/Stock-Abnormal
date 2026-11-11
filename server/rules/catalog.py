@@ -11,7 +11,7 @@ from enum import Enum
 from typing import Optional
 
 
-RULE_VERSION = "RULE-2026-10-30.1"
+RULE_VERSION = "RULE-2026-11-11.1"
 
 
 class Board(str, Enum):
@@ -56,7 +56,8 @@ class BoardRule:
     turnover_sum_threshold: Optional[float] = None
 
 
-# 产品规则 RULE-2026-10-24.1。此处仅放机器可读参数，解释和来源维护在规则说明。
+# 产品规则版本由 RULE_VERSION 统一标记；IPO适用边界另见 server/rules/listing.py。
+# 此处仅放机器可读阈值，解释和来源维护在产品规则说明。
 BOARD_RULES = {
     Board.MAIN: BoardRule(
         3, 20.0, 100.0, 200.0, 4, 10.0,

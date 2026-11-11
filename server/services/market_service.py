@@ -31,6 +31,7 @@ from server.core.abnormal_rules import (
     confirmed_same_direction_event_ledger,
 )
 from server.data.stock_state import build_stock_state
+from server.rules.listing import listing_applicability
 from server.resets.decisions import (
     ORDINARY_RESET_EVIDENCE_CODE,
     ORDINARY_TITLE_EVIDENCE_CODE,
@@ -62,7 +63,7 @@ SHANGHAI_TZ = ZoneInfo("Asia/Shanghai") if ZoneInfo else timezone(timedelta(hour
 # 版本变化会触发服务启动时从已确认收盘行情重建计算基础数据与预测集。
 # Keep the persisted identifier compact: existing production schemas use a
 # 40-character rule-version column; the human-readable rationale lives in docs.
-PREDICTION_RULE_VERSION = "v74"
+PREDICTION_RULE_VERSION = "v75"
 _has_auditable_reset_evidence = has_auditable_reset_evidence
 
 
@@ -144,7 +145,8 @@ def _price_limit_enabled(item: Dict[str, Any], board: str, exchange: str) -> Opt
     """归一化价格限制标记。
 
     Tushare ``stock_basic`` 没有稳定的静态 price-limit 字段；对已上市的四个
-    A 股板块按交易所板块规则填充 ``True``，首日资格仍由 list_date 单独判断。
+    A 股板块按常规板块规则填充 ``True``；这是基础属性，目标日IPO资格
+    由 _listing_applicability 动态判断，不能据此认为新股期间已有限价。
     显式上游值优先，未知交易所保持 None 并按保守策略排除。
     """
 
@@ -194,6 +196,7 @@ class MarketService:
         self._stocks_cache: Optional[tuple[datetime, List[Dict[str, Any]]]] = None
         self._market_context_cache: Optional[tuple[datetime, Dict[str, Any]]] = None
         self._daily_cache: Dict[tuple[str, str, str], Any] = {}
+        self._listing_calendar_cache: Dict[tuple[str, str], List[str]] = {}
         self._prediction_cache: Dict[str, tuple[datetime, List[Dict[str, Any]]]] = {}
         self._prediction_last_error: Dict[str, str] = {}
         self._prediction_trade_date: Dict[str, str] = {}
@@ -651,7 +654,7 @@ class MarketService:
 
     @staticmethod
     def _prediction_stock_eligible(stock: Dict[str, Any], target_trade_date: str = "") -> bool:
-        """预测只接收正常交易股票；缺失价格限制字段时按正常股票处理。"""
+        """基础证券资格；IPO完整期间另由目标日 _listing_applicability 判定。"""
 
         if not stock or bool(stock.get("isST")):
             return False
@@ -666,6 +669,64 @@ class MarketService:
         if list_date and target_trade_date and list_date >= target_trade_date:
             return False
         return True
+
+    def _listing_applicability(self, stock: Dict[str, Any], target_date: str, history_start: str = "") -> Dict[str, Any]:
+        """Resolve recent IPO sessions once per listing, never infer them from N/C names."""
+        listing = self._date_key(stock.get("list_date"))
+        target = self._date_key(target_date)
+        if not listing:
+            return {"applicable": None, "effectiveFrom": "",
+                    "reason": "LISTING_DATE_UNAVAILABLE", "message": "缺少上市日期，规则适用性暂不可用"}
+        if not target:
+            return {"applicable": None, "effectiveFrom": "",
+                    "reason": "TARGET_DATE_UNAVAILABLE", "message": "缺少计算日期，规则适用性暂不可用"}
+        # Avoid per-stock calendar IO for old listings, except when a sparse
+        # vector (e.g. after a long suspension) still contains their IPO prefix.
+        try:
+            listing_day = datetime.strptime(listing, "%Y%m%d")
+            target_day = datetime.strptime(target, "%Y%m%d")
+            history_day = datetime.strptime(history_start, "%Y%m%d") if history_start else None
+        except ValueError:
+            return {"applicable": None, "effectiveFrom": "",
+                    "reason": "LISTING_DATE_INVALID", "message": "上市或计算日期无效，规则适用性暂不可用"}
+        if ((target_day - listing_day).days > 90
+                and (history_day is None or (history_day - listing_day).days > 40)):
+            return {"applicable": True, "effectiveFrom": "", "reason": "", "message": ""}
+        cache = getattr(self, "_listing_calendar_cache", None)
+        if cache is None:
+            self._listing_calendar_cache = cache = {}
+        key = (str(stock.get("board") or "主板"), listing)
+        dates = cache.get(key)
+        if dates is None:
+            try:
+                end = (listing_day + timedelta(days=40)).strftime("%Y%m%d")
+                frame = self.client.trade_cal(listing, end)
+                rows = frame.to_dict("records") if hasattr(frame, "to_dict") else list(frame or [])
+                dates = sorted({self._date_key(row.get("cal_date")) for row in rows
+                                if int(row.get("is_open", 0)) == 1})
+                result = listing_applicability(key[0], listing, target, dates)
+                if result["applicable"] is not None:
+                    cache[key] = dates
+                return result
+            except Exception:
+                dates = []
+        return listing_applicability(key[0], listing, target, dates)
+
+    def _listing_vectors(self, stock, stock_vector, index_vector, target_date=""):
+        target_date = target_date or self._vector_latest_date(stock_vector) or self._vector_latest_date(index_vector)
+        # Legacy internal callers without stock metadata do not assert IPO status.
+        # Production normalisation always supplies list_date, including null.
+        if "list_date" not in stock:
+            return stock_vector, index_vector, {"applicable": True, "effectiveFrom": ""}
+        start_date = min((self._date_key(row.get("date")) for row in stock_vector), default="")
+        context = self._listing_applicability(stock, target_date, start_date)
+        start = context.get("effectiveFrom", "")
+        if context["applicable"] is None:
+            return [], [], context
+        if start:
+            stock_vector = [row for row in stock_vector if self._date_key(row.get("date")) >= start]
+            index_vector = [row for row in index_vector if self._date_key(row.get("date")) >= start]
+        return stock_vector, index_vector, context
 
     def _prediction_record(self, scope: str, target_trade_date: str = "") -> Optional[Dict[str, Any]]:
         if not self._calc_repository.available:
@@ -938,6 +999,9 @@ class MarketService:
                 deviations = {str(window): metrics["deviations"][window] for window in (3, 10, 30)}
                 same_direction = {"up": metrics["up"], "down": metrics["down"]}
                 same_direction_events = metrics["same_direction_events"]
+                if (reset_meta.get("ruleApplicability") or {}).get("applicable") is not True:
+                    deviations = {"3": None, "10": None, "30": None}
+                    same_direction = {"up": None, "down": None}
             else:
                 rule_reset_date = self._monitor_rule_reset_date(self._latest_rule_monitor_for_stock(stock))
                 deviations = {"3": None, "10": None, "30": None}
@@ -954,6 +1018,7 @@ class MarketService:
                 "listDate": stock.get("list_date", ""),
                 "delistDate": stock.get("delist_date", ""),
                 "priceLimitEnabled": stock.get("priceLimitEnabled"),
+                "ruleApplicability": reset_meta.get("ruleApplicability", {}) if index else {},
                 "indexCode": index_code,
                 "asOfTradeDate": stock.get("as_of_trade_date", ""),
                 "latestClose": scalar(stock.get("latest_close")),
@@ -1589,6 +1654,7 @@ class MarketService:
     ) -> tuple[List[Dict[str, Any]], List[Dict[str, Any]], Dict[str, Any], Optional[Dict[str, Any]]]:
         """统一应用停牌重置和正式普通/严重异动公告后的规则重置。"""
 
+        stock_vector, index_vector, listing = self._listing_vectors(stock, stock_vector, index_vector)
         stock_vector, index_vector, suspension = self._trim_vectors_after_suspension(stock_vector, index_vector)
         monitoring = self._active_monitor_for_stock(stock)
         reset_facts = self._rule_reset_facts_for_stock(stock)
@@ -1642,6 +1708,7 @@ class MarketService:
         reset_date = reset_context.latest_reset_date
         reset_scope = reset_context.latest_reset_scope
         rule_reset = {
+            "ruleApplicability": listing,
             "ruleResetDate": reset_date,
             "ruleResetWindow": 30 if reset_scope == "severe" else (3 if reset_scope == "ordinary" else None),
             "ruleResetScope": reset_scope,
@@ -2439,6 +2506,7 @@ class MarketService:
         if not index:
             return None
         stock_vector = self._vector_entries(calc.get("stock_return_vector"))
+        raw_current_change = stock_vector[-1].get("return") if stock_vector else None
         index_vector = self._vector_entries(index.get("index_return_vector"))
         stored_stock_date = self._date_key(calc.get("as_of_trade_date"))
         stored_index_date = self._date_key(index.get("as_of_trade_date"))
@@ -2472,6 +2540,10 @@ class MarketService:
         if realtime:
             stock_vector = self._apply_quote_to_vector(stock_vector, calc.get("latest_close"), quote)
             index_vector = self._apply_quote_to_vector(index_vector, index.get("latest_close"), index_quote)
+        latest_rule_date = (self._quote_date_string(quote) if realtime else "") or stored_stock_date
+        stock_vector, index_vector, applicability = self._listing_vectors(
+            stock, stock_vector, index_vector, latest_rule_date
+        )
         # 停牌、刚上市或上游缺记录都会造成两侧向量长度/终点不同。正式计算
         # 绝不能按数组位置配对，统一裁剪到共同日期；没有共同日期才判定为
         # 数据集不可用。这样详情页仍能展示已有 1 日、2 日等有效结果。
@@ -2519,7 +2591,7 @@ class MarketService:
         elif stock_vector:
             current_change = stock_vector[-1].get("return")
         else:
-            current_change = None
+            current_change = raw_current_change
         # A stock-only quote must not advance the calculation/simulation date.
         latest_date = (self._quote_date_string(quote) if realtime else "") or str(calc.get("as_of_trade_date") or "")
         try:
@@ -2559,6 +2631,14 @@ class MarketService:
             and forecast_index_date == forecast_base_date
             and not suspension.get("suspensionGapUnverified")
         )
+        forecast_applicability = (self._listing_applicability(stock, forecast_target_date)
+                                  if "list_date" in stock else {"applicable": True})
+        # On the fifth session the next limited session has a valid empty IPO
+        # baseline. Its first daily return must be included, never zeroed.
+        if (forecast_applicability.get("applicable") is True
+                and forecast_applicability.get("effectiveFrom") == self._date_key(forecast_target_date)
+                and stored_stock_date == stored_index_date and not suspension.get("suspensionGapUnverified")):
+            forecast_available = True
         forecast_unavailable_reason = ""
         if not forecast_available:
             if suspension.get("suspensionGapUnverified"):
@@ -2570,6 +2650,10 @@ class MarketService:
                     f"股票与所属指数的有效行情基准未对齐（股票 {forecast_stock_date or '缺失'}，"
                     f"指数 {forecast_index_date or '缺失'}，要求 {forecast_base_date}）"
                 )
+        if forecast_applicability.get("applicable") is not True:
+            forecast_available = False
+            next_day_rules = []
+            forecast_unavailable_reason = forecast_applicability.get("message", "规则适用性暂不可用")
         common_days = len(common_dates)
         warnings = [
             self._single_warning(3, metrics["up_deviations"][3], down_deviations[3], metrics["up_window_lengths"][3], metrics["down_window_lengths"][3], rule.ordinary_deviation, -rule.ordinary_deviation),
@@ -2582,6 +2666,17 @@ class MarketService:
         warnings[1].update({"availability": "available" if same_available else "unavailable", "exact_count": same_count if same_available else None})
         if not same_available:
             warnings[1].update({"up": None, "down": None, "className": "unknown", "reasons": ["ANNOUNCEMENT_COVERAGE_OR_DIRECTION_UNAVAILABLE"]})
+        if applicability.get("applicable") is not True:
+            for warning in warnings:
+                warning.update({"applicability": applicability,
+                    "availability": "not_applicable" if applicability.get("applicable") is False else "unavailable",
+                    "value": "--", "upValue": "--", "downValue": "--",
+                    "up": None, "down": None, "exact_count": None,
+                    "upTriggered": False, "downTriggered": False, "className": "unknown"})
+            status, status_class, status_reason = ("暂不适用" if applicability.get("applicable") is False else "状态未知"), "unknown", ""
+            market_status_display = applicability.get("message", "规则适用性暂不可用")
+            display_status = "监管中" if monitoring else status
+            display_status_class = "monitoring" if monitoring else "unknown"
         projection_facts = [item for item in [monitoring, *suspension.get("ordinaryEvents", [])] if item]
         facts_status = str(rule_facts_quality.get("status") or "unknown")
         # 公告源的其他股票正文读取失败，不能把当前股票误投影成未知；
@@ -2595,7 +2690,7 @@ class MarketService:
         if facts_status == "partial" and not projection_facts:
             projection_available = False
         stock_state = build_stock_state(
-            {"warnings": warnings, "status": status},
+            {"warnings": warnings, "status": status, "ruleApplicability": applicability},
             projection_facts,
             data_available=projection_available,
             data_error=(
@@ -2603,11 +2698,14 @@ class MarketService:
                 if suspension.get("suspensionGapUnverified") else
                 ("股票与指数缺少共同有效行情" if not common_days else rule_facts_quality.get("message", ""))
             ),
-            market_data_state="complete" if common_days and not suspension.get("suspensionGapUnverified") else "unavailable",
+            market_data_state="complete" if (common_days or applicability.get("applicable") is False) and not suspension.get("suspensionGapUnverified") else "unavailable",
             facts_data_state=facts_status,
         )
         return {
             **stock,
+            "ruleApplicability": applicability,
+            "simulationApplicability": applicability,
+            "priceLimitEnabled": applicability.get("applicable") if applicability.get("applicable") is not True else stock.get("priceLimitEnabled"),
             "status": status,
             "marketStatus": status,
             "marketStatusClass": status_class,
@@ -2626,6 +2724,7 @@ class MarketService:
             "quoteTradeDate": self._quote_date_string(display_quote),
             "futureTradeDates": future_dates,
             "nextDayForecast": {
+                "ruleApplicability": forecast_applicability,
                 "baseTradeDate": forecast_base_date,
                 "targetTradeDate": forecast_target_date,
                 "available": forecast_available,
@@ -2633,7 +2732,7 @@ class MarketService:
                 "rules": next_day_rules,
             },
             "warnings": warnings,
-            "alerts": self._build_alerts(deviations, severe, board),
+            "alerts": self._build_alerts(deviations, severe, board) if applicability.get("applicable") is True else [],
             "simulationBase": self._simulation_base(stock_vector, index_vector, suspension),
             "calculationInput": {"stock": stock_vector, "index": index_vector, "ordinaryDeviation": rule.ordinary_deviation, "severe10": {"up": rule.severe_10d_threshold.up, "down": rule.severe_10d_threshold.down}, "severe30": {"up": rule.severe_30d_threshold.up, "down": rule.severe_30d_threshold.down}, "sameDirectionThreshold": rule.severe_same_direction_count, "ordinaryResetDates": suspension.get("ordinaryResetDates", []), "ordinaryEvents": suspension.get("ordinaryEvents", []), "severeResetDate": suspension.get("severeResetDate", ""), "severeResetDates": suspension.get("severeResetDates", []), "priceResetDates": suspension.get("priceResetDates", []), "sameDirectionWindowPolicy": "product-inference: formal-10d-ledger-counts-idempotent-cninfo-confirmed-ordinary-3d-notices; market-windows-are-candidates-only; ordinary-reset-3d-baseline; severe-reset-all-four", "ruleVersion": PREDICTION_RULE_VERSION},
             "simulationThresholds": {
@@ -2653,10 +2752,10 @@ class MarketService:
                 "fallback": not realtime,
                 # A reset starts a valid shorter baseline. Thirty rows are not
                 # a prerequisite for displaying the available calculations.
-                "isComplete": bool(common_days) and not suspension.get("suspensionGapUnverified") and all(
+                "isComplete": applicability.get("applicable") is False or (bool(common_days) and not suspension.get("suspensionGapUnverified") and all(
                     warning.get("upValue") not in (None, "--") and warning.get("downValue") not in (None, "--")
                     for warning in (warnings[0], warnings[2], warnings[3])
-                ),
+                )),
                 "commonDays": common_days,
                 "requiredCommonDays": 30,
                 "suspensionResetDate": suspension.get("resetDate", ""),
@@ -2674,7 +2773,7 @@ class MarketService:
                 "resetEvidence": suspension.get("resetEvidence"),
                 "suspended": suspension.get("suspended", False),
                 "quoteUpdatedAt": display_quote.get("updatedAt", "") if display_quote else "",
-                "message": (
+                "message": applicability.get("message") or (
                     f"历史数据覆盖 {common_days} 个共同交易日，按现有数据计算"
                     if common_days < 30 else ""
                 ) + (("；" if common_days < 30 else "") + (
@@ -3407,6 +3506,12 @@ class MarketService:
             if not self._prediction_stock_eligible(stock, target_trade_date):
                 stats["excludedBySpecialStock"] += 1
                 continue
+            applicability = self._listing_applicability(
+                stock, target_trade_date or self._date_key(calc.get("as_of_trade_date"))
+            ) if "list_date" in stock else {"applicable": True}
+            if applicability.get("applicable") is not True:
+                stats["excludedBySpecialStock"] += 1
+                continue
             index_code = _index_code_for_stock(stock)
             index = indexes.get(index_code)
             if not index:
@@ -4082,6 +4187,9 @@ class MarketService:
         # 普通/同向卡只有在股票仍处于 10 日或 30 日重点监控期时才展示。
         monitored_codes = self._monitored_rule_codes(display_target_date)
         items = [item for item in items if self._prediction_item_allowed(item, monitored_codes, scope)]
+        items = [item for item in items if "list_date" not in item or self._listing_applicability(
+            item, display_target_date
+        ).get("applicable") is True]
         items = self._sort_prediction_items(self._normalize_prediction_items(items))
         # 交易时段 today 允许复用上一交易日的 next_day 候选池；对外展示范围
         # 仍必须是“当日”，不能把底层数据集名称泄漏到卡片字段。
@@ -4158,6 +4266,9 @@ class MarketService:
         # 旧数据集可能残留短窗口卡；只有当前仍在严重异动监管期才放行。
         target = str((persistent or {}).get("target_trade_date") or "")
         base_items = [item for item in base_items if self._prediction_item_allowed(item, self._monitored_rule_codes(target), forecast_scope)]
+        base_items = [item for item in base_items if "list_date" not in item or self._listing_applicability(
+            item, target or item.get("targetTradeDate", "")
+        ).get("applicable") is True]
         if not base_items:
             return []
         calculations = self._calc_repository.all_calculations() if self._calc_repository.available else {}

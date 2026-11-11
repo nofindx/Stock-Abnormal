@@ -1,5 +1,5 @@
 <view class="rules-page">
-  <view class="rules-updated">更新时间：2026-10-26</view>
+  <view class="rules-updated">更新时间：2026-11-11</view>
   <view class="rules-section">
     <view class="rules-heading">异动规则</view>
     <view class="threshold-table">
@@ -32,6 +32,12 @@
     <view class="rules-copy">10 日窗口使用最近 11 条有效交易日 K，30 日窗口使用最近 31 条。停牌、无效价格与缺失指数不做 0 填充。</view>
     <view class="rules-copy">普通异动按连续 3 个交易日收盘价偏离累计计算；10 日同向按已核验的普通异动公告事件计数。每个独立正式公告事件最多计 1 次；同一公告重复抓取不重复计数，不同独立公告即使区间重叠也分别留证计数。公告日期对应的三日行情用于核验方向和阈值，不能用最新单日涨跌代替。</view>
     <view class="rules-copy">普通异动公告确认后，对应方向的 10 日同向次数加 1，并只重置 3 日偏离基线；10 日同向历史及 10/30 日偏离继续保留。严重异动公告确认后进入重点监控，并从规则生效日重置四项指标（3 日偏离、10 日同向、10 日偏离、30 日偏离）。重叠窗口计次和重置范围属于本工具产品口径，不代表交易所对数学窗口的明文解释。</view>
+  </view>
+
+  <view class="rules-section">
+    <view class="rules-heading">新股适用范围</view>
+    <view class="rules-copy">沪深主板、创业板、科创板上市前5个交易日，北交所上市首日，无涨跌幅限制，四项预警及模拟计算暂不适用。</view>
+    <view class="rules-copy">恢复涨跌幅限制的第一天为第一个有效计算日，完整计入该日相对前收盘价的收益。之前无涨跌幅限制期间的收益不纳入累计偏离。有效公告仍按公告事实展示在重点监控中。</view>
   </view>
 
   <view class="rules-section rules-risk">

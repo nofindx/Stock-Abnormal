@@ -567,4 +567,38 @@ for (const days of [2, 10]) {
   assert.deepStrictEqual(page.data.inputRows, defaultRows, '重复清空保持默认态')
 }
 
+// IPO rule applicability is neither a zero count nor missing market data.
+const ipoApplicability = { applicable: false, reason: 'IPO_NO_PRICE_LIMIT', message: '新股无涨跌幅限制期间，四项预警暂不适用', effectiveFrom: '20261117' }
+const ipoWarnings = ['3 日偏离', '10 日同向', '10 日偏离', '30 日偏离'].map(title => ({
+  title, availability: 'not_applicable', applicability: ipoApplicability, exact_count: null
+}))
+for (const forceUnknown of [false, true]) {
+  const warnings = presentWarnings(ipoWarnings, { forceUnknown })
+  assert.strictEqual(warnings.length, 4)
+  warnings.forEach(item => {
+    assert.strictEqual(item.currentText, '暂不适用')
+    assert.strictEqual(item.progress, 0)
+    assert.strictEqual(item.labelTone, 'unknown')
+    assert(!item.target.includes('待核验'))
+  })
+}
+const ipoForecast = buildNextDayForecast({ ruleApplicability: ipoApplicability, available: false, rules: [] }, false, [], '', 'unavailable', false)
+assert.strictEqual(ipoForecast.summaryStatus, '暂不适用')
+assert.strictEqual(ipoForecast.text, ipoApplicability.message)
+assert.strictEqual(resolveStatusBanner(ipoForecast, { badgeText: '风险提示' }).statusClass, 'monitoring', '公告状态独立保留')
+const unknownApplicability = { applicable: null, message: '新股交易日历未确认，规则适用日期暂不可用' }
+const unknownWarning = presentWarnings([{ title: '10 日偏离', availability: 'unavailable', applicability: unknownApplicability }])[0]
+assert.strictEqual(unknownWarning.currentText, '暂不可用')
+assert.strictEqual(unknownWarning.target, unknownApplicability.message, '未确认日历不能宣称已处于无涨跌幅期间')
+assert.strictEqual(calculateSimulationRows(createInputRows(2), { simulationApplicability: unknownApplicability })[0].space, '--')
+for (const days of [2, 10]) {
+  const rows = createInputRows(days).map(row => ({ ...row, stock: '200', index: '0' }))
+  const detail = { simulationApplicability: ipoApplicability, simulationBase: { stock: [200], index: [0] } }
+  const result = calculateSimulationRows(rows, detail)
+  result.forEach(row => ['space', 'deviation10', 'deviation30'].forEach(key => assert.strictEqual(row[key], '暂不适用')))
+  const page = { data: { visibleDays: days, detail, inputRows: result }, setData(values) { Object.assign(this.data, values) } }
+  stockPage.clearInputs.call(page)
+  page.data.inputRows.forEach(row => assert.strictEqual(row.space, '暂不适用', '清空不恢复为安全或0'))
+}
+
 console.log('stock simulation tests passed')

@@ -14,6 +14,10 @@ class ProductionRegressionTests(unittest.TestCase):
         rows = self.fixture["market"]["items"]
         indexes = self.fixture["market"]["indexes"]
         self.service = MarketService()
+        # Historical replay supplies the IPO calendar as well as price vectors;
+        # these dates must not depend on a live data-source token.
+        self.service._listing_calendar_cache = {("科创板", "20260819"): [
+            "20260819", "20260820", "20260821", "20260824", "20260825", "20260826"]}
         self.service.set_clock(lambda: datetime(2026, 11, 1, 22, 0))
         self.stocks = {x["ts_code"]: dict(x, isST=x["isST"], list_date=x["listDate"], list_status=x["listStatus"]) for x in rows}
         self.calcs = {x["ts_code"]: dict(self.stocks[x["ts_code"]], as_of_trade_date=x["asOfTradeDate"], latest_close=x["latestClose"], stock_return_vector=x["returnVector"]) for x in rows}
