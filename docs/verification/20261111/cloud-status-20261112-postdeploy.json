@@ -1,0 +1,173 @@
+{
+  "checked_at": "2026-11-12T09:19:47.554179+08:00",
+  "release": {
+    "releaseId": "20261111.1",
+    "miniProgramVersion": "1.0.21",
+    "quoteRefreshPolicy": "latest-available-all-hours"
+  },
+  "prediction": {
+    "today": {
+      "available": true,
+      "phaseAvailable": true,
+      "tradeDate": "20261111",
+      "targetTradeDate": "20261112",
+      "updatedAt": "2026-11-12 08:17",
+      "ageSeconds": 3718,
+      "stale": false,
+      "effectiveScope": "next_day",
+      "phase": "intraday",
+      "itemCount": 6,
+      "datasetQuoteUpdatedAt": "2026-11-11 16:14",
+      "datasetQuoteComplete": true,
+      "exclusionStats": {
+        "excludedByLimit": 9949,
+        "excludedByMonitor": 0,
+        "excludedByTriggered": 0,
+        "excludedByDataQuality": 813,
+        "excludedBySpecialStock": 198
+      },
+      "status": "ready",
+      "dataStage": "formal",
+      "dataQuality": "confirmed",
+      "ruleVersion": "v75",
+      "lastError": ""
+    },
+    "next_day": {
+      "available": false,
+      "phaseAvailable": false,
+      "tradeDate": "20261111",
+      "targetTradeDate": "20261112",
+      "updatedAt": "2026-11-12 08:17",
+      "ageSeconds": 3718,
+      "stale": false,
+      "effectiveScope": "next_day",
+      "phase": "intraday",
+      "itemCount": 0,
+      "datasetQuoteUpdatedAt": "2026-11-11 16:14",
+      "datasetQuoteComplete": true,
+      "exclusionStats": {
+        "excludedByLimit": 9949,
+        "excludedByMonitor": 0,
+        "excludedByTriggered": 0,
+        "excludedByDataQuality": 813,
+        "excludedBySpecialStock": 198
+      },
+      "status": "not_available_in_phase",
+      "dataStage": "formal",
+      "dataQuality": "confirmed",
+      "ruleVersion": "v75",
+      "lastError": ""
+    }
+  },
+  "redis": {
+    "redisEnabled": true,
+    "redisPing": true
+  },
+  "vnext": {
+    "contextSigningConfigured": true,
+    "pdfSigningConfigured": true,
+    "publications": {
+      "available": true,
+      "backend": "mysql",
+      "factCount": 1212,
+      "outboxPending": 0
+    }
+  },
+  "market_error": "",
+  "deployment": "published_verified",
+  "miniprogram_upload": "1.0.21 uploaded; not submitted for review or public release",
+  "ipo_acceptance": {
+    "predictions": {
+      "today": {
+        "targetTradeDate": "20261112",
+        "tradeDate": "20261111",
+        "ruleVersion": null,
+        "dataUnavailable": false,
+        "dataStage": "formal",
+        "count": 6
+      },
+      "next_day": {
+        "targetTradeDate": "20261112",
+        "tradeDate": "20261111",
+        "ruleVersion": null,
+        "dataUnavailable": false,
+        "dataStage": "formal",
+        "count": 0
+      }
+    },
+    "detail": {
+      "ts_code": "688827.SH",
+      "list_date": "20261110",
+      "listDate": null,
+      "currentPrice": "108.10",
+      "tradeDate": "20261111",
+      "ruleApplicability": {
+        "reason": "IPO_NO_PRICE_LIMIT",
+        "message": "新股无涨跌幅限制期间，四项预警暂不适用",
+        "applicable": false,
+        "listingDate": "20261110",
+        "effectiveFrom": "20261117",
+        "noLimitSessions": 5,
+        "targetTradeDate": "20261111"
+      },
+      "simulationApplicability": {
+        "reason": "IPO_NO_PRICE_LIMIT",
+        "message": "新股无涨跌幅限制期间，四项预警暂不适用",
+        "applicable": false,
+        "listingDate": "20261110",
+        "effectiveFrom": "20261117",
+        "noLimitSessions": 5,
+        "targetTradeDate": "20261111"
+      }
+    },
+    "warnings": [
+      {
+        "title": "3 日偏离",
+        "value": "--",
+        "availability": "not_applicable"
+      },
+      {
+        "title": "10 日同向",
+        "value": "--",
+        "availability": "not_applicable"
+      },
+      {
+        "title": "10 日偏离",
+        "value": "--",
+        "availability": "not_applicable"
+      },
+      {
+        "title": "30 日偏离",
+        "value": "--",
+        "availability": "not_applicable"
+      }
+    ]
+  },
+  "authorized_prediction": {
+    "rule_version": "v75",
+    "dataset_version": "ba9e8111363b916641df333c8a140bb25814c835ae4e33bfbe155ad903e817d4",
+    "targetTradeDate": "20261112",
+    "count": 6
+  },
+  "monitor_read": {
+    "count": 25,
+    "pdf": [
+      {
+        "category": "ordinary",
+        "status": "http-pdf-pass",
+        "bytes": 186247
+      },
+      {
+        "category": "severe",
+        "status": "http-pdf-pass",
+        "bytes": 101274
+      },
+      {
+        "category": "delisting",
+        "status": "no-active-sample"
+      }
+    ]
+  },
+  "source_commit_expected": "727b0e7 (requested console revision; runtime confirms releaseId, not Git SHA)",
+  "listing_field_check": "Stock detail uses list_date=20261110 and ruleApplicability.listingDate; listDate is not a detail contract field and has no mini-program consumer."
+}

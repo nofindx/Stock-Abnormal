@@ -65,7 +65,10 @@
       }
     }
   },
-  "cloud_deployment": "blocked_mac_locked",
+  "cloud_deployment": "published_verified_20261112",
   "public_release": "not_performed",
-  "review_1_0_20": "unchanged"
+  "review_1_0_20": "unchanged",
+  "postdeploy_evidence": "cloud-status-20261112-postdeploy.json",
+  "production_verified_release": "20261111.1",
+  "production_verified_rule": "v75"
 }
