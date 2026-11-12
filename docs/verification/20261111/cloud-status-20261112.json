@@ -1,0 +1,71 @@
+{
+  "checked_at": "2026-11-12T08:03:47.885602+08:00",
+  "release": {
+    "releaseId": "20261109.1",
+    "miniProgramVersion": "1.0.20",
+    "quoteRefreshPolicy": "latest-available-all-hours"
+  },
+  "prediction": {
+    "today": {
+      "available": true,
+      "phaseAvailable": true,
+      "tradeDate": "20261110",
+      "targetTradeDate": "20261111",
+      "updatedAt": "2026-11-12 00:08",
+      "ageSeconds": 28210,
+      "stale": false,
+      "effectiveScope": "today",
+      "phase": "pre_open",
+      "itemCount": 10,
+      "datasetQuoteUpdatedAt": "2026-11-11 16:14",
+      "datasetQuoteComplete": true,
+      "exclusionStats": {
+        "excludedByLimit": 10390,
+        "excludedByMonitor": 0,
+        "excludedByTriggered": 1,
+        "excludedByDataQuality": 369,
+        "excludedBySpecialStock": 198
+      },
+      "status": "ready",
+      "dataStage": "formal",
+      "dataQuality": "confirmed",
+      "ruleVersion": "v74",
+      "lastError": ""
+    },
+    "next_day": {
+      "available": true,
+      "phaseAvailable": true,
+      "tradeDate": "20261111",
+      "targetTradeDate": "20261112",
+      "updatedAt": "2026-11-12 00:08",
+      "ageSeconds": 28166,
+      "stale": false,
+      "effectiveScope": "next_day",
+      "phase": "pre_open",
+      "itemCount": 6,
+      "datasetQuoteUpdatedAt": "2026-11-11 16:14",
+      "datasetQuoteComplete": true,
+      "exclusionStats": {
+        "excludedByLimit": 9952,
+        "excludedByMonitor": 0,
+        "excludedByTriggered": 1,
+        "excludedByDataQuality": 811,
+        "excludedBySpecialStock": 197
+      },
+      "status": "ready",
+      "dataStage": "formal",
+      "dataQuality": "confirmed",
+      "ruleVersion": "v74",
+      "lastError": ""
+    }
+  },
+  "redis": {
+    "redisEnabled": true,
+    "redisPing": true
+  },
+  "market_error": "",
+  "deployment": "pending_console_publish",
+  "blocker": "Safari computer control timed out twice after user unlocked; manual publish requested",
+  "expected_git_commit": "727b0e7",
+  "miniprogram_upload": "1.0.21 already uploaded, 195096 bytes"
+}
