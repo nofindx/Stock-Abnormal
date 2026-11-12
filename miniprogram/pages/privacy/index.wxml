@@ -1,5 +1,5 @@
 <view class="legal-page">
-  <view class="legal-updated">更新日期：2026-10-19</view>
+  <view class="legal-updated">更新日期：2026-11-12（2.0.0本地候选）</view>
   <view class="legal-section">
     <view class="legal-heading">服务说明</view>
     <view class="legal-copy">本程序只提供股票搜索、单股计算、重点监控和异动预测功能，帮助你按照交易所公开规则和公开数据查看股票异动情况。本工具不要求登录，不提供账户、社交或支付功能。</view>
@@ -8,6 +8,11 @@
     <view class="legal-heading">信息处理</view>
     <view class="legal-copy">你主动输入或选择的股票名称、代码，仅用于股票搜索和展示对应结果。搜索历史由小程序保存在本地设备，你可以在页面清除。模拟计算的输入和结果只保留在当前页面，不上传到服务端，不写入生产数据。</view>
     <view class="legal-copy">本工具不收集姓名、手机号、身份证号、位置、通讯录、相册、麦克风或其他与功能无关的个人信息，也不建立用户画像。</view>
+  </view>
+  <view class="legal-section">
+    <view class="legal-heading">官方广告与功能解锁</view>
+    <view class="legal-copy">本候选具备接入微信官方展示广告及激励视频广告的能力。广告关闭时不加载广告；实际启用后，首页、异动预测、单股计算和重点监控的指定位置可能展示广告。广告素材及投放由微信官方组件处理，具体信息处理以平台适用的隐私说明及协议为准。</view>
+    <view class="legal-copy">激励模式启用后，点击“10日计算”或已就绪的“次日预测”将先说明观看条件，由你选择是否观看。完整观看后仅解锁本次页面中对应功能；提前关闭或加载失败不新增解锁。查询、行情、四项预警、2日模拟、当日预测、重点监控及公告阅读仍可直接使用。应用不向广告参数传入本地搜索历史、模拟输入或股票风险标签，不为广告新增登录及无关权限。</view>
   </view>
   <view class="legal-section">
     <view class="legal-heading">使用规则</view>

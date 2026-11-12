@@ -1,0 +1,2 @@
+.ad-slot { width: 100%; box-sizing: border-box; }
+.ad-slot-loaded { margin: 24rpx 0; }

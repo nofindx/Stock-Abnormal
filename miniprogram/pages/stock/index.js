@@ -1,6 +1,8 @@
 // 单股查询页：基础行情与当前状态来自后端，未来假设输入在本地即时重算。
 const { searchStocks, getStockDetail, refreshStockDetail } = require('../../utils/api')
 const { businessDateKey: stockBusinessDateKey, businessBoundaryKey, startBoundaryWatch, stopBoundaryWatch } = require('../../utils/business-boundary')
+const { createRewardedAccess } = require('../../utils/rewarded-access')
+const { client: adsConfig } = require('../../utils/ads-config')
 
 function formatSimulationDate(value) {
   const text = String(value == null ? '' : value).trim()
@@ -624,10 +626,13 @@ Page({
     query: '', suggestions: [], suggestionHint: false, suggestionTotal: 0, selected: null, detail: null, recentStocks: [],
     detailLoading: false, detailError: '', searchError: '', searchFocused: false, dataUpdatedAt: '',
     futureTradeDates: [], nextDayForecastLine: '', nextDayForecastText: '正在核对下一交易日预测…', nextDayForecastNotice: '',
-    dayOptions: ['10'], simulationExpanded: false, simulationReady: false, visibleDays: 2,
+    dayOptions: ['10'], simulationExpanded: false, simulationReady: false, visibleDays: 2, simulationRewarded: false, simulationUnlocking: false,
     inputRows: createInputRows(2), matrixGroups: buildMatrixGroups(createInputRows(2))
   },
   onLoad(options) {
+    this._stockDisposed = false
+    this._simulationAccess = createRewardedAccess()
+    adsConfig.policy('simulation_10d').then(policy => { if (!this._stockDisposed) this.setData({ simulationRewarded: policy.mode === 'rewarded' }) })
     this.setData({ recentStocks: (wx.getStorageSync(STOCK_HISTORY_KEY) || []).slice(0, 8) })
     if (options.ts_code) this.loadStockByCode(options.ts_code)
   },
@@ -658,6 +663,7 @@ Page({
     if (tabBar) tabBar.setData({ selected: 0 })
   },
   onQueryInput(event) {
+    this.invalidateSimulationAccess()
     const query = event.detail.value
     if (this.searchTimer) clearTimeout(this.searchTimer)
     this.searchRequestId = (this.searchRequestId || 0) + 1
@@ -677,6 +683,7 @@ Page({
   onSearchFocus() { this.setData({ searchFocused: true }) },
   onSearchBlur() { this.setData({ searchFocused: false }) },
   clearQuery() {
+    this.invalidateSimulationAccess()
     if (this.searchTimer) clearTimeout(this.searchTimer)
     this.searchRequestId = (this.searchRequestId || 0) + 1
     this.setData({ query: '', suggestions: [], suggestionHint: false, suggestionTotal: 0, searchError: '', selected: null, detail: null, detailError: '', dataUpdatedAt: '' })
@@ -698,6 +705,7 @@ Page({
       ? this.data.suggestions[eventOrStock.currentTarget.dataset.index]
       : eventOrStock
     if (!stock || !stock.ts_code) return
+    this.invalidateSimulationAccess()
     this._stockBusinessDate = stockBusinessDateKey()
     this._stockBoundaryKey = businessBoundaryKey()
     const initialBoundary = this._stockBoundaryKey
@@ -765,8 +773,7 @@ Page({
     if (!stock) return Promise.resolve()
     const requestId = this.detailRequestId = (this.detailRequestId || 0) + 1
     this.stockReadResult = null
-    const inputRows = createInputRows(this.data.visibleDays)
-    this.setData({ detail: null, detailLoading: true, detailError: '', dataUpdatedAt: '', futureTradeDates: [], simulationReady: false, inputRows, matrixGroups: buildMatrixGroups(inputRows), nextDayForecastLine: '', nextDayForecastText: '正在核对下一交易日预测…', nextDayForecastNotice: '' })
+    this.setData({ detail: null, detailLoading: true, detailError: '', dataUpdatedAt: '', futureTradeDates: [], simulationReady: false, nextDayForecastLine: '', nextDayForecastText: '正在核对下一交易日预测…', nextDayForecastNotice: '' })
     return getStockDetail(stock.ts_code).then(detail => {
       if (requestId !== this.detailRequestId) return
       this.stockReadResult = detail
@@ -793,7 +800,14 @@ Page({
         ? { ...detail, monitoring, monitoringStatus: 'active', monitoringStatusDisplay: '监管中' }
         : detail
       const futureTradeDates = detailWithMonitoring.futureTradeDates || []
-      const rows = calculateSimulationRows(createInputRows(2, futureTradeDates), detailWithMonitoring)
+      const baseKey = JSON.stringify([stockCode, detailWithMonitoring.tradeDate || '', futureTradeDates[0] || ''])
+      const sameBaseline = this._simulationBaseline === baseKey
+      if (!sameBaseline) this.invalidateSimulationAccess()
+      this._simulationBaseline = baseKey
+      const visibleDays = sameBaseline ? this.data.visibleDays : 2
+      const inputs = createInputRows(visibleDays, futureTradeDates).map((row, index) => sameBaseline && this.data.inputRows[index]
+        ? { ...row, stock: this.data.inputRows[index].stock, index: this.data.inputRows[index].index } : row)
+      const rows = calculateSimulationRows(inputs, detailWithMonitoring)
       const ruleFactsStatus = String((detailWithMonitoring.dataQuality && detailWithMonitoring.dataQuality.ruleFacts || {}).status || 'unknown')
       const marketDataAvailable = (
         (!detailWithMonitoring.stockState || detailWithMonitoring.stockState.marketDataState !== 'unavailable')
@@ -845,14 +859,39 @@ Page({
       const dataUpdatedAt = formatUpdatedAt((detailWithMonitoring.dataQuality || {}).quoteUpdatedAt || detailWithMonitoring.tradeDate)
       const recentStocks = [{ ts_code: detailWithMonitoring.ts_code || stock.ts_code, symbol: detailWithMonitoring.symbol || stock.symbol || stock.ts_code.split('.')[0], name: detailWithMonitoring.name || stock.name || stock.ts_code }, ...(this.data.recentStocks || []).filter(item => item.ts_code !== (detailWithMonitoring.ts_code || stock.ts_code))].slice(0, 8)
       wx.setStorageSync(STOCK_HISTORY_KEY, recentStocks)
-      this.setData({ selected: { ...stock, ...detailWithMonitoring }, detail: displayDetail, detailLoading: false, detailError: '', dataUpdatedAt, recentStocks, futureTradeDates, inputRows: rows, matrixGroups: buildMatrixGroups(rows), simulationReady: true, query: `${detailWithMonitoring.name} ${detailWithMonitoring.symbol}`, nextDayForecastLine: forecast.line, nextDayForecastText: forecast.text, nextDayForecastNotice: forecast.notice || '' })
+      this.setData({ selected: { ...stock, ...detailWithMonitoring }, detail: displayDetail, detailLoading: false, detailError: '', dataUpdatedAt, recentStocks, futureTradeDates, visibleDays, simulationExpanded: visibleDays === 10, inputRows: rows, matrixGroups: buildMatrixGroups(rows), simulationReady: true, query: `${detailWithMonitoring.name} ${detailWithMonitoring.symbol}`, nextDayForecastLine: forecast.line, nextDayForecastText: forecast.text, nextDayForecastNotice: forecast.notice || '' })
+  },
+  invalidateSimulationAccess() {
+    this._simulationEpoch = (this._simulationEpoch || 0) + 1
+    if (this._simulationAccess) this._simulationAccess.reset()
+    this._simulationBaseline = null
   },
   resetSimulationInputs() {
+    this.invalidateSimulationAccess()
+    if (this.data.detail) this._simulationBaseline = JSON.stringify([
+      (this.data.selected || {}).ts_code || this.data.detail.ts_code,
+      this.data.detail.tradeDate || '', this.data.futureTradeDates[0] || ''
+    ])
     const inputRows = calculateSimulationRows(createInputRows(2, this.data.futureTradeDates), this.data.detail)
     this.setData({ simulationExpanded: false, visibleDays: 2, inputRows, matrixGroups: buildMatrixGroups(inputRows), simulationReady: Boolean(this.data.detail) })
   },
-  expandSimulation() {
+  async expandSimulation() {
     if (this.data.simulationExpanded) return
+    const detail = this.data.detail
+    if (!detail || !this.data.simulationReady || (detail.simulationApplicability && detail.simulationApplicability.applicable !== true) ||
+        (detail.stockState || {}).marketDataState === 'unavailable' || (detail.dataQuality || {}).isComplete === false) {
+      wx.showToast({ title: (detail && (detail.simulationApplicability || {}).message) || '模拟数据暂不可用', icon: 'none' }); return
+    }
+    if (this.data.simulationUnlocking) return
+    if (!this._simulationAccess) this._simulationAccess = createRewardedAccess()
+    const epoch = this._simulationEpoch || 0
+    const key = JSON.stringify([epoch, (this.data.selected || {}).ts_code, detail.tradeDate || ''])
+    this.setData({ simulationUnlocking: true })
+    const allowed = await this._simulationAccess.request('simulation_10d', key,
+      () => !this._stockDisposed && epoch === (this._simulationEpoch || 0))
+    if (this._stockDisposed) return
+    this.setData({ simulationUnlocking: false })
+    if (!allowed || epoch !== (this._simulationEpoch || 0)) return
     const nextRows = createInputRows(10, this.data.futureTradeDates)
     const inputRows = calculateSimulationRows(nextRows.map((item, index) => ({ ...item, stock: this.data.inputRows[index] ? this.data.inputRows[index].stock : item.stock, index: this.data.inputRows[index] ? this.data.inputRows[index].index : item.index })), this.data.detail)
     this.setData({ simulationExpanded: true, visibleDays: 10, inputRows, matrixGroups: buildMatrixGroups(inputRows) })
@@ -886,6 +925,8 @@ Page({
   },
   onHide() { stopBoundaryWatch(this) },
   onUnload() {
+    this._stockDisposed = true
+    if (this._simulationAccess) this._simulationAccess.dispose()
     stopBoundaryWatch(this)
     this.detailRequestId = (this.detailRequestId || 0) + 1
     this.searchRequestId = (this.searchRequestId || 0) + 1

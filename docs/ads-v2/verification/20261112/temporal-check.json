@@ -1,0 +1,32 @@
+{
+  "checks": [
+    {
+      "id": "T8-OPEN-PAGE-0900",
+      "status": "pass",
+      "expected": "invalidate old current-day conclusions at business boundary; do not repeat automatic S2",
+      "actual": {
+        "s1Reads": 2,
+        "s2Requests": 0,
+        "oldTriggeredCards": 0
+      }
+    },
+    {
+      "id": "T8-OPEN-MONITOR-MIDNIGHT",
+      "status": "pass",
+      "expected": "remove or explicitly invalidate expired facts after business date changes",
+      "actual": {
+        "reads": 2,
+        "expiredCardsRetained": 0
+      }
+    },
+    {
+      "id": "T3-FAILED-STALE-PAGE",
+      "status": "pass",
+      "expected": "page visibly distinguishes failed/stale S2 from a successful refresh",
+      "actual": {
+        "message": "实时行情刷新失败，当前保留上次数据（可能已过期），请手动重试",
+        "errorBoundToVisibleTemplate": true
+      }
+    }
+  ]
+}

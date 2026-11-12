@@ -20,6 +20,7 @@
     </scroll-view>
     <view class="history-clear" hover-class="history-clear-pressed" aria-role="button" aria-label="清空搜索历史" bindtap="clearHistory"><image class="history-trash" src="/assets/clear-history.svg" mode="aspectFit" aria-hidden="true"></image></view>
   </view>
+  <official-ad placement="home_history_below" allowed="{{true}}"></official-ad>
   <block wx:if="{{!detail && !detailError && !detailLoading}}">
     <view class="guide-card card">
       <view class="guide-target" aria-label="异动计算引导图"><view class="guide-ring guide-ring-outer"><view class="guide-ring guide-ring-middle"><view class="guide-ring guide-ring-inner"><view class="guide-pointer"></view></view></view></view></view>
@@ -36,7 +37,7 @@
   <view wx:if="{{detailLoading}}" class="card loading-state">正在查询最新行情…</view>
   <view wx:if="{{detailError}}" class="card error-state">{{detailError}}</view>
 
-  <block wx:if="{{detail}}">
+  <view hidden="{{!detail}}">
     <view class="status-banner card status-{{detail.statusClass}}">
       <view class="status-main">
         <view class="summary-top"><view class="stock-identity"><text class="status-name">{{detail.name}}</text><text class="status-symbol">{{detail.symbol}}</text></view><view class="quote-line"><text class="status-price change {{detail.changeClass}}">{{detail.currentPrice}}</text><text class="change {{detail.changeClass}}">{{detail.change}}</text></view></view>
@@ -69,8 +70,10 @@
       </view>
     </view>
 
+    <official-ad placement="stock_simulation_above" allowed="{{!!detail && !detailLoading && !detailError}}"></official-ad>
     <view class="section simulation-section">
-      <view class="simulation-head"><view class="simulation-heading"><view class="simulation-title">模拟计算</view><view class="simulation-note">填入股票与指数涨幅后自动重算</view></view><view class="days-picker"><view class="day-option {{simulationExpanded ? 'active' : ''}}" hover-class="button-press" hover-stay-time="100" bindtap="expandSimulation" aria-role="button" aria-label="展开十日模拟计算">10日计算</view><view class="simulation-clear" hover-class="simulation-clear-pressed" hover-stay-time="360" bindtap="clearInputs" aria-role="button" aria-label="清空模拟输入并恢复{{simulationExpanded ? '十日' : '两日'}}默认计算"><image class="history-trash" src="/assets/clear-history.svg" mode="aspectFit" aria-hidden="true"></image></view></view></view>
+      <view class="simulation-head"><view class="simulation-heading"><view class="simulation-title">模拟计算</view><view class="simulation-note">填入股票与指数涨幅后自动重算</view></view><view class="days-picker"><view class="day-option {{simulationExpanded ? 'active' : ''}}" hover-class="button-press" hover-stay-time="100" bindtap="expandSimulation" aria-role="button" aria-label="展开十日模拟计算">{{simulationUnlocking ? '解锁中…' : '10日计算'}}</view><view class="simulation-clear" hover-class="simulation-clear-pressed" hover-stay-time="360" bindtap="clearInputs" aria-role="button" aria-label="清空模拟输入并恢复{{simulationExpanded ? '十日' : '两日'}}默认计算"><image class="history-trash" src="/assets/clear-history.svg" mode="aspectFit" aria-hidden="true"></image></view></view></view>
+      <view wx:if="{{simulationRewarded && !simulationExpanded}}" class="simulation-note">完整观看视频，解锁本次页面的10日计算</view>
       <view wx:if="{{!simulationReady}}" class="simulation-loading">{{detailLoading ? '正在计算模拟基线…' : '模拟数据暂不可用'}}</view>
       <block wx:if="{{simulationReady}}">
       <view wx:for="{{matrixGroups}}" wx:for-item="matrix" wx:key="groupKey" class="matrix-card {{matrix.countClass}}">
@@ -79,7 +82,7 @@
       </view>
       </block>
     </view>
-  </block>
+  </view>
   <view class="legal-footer-links">
     <navigator class="page-footer-link" url="/pages/privacy/index" hover-class="tap-feedback" hover-stay-time="80">隐私与用户协议</navigator>
     <text class="footer-separator">·</text>

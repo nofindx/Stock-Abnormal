@@ -1,6 +1,6 @@
-// 小程序运行时仅加载 JS 模块；JSON 文件用于发布元信息对账。
+// 本地广告候选；冻结1.0.21见Git标签。
 module.exports = {
-  "releaseId": "20261111.1",
-  "miniProgramVersion": "1.0.21",
+  "releaseId": "20261112.ads-local.1",
+  "miniProgramVersion": "2.0.0",
   "quoteRefreshPolicy": "latest-available-all-hours"
 }

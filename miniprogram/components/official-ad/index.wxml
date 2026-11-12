@@ -1,0 +1,3 @@
+<view hidden="{{!allowed || !foreground || failed}}" class="ad-slot {{loaded ? 'ad-slot-loaded' : ''}}">
+  <ad-custom wx:if="{{mounted}}" unit-id="{{unitId}}" bind:load="onAdLoad" bind:error="onAdError"></ad-custom>
+</view>

@@ -1,1 +1,9 @@
-{"navigationBarTitleText":"异动预测","navigationBarBackgroundColor":"#FFFFFF","navigationBarTextStyle":"black","enablePullDownRefresh":true}
+{
+  "navigationBarTitleText": "异动预测",
+  "navigationBarBackgroundColor": "#FFFFFF",
+  "navigationBarTextStyle": "black",
+  "enablePullDownRefresh": true,
+  "usingComponents": {
+    "official-ad": "/components/official-ad/index"
+  }
+}

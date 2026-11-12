@@ -52,6 +52,10 @@ function getPredictions(scope) {
   return withReadContext('prediction', role, '', token => getVNextPredictions(token, role))
 }
 
+function getNextPredictionStatus() {
+  return request({ url: '/api/predictions/next-status', timeout: 8000, retry: 0 }).then(response => response.data)
+}
+
 function refreshPredictions(scope, readResult) {
   const role = scope === 'next_day' ? 'next' : 'current'
   return withReadContext('prediction', role, '', token => request({
@@ -75,4 +79,4 @@ function getVNextPredictions(readToken, role = 'current') {
   return request({ url: '/api/v2/predictions', data: { read_token: readToken, role }, timeout: 8000 }).then((response) => response.data || { items: [] })
 }
 
-module.exports = { searchStocks, getStockDetail, refreshStockDetail, getMonitor, getPredictions, refreshPredictions, getRealtimeQuotes, getVNextContext, getVNextPredictions }
+module.exports = { searchStocks, getStockDetail, refreshStockDetail, getMonitor, getPredictions, getNextPredictionStatus, refreshPredictions, getRealtimeQuotes, getVNextContext, getVNextPredictions }

@@ -1,0 +1,29 @@
+{
+  "javascriptSyntax": {
+    "passed": true,
+    "files": 31
+  },
+  "jsonAndComponentReferences": {
+    "passed": true,
+    "files": 12
+  },
+  "releaseConsistency": {
+    "passed": true,
+    "releaseId": "20261112.ads-local.1",
+    "miniProgramVersion": "2.0.0",
+    "quoteRefreshPolicy": "latest-available-all-hours"
+  },
+  "wcc": {
+    "passed": true,
+    "files": 7,
+    "output": "temporary local compiler output; not committed"
+  },
+  "wcsc": {
+    "passed": true,
+    "files": 8,
+    "output": "temporary local compiler output; not committed"
+  },
+  "diffWhitespace": {
+    "passed": true
+  }
+}

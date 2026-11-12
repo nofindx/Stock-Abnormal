@@ -5,6 +5,10 @@ function request(options) {
   const app = getApp()
   const globalData = (app && app.globalData) || {}
   let baseUrl = globalData.apiBaseUrl || ''
+  if (globalData.localDevelopmentOnly) {
+    baseUrl = globalData.devApiBaseUrl || 'http://127.0.0.1:8787'
+    if (!/^http:\/\/127\.0\.0\.1:\d+$/.test(baseUrl)) return Promise.reject(new Error('本地候选禁止访问云端服务'))
+  }
   if (!baseUrl && globalData.devApiBaseUrl && wx.getAccountInfoSync) {
     try {
       const envVersion = wx.getAccountInfoSync().miniProgram.envVersion

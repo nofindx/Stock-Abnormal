@@ -18,6 +18,7 @@ from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, quote, urlparse
 
+from .client_config import load_client_config, next_prediction_status
 from .services.market_service import CalculationDataUnavailable, MarketService, SHANGHAI_TZ, PREDICTION_RULE_VERSION
 from .data.publication_store import PublicationStore, PublicationUnavailable
 from .services.read_publications import ReadPublications
@@ -187,6 +188,8 @@ class ApiHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Vary", "Accept")
+        if urlparse(self.path).path in ("/api/client-config", "/api/predictions/next-status"):
+            self.send_header("Cache-Control", "no-store")
         self.send_header("Access-Control-Allow-Origin", "*")
         self.end_headers()
         self.wfile.write(body)
@@ -256,6 +259,18 @@ class ApiHandler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         query = parse_qs(parsed.query)
         try:
+            if parsed.path == "/api/client-config":
+                try:
+                    data = load_client_config()
+                except ValueError:
+                    self._respond({"code": 50305, "data": None, "message": "广告配置暂不可用"}, status=503)
+                    return
+                self._respond({"code": 0, "data": data, "message": "ok"})
+                return
+            if parsed.path == "/api/predictions/next-status":
+                data = next_prediction_status(SERVICE.predictions("next_day"))
+                self._respond({"code": 0, "data": data, "message": "ok"})
+                return
             if parsed.path in ("/health", "/health/ui"):
                 market_calc_error = ""
                 now = datetime.now(SHANGHAI_TZ)

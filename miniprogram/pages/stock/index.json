@@ -1,1 +1,9 @@
-{"navigationBarTitleText":"单股计算","navigationBarBackgroundColor":"#FFFFFF","navigationBarTextStyle":"black","enablePullDownRefresh":true}
+{
+  "navigationBarTitleText": "单股计算",
+  "navigationBarBackgroundColor": "#FFFFFF",
+  "navigationBarTextStyle": "black",
+  "enablePullDownRefresh": true,
+  "usingComponents": {
+    "official-ad": "/components/official-ad/index"
+  }
+}

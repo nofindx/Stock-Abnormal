@@ -1,0 +1,52 @@
+TEST miniprogram/app.test.js
+mini-program JS-only App startup tests passed (develop/trial/release)
+EXIT 0
+
+TEST miniprogram/components/official-ad/index.test.js
+official ad component tests passed: visibility, one mount, config shutdown, late load/error/config, content
+EXIT 0
+
+TEST miniprogram/pages/ads-integration.test.js
+ad page integration tests passed: input/refresh/reset, IPO, next readiness/target, retry, S2 isolation, free defaults
+EXIT 0
+
+TEST miniprogram/pages/business-boundary.test.js
+business boundary tests passed: visible edges, resume, same-stock, availability, races, timer cleanup, Shanghai timezone
+EXIT 0
+
+TEST miniprogram/pages/monitor/index.test.js
+monitor display-filter tests passed
+monitor tab-switch freshness tests passed
+EXIT 0
+
+TEST miniprogram/pages/prediction/index.test.js
+prediction page tests passed
+EXIT 0
+
+TEST miniprogram/pages/prediction/prediction.test.js
+prediction first-open tests passed
+EXIT 0
+
+TEST miniprogram/pages/refresh-lifecycle.test.js
+page refresh lifecycle tests passed
+EXIT 0
+
+TEST miniprogram/pages/stock/simulation.test.js
+stock simulation tests passed
+EXIT 0
+
+TEST miniprogram/utils/ads-config.test.js
+ad config tests passed: cache, single-flight, backoff, fail-closed known gates, defaults, malformed/version
+EXIT 0
+
+TEST miniprogram/utils/api.test.js
+API context reuse and expiry recovery tests passed
+EXIT 0
+
+TEST miniprogram/utils/request-local.test.js
+local request isolation tests passed: loopback only, no production container fallback
+EXIT 0
+
+TEST miniprogram/utils/rewarded-access.test.js
+rewarded access tests passed: full/partial, duplicate, failures, reset/dispose, independent scopes, compatibility
+EXIT 0
