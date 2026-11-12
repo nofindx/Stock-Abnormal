@@ -656,6 +656,7 @@ Page({
       || (this._stockBoundaryKey && boundary !== this._stockBoundaryKey)
     this._stockBusinessDate = date
     this._stockBoundaryKey = boundary
+    this.ensureStockCacheScope()
     if (changed && this.data.selected) return this.reloadStockS1ForBoundary()
   },
   syncTabBar() {
@@ -700,6 +701,26 @@ Page({
     if (!tsCode) return
     this.chooseStock({ ts_code: tsCode, symbol: tsCode.split('.')[0], name: '正在加载' })
   },
+  ensureStockCacheScope() {
+    const boundary = businessBoundaryKey()
+    if (this._stockCacheBoundary !== boundary) {
+      this._stockViews = new Map()
+      this._stockCacheBoundary = boundary
+    }
+  },
+  saveStockView(detail, error = this.data.detailError) {
+    this.ensureStockCacheScope()
+    const code = detail && (detail.ts_code || (this.data.selected || {}).ts_code)
+    if (!code) return
+    if ((detail.stockState || {}).marketDataState === 'unavailable' || (detail.dataQuality || {}).isComplete === false) {
+      this._stockViews.delete(code)
+      return
+    }
+    this._stockViews.delete(code)
+    this._stockViews.set(code, { detail, error })
+    // Bound memory on the client; raw market inputs only, never simulation input or grants.
+    if (this._stockViews.size > 8) this._stockViews.delete(this._stockViews.keys().next().value)
+  },
   chooseStock(eventOrStock) {
     const stock = eventOrStock && eventOrStock.currentTarget
       ? this.data.suggestions[eventOrStock.currentTarget.dataset.index]
@@ -708,6 +729,7 @@ Page({
     this.invalidateSimulationAccess()
     this._stockBusinessDate = stockBusinessDateKey()
     this._stockBoundaryKey = businessBoundaryKey()
+    this.ensureStockCacheScope()
     const initialBoundary = this._stockBoundaryKey
     getApp().globalData.lastStock = stock
     const recentStocks = [{ ts_code: stock.ts_code, symbol: stock.symbol || stock.ts_code.split('.')[0], name: stock.name || stock.ts_code }, ...(this.data.recentStocks || []).filter(item => item.ts_code !== stock.ts_code)].slice(0, 8)
@@ -718,10 +740,19 @@ Page({
     const requestId = this.detailRequestId
     this.setData({ selected: stock, detail: null, detailLoading: true, detailError: '', dataUpdatedAt: '', nextDayForecastLine: '', nextDayForecastText: '正在核对下一交易日预测…', nextDayForecastNotice: '', query: stock.name === '正在加载' ? stock.ts_code : `${stock.name} ${stock.symbol}`, suggestions: [], suggestionHint: false, inputRows, matrixGroups: buildMatrixGroups(inputRows), simulationExpanded: false, simulationReady: false, visibleDays: 2 })
     const render = detail => {
+      if (requestId !== this.detailRequestId || initialBoundary !== businessBoundaryKey()) return detail
       if (requestId === this.detailRequestId) this.stockReadResult = detail
       this.renderStockDetail(detail, { items: detail.monitoringFacts || [] }, stock, requestId)
       this.showQuoteRefreshState(detail, requestId)
+      this.saveStockView(detail)
       return detail
+    }
+    const cached = this._stockViews.get(stock.ts_code)
+    if (cached) {
+      render(cached.detail)
+      this.setData({ detailError: cached.error || this.data.detailError })
+      this.saveStockView(cached.detail)
+      return Promise.resolve(cached.detail)
     }
     return getStockDetail(stock.ts_code).then(render).then(detail => {
       if (requestId !== this.detailRequestId || initialBoundary !== businessBoundaryKey() || !detail.realtimeRefreshAllowed) return
@@ -729,6 +760,7 @@ Page({
         .catch(() => {
           if (requestId === this.detailRequestId) {
             this.setData({ detailError: '实时行情刷新失败，当前保留上次数据（可能已过期），请下拉刷新重试' })
+            if (this.stockReadResult) this.saveStockView(this.stockReadResult)
           }
         })
     }).catch((error) => {
@@ -739,17 +771,22 @@ Page({
     })
   },
   onPullDownRefresh() {
+    if (this._stockBoundaryKey && this._stockBoundaryKey !== businessBoundaryKey()) {
+      return Promise.resolve(this.checkTimeBoundary()).then(() => this.onPullDownRefresh())
+    }
     const stock = this.data.selected
     if (!stock || this.data.detailLoading || this.detailRefreshPromise) {
       wx.stopPullDownRefresh()
       return this.detailRefreshPromise || Promise.resolve()
     }
     const requestId = this.detailRequestId
+    const boundary = businessBoundaryKey()
     const request = refreshStockDetail(stock.ts_code, this.stockReadResult).then(detail => {
-      if (requestId !== this.detailRequestId) return
+      if (requestId !== this.detailRequestId || boundary !== businessBoundaryKey()) return
       this.stockReadResult = detail
       this.renderStockDetail(detail, { items: detail.monitoringFacts || [] }, stock, requestId)
       this.showQuoteRefreshState(detail, requestId)
+      this.saveStockView(detail)
     }).catch(() => {
       if (requestId === this.detailRequestId) wx.showToast({ title: '刷新失败，请稍后重试', icon: 'none' })
     })
@@ -769,15 +806,18 @@ Page({
     }
   },
   reloadStockS1ForBoundary() {
+    this.ensureStockCacheScope()
     const stock = this.data.selected
     if (!stock) return Promise.resolve()
     const requestId = this.detailRequestId = (this.detailRequestId || 0) + 1
+    const boundary = businessBoundaryKey()
     this.stockReadResult = null
     this.setData({ detail: null, detailLoading: true, detailError: '', dataUpdatedAt: '', futureTradeDates: [], simulationReady: false, nextDayForecastLine: '', nextDayForecastText: '正在核对下一交易日预测…', nextDayForecastNotice: '' })
     return getStockDetail(stock.ts_code).then(detail => {
-      if (requestId !== this.detailRequestId) return
+      if (requestId !== this.detailRequestId || boundary !== businessBoundaryKey()) return
       this.stockReadResult = detail
       this.renderStockDetail(detail, { items: detail.monitoringFacts || [] }, stock, requestId)
+      this.saveStockView(detail)
       // Boundary changes replace S1 only; S2 remains first-open/manual only.
     }).catch(() => {
       if (requestId === this.detailRequestId) this.setData({ detailLoading: false, detailError: '行情暂时不可用，请手动刷新重试' })
@@ -926,6 +966,7 @@ Page({
   onHide() { stopBoundaryWatch(this) },
   onUnload() {
     this._stockDisposed = true
+    this._stockViews = new Map()
     if (this._simulationAccess) this._simulationAccess.dispose()
     stopBoundaryWatch(this)
     this.detailRequestId = (this.detailRequestId || 0) + 1

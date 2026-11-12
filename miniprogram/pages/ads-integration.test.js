@@ -116,6 +116,9 @@ async function run(){
   assert.strictEqual(quotes,0,'tab/award does not request S2')
   await prediction.switchScope({currentTarget:{dataset:{scope:'today'}}})
   target='20261116'
+  // A new date/phase discards prior views. Within an unchanged boundary,
+  // a tab revisit deliberately restores its already-read target without a GET.
+  prediction._scopeViews={}
   p=prediction.switchScope({currentTarget:{dataset:{scope:'next_day'}}});await tick()
   assert.strictEqual(advertisements.length,count+2)
   target='20261117'
@@ -123,7 +126,7 @@ async function run(){
   assert.strictEqual(prediction.data.scope,'today','target changed while viewing cannot enter old pool')
   assert.strictEqual(prediction.data.nextUnlocked,false)
   prediction.onUnload()
-  assert(statusCalls>=6)
+  assert(statusCalls>=5)
 
   // The unqualified/default configuration must retain the original free entry paths.
   client.policy=async()=>({mode:'free',ready:true})

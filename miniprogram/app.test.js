@@ -35,9 +35,10 @@ function boot(envVersion) {
   definition.onLaunch()
   assert.deepStrictEqual(JSON.parse(JSON.stringify(definition.globalData.releaseInfo)), JSON.parse(fs.readFileSync(path.join(root, 'release-info.json'), 'utf8')))
   assert.strictEqual(definition.globalData.cloudService, 'flask-9a5y')
-  assert.strictEqual(definition.globalData.devApiBaseUrl, 'http://127.0.0.1:8787')
-  assert.strictEqual(definition.globalData.localDevelopmentOnly, true)
-  assert.strictEqual(cloudCalls.length, 0, 'local-only candidate must never initialize production cloud')
+  assert.strictEqual(definition.globalData.devApiBaseUrl, 'https://flask-9a5y-319926-10-1496305218.sh.run.tcloudbase.com')
+  assert.strictEqual(definition.globalData.localDevelopmentOnly, false)
+  assert.strictEqual(cloudCalls.length, envVersion === 'develop' ? 0 : 1,
+    'developer tools use the existing HTTPS source; trial/release retain cloud initialization')
   if (cloudCalls.length) assert.strictEqual(cloudCalls[0].traceUser, false)
 }
 

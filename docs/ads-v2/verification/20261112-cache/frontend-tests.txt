@@ -1,0 +1,60 @@
+miniprogram/app.test.js
+mini-program JS-only App startup tests passed (develop/trial/release)
+EXIT 0
+
+miniprogram/components/official-ad/index.test.js
+official ad component tests passed: visibility, one mount, config shutdown, late load/error/config, content
+EXIT 0
+
+miniprogram/pages/ads-integration.test.js
+ad page integration tests passed: input/refresh/reset, IPO, next readiness/target, retry, S2 isolation, free defaults
+EXIT 0
+
+miniprogram/pages/business-boundary.test.js
+business boundary tests passed: visible edges, resume, same-stock, availability, races, timer cleanup, Shanghai timezone
+EXIT 0
+
+miniprogram/pages/local-view-cache.test.js
+local page cache tests passed: stock reuse/LRU/manual/date/quality; monitor local filters/unified countdown/PDF renewal/date
+EXIT 0
+
+miniprogram/pages/monitor/index.test.js
+monitor display-filter tests passed
+monitor tab-switch freshness tests passed
+EXIT 0
+
+miniprogram/pages/prediction/index.test.js
+prediction page tests passed
+EXIT 0
+
+miniprogram/pages/prediction/prediction.test.js
+prediction first-open tests passed
+EXIT 0
+
+miniprogram/pages/prediction/scope-cache.test.js
+prediction scope cache tests passed: zero-read revisits, per-tab tokens, latest S2, failure warning, late response, boundary, unavailable, unload
+EXIT 0
+
+miniprogram/pages/refresh-lifecycle.test.js
+page refresh lifecycle tests passed
+EXIT 0
+
+miniprogram/pages/stock/simulation.test.js
+stock simulation tests passed
+EXIT 0
+
+miniprogram/utils/ads-config.test.js
+ad config tests passed: cache, single-flight, backoff, fail-closed known gates, defaults, malformed/version
+EXIT 0
+
+miniprogram/utils/api.test.js
+API context reuse and expiry recovery tests passed
+EXIT 0
+
+miniprogram/utils/request-local.test.js
+request route tests passed: explicit loopback isolation; actual App defaults use cloud HTTPS in develop and callContainer in trial
+EXIT 0
+
+miniprogram/utils/rewarded-access.test.js
+rewarded access tests passed: full/partial, duplicate, failures, reset/dispose, independent scopes, compatibility
+EXIT 0

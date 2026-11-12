@@ -1,8 +1,9 @@
 // 小程序启动文件：初始化微信云托管，不收集用户身份信息。
 const CLOUD_ENV = 'prod-d1g25zvvkd79d524b'
 const releaseInfo = require('./release-info')
-// 此分支目前只做本地联调。正式提审前需显式退出本地模式并另行验收。
-const LOCAL_DEVELOPMENT_ONLY = true
+// 本地开发默认复用既有云端数据。仅启动隔离后端联调时显式设为true，
+// 并将devApiBaseUrl设为环回地址；本地开发不等于必须运行本地后端。
+const LOCAL_DEVELOPMENT_ONLY = false
 
 App({
   onLaunch() {
@@ -28,8 +29,8 @@ App({
     cloudService: 'flask-9a5y',
     // 本地联调时可临时填写 http://127.0.0.1:8787；留空即使用云托管。
     apiBaseUrl: '',
-    // 本地候选在所有环境仅访问环回服务；后续获准发布时再恢复原云托管入口并验收。
-    devApiBaseUrl: 'http://127.0.0.1:8787',
+    // 沿用冻结版：开发者工具读取原云服务；体验/正式环境使用callContainer。
+    devApiBaseUrl: 'https://flask-9a5y-319926-10-1496305218.sh.run.tcloudbase.com',
     lastStock: null,
     pendingStock: null,
     lastPredictionRefresh: null

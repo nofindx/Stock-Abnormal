@@ -54,6 +54,7 @@ Page({
   onLoad() {
     this._predictionDisposed = false
     this._nextAccess = createRewardedAccess()
+    this._scopeViews = {}
     adsConfig.policy('prediction_next').then(policy => { if (!this._predictionDisposed) this.setData({ nextRewarded: policy.mode === 'rewarded' }) })
     // A tab page lives across onShow calls. Initialize once per page instance;
     // subsequent quote updates are explicit pull-down refreshes.
@@ -74,6 +75,7 @@ Page({
     const boundary = predictionBoundaryKey()
     if (this._predictionBoundaryKey && boundary !== this._predictionBoundaryKey) {
       this._predictionBoundaryKey = boundary
+      this._scopeViews = {}
       // Business-boundary changes replace S1 only. S2 remains first-open/manual.
       this.readResult = null
       this.setData({ items: [], quoteUpdatedAt: '', dataQuality: {}, dataUnavailable: false, refreshing: false })
@@ -82,6 +84,10 @@ Page({
   },
   switchScope(event) {
     const scope = event.currentTarget.dataset.scope
+    if (!['today', 'next_day'].includes(scope)) return
+    if (this._predictionBoundaryKey && this._predictionBoundaryKey !== predictionBoundaryKey()) {
+      return Promise.resolve(this.checkTimeBoundary()).then(() => this.switchScope(event))
+    }
     if (scope === 'today') this._nextIntent = (this._nextIntent || 0) + 1
     if (scope === 'next_day' && !this.data.nextDayAvailable) {
       const reason = this.data.nextDayReason || '收盘数据准备后开放'
@@ -101,9 +107,29 @@ Page({
     if (scope === 'next_day') return this.unlockNextPrediction()
     return this.enterPredictionScope(scope)
   },
+  cachedScope(scope) {
+    const cached = (this._scopeViews || {})[scope]
+    return cached && cached.boundary === predictionBoundaryKey() ? cached : null
+  },
+  saveScopeView(scope) {
+    if (!this._scopeViews) this._scopeViews = {}
+    if (!this.readResult || this.data.dataUnavailable) { delete this._scopeViews[scope]; return }
+    this._scopeViews[scope] = { boundary: predictionBoundaryKey(), result: this.readResult,
+      view: { items: this.data.items, quoteUpdatedAt: this.data.quoteUpdatedAt,
+        dataQuality: this.data.dataQuality, dataUnavailable: this.data.dataUnavailable, error: this.data.error } }
+  },
   enterPredictionScope(scope) {
+    // Invalidate pending S1/S2 even when restoring a cached view without a read.
+    this.readRequestId = (this.readRequestId || 0) + 1
+    const cached = this.cachedScope(scope)
+    if (cached) {
+      this.readResult = cached.result
+      this.setData({ ...cached.view, scope, loading: false, refreshing: false })
+      getApp().globalData.lastPredictionRefresh = cached.result.quoteUpdatedAt || null
+      return Promise.resolve(cached.result)
+    }
     this.readResult = null
-    this.setData({ scope, items: [], quoteUpdatedAt: '', refreshing: false, error: '' })
+    this.setData({ scope, items: [], quoteUpdatedAt: '', dataQuality: {}, dataUnavailable: false, refreshing: false, error: '' })
     return this.loadData()
   },
   async unlockNextPrediction() {
@@ -119,9 +145,16 @@ Page({
       this.setData({ nextRewarded: policy.mode === 'rewarded' })
       // Free configuration preserves the existing API path and legacy compatibility.
       if (policy.mode === 'free') return this.enterPredictionScope('next_day')
+      const cached = this.cachedScope('next_day')
+      if (cached && this._nextAccess.has('prediction_next', cached.result.targetTradeDate)) {
+        this._nextTarget = cached.result.targetTradeDate
+        this.setData({ nextUnlocked: true })
+        return this.enterPredictionScope('next_day')
+      }
       const status = await getNextPredictionStatus()
       if (!current()) return
       if (!status.available) {
+        if (this._scopeViews) delete this._scopeViews.next_day
         this._nextAccess.reset()
         this.setData({ nextUnlocked: false })
         wx.showToast({ title: status.reason || '次日预测数据暂不可用', icon: 'none' }); return
@@ -137,6 +170,7 @@ Page({
       const latest = await getNextPredictionStatus()
       if (!current()) return
       if (!latest.available || latest.targetTradeDate !== target) {
+        if (this._scopeViews) delete this._scopeViews.next_day
         this._nextAccess.reset()
         this.setData({ nextUnlocked: false })
         wx.showToast({ title: '预测日期或状态已更新，请重新进入', icon: 'none' }); return
@@ -152,6 +186,7 @@ Page({
   returnToTodayIfClosed(result, scope) {
     if (scope !== 'next_day' || result.nextDayAvailable !== false) return false
     this.readResult = null
+    if (this._scopeViews) delete this._scopeViews.next_day
     if (this._nextAccess) this._nextAccess.reset()
     this.setData({ nextUnlocked: false })
     this.setData({ scope: 'today', items: [], quoteUpdatedAt: '', dataQuality: {}, dataUnavailable: false, refreshing: false, nextDayAvailable: false, nextDayReason: result.nextDayReason || '' })
@@ -159,10 +194,12 @@ Page({
   },
   loadData() {
     const scope = this.data.scope
+    const boundary = predictionBoundaryKey()
     const requestId = this.readRequestId = (this.readRequestId || 0) + 1
     this.setData({ loading: true, error: '' })
     return getPredictions(scope).then((result) => {
-      if (requestId !== this.readRequestId || scope !== this.data.scope) return null
+      if (requestId !== this.readRequestId || scope !== this.data.scope || boundary !== predictionBoundaryKey()) return null
+      if (result.nextDayAvailable === false && this._scopeViews) delete this._scopeViews.next_day
       if (this.returnToTodayIfClosed(result, scope)) return this.loadData()
       if (scope === 'next_day' && this.data.nextRewarded && result.targetTradeDate !== this._nextTarget) {
         if (this._nextAccess) this._nextAccess.reset()
@@ -173,6 +210,7 @@ Page({
       const quoteUpdatedAt = formatUpdatedAt(result.quoteUpdatedAt)
       this.setData({ items: normalizeItems(result.items, this.data.scope), quoteUpdatedAt, dataQuality: result.dataQuality || {}, dataUnavailable: Boolean(result.dataUnavailable), loading: false, refreshing: false, error: refreshFailureMessage(result), nextDayAvailable: result.nextDayAvailable !== false, nextDayReason: result.nextDayReason || '' })
       getApp().globalData.lastPredictionRefresh = result.quoteUpdatedAt || null
+      this.saveScopeView(scope)
       return result
     }).catch(() => {
       if (requestId !== this.readRequestId || scope !== this.data.scope) return
@@ -180,12 +218,17 @@ Page({
     })
   },
   refresh() {
+    if (this._predictionBoundaryKey && this._predictionBoundaryKey !== predictionBoundaryKey()) {
+      return Promise.resolve(this.checkTimeBoundary()).then(() => this.refresh())
+    }
     if (this.data.refreshing || this.data.loading) return Promise.resolve()
     this.setData({ refreshing: true, error: '' })
     const scope = this.data.scope
+    const boundary = predictionBoundaryKey()
     const requestId = this.readRequestId
     return refreshPredictions(scope, this.readResult).then((result) => {
-      if (requestId !== this.readRequestId || scope !== this.data.scope) return null
+      if (requestId !== this.readRequestId || scope !== this.data.scope || boundary !== predictionBoundaryKey()) return null
+      if (result.nextDayAvailable === false && this._scopeViews) delete this._scopeViews.next_day
       if (this.returnToTodayIfClosed(result, scope)) return this.loadData()
       if (scope === 'next_day' && this.data.nextRewarded && result.targetTradeDate !== this._nextTarget) {
         if (this._nextAccess) this._nextAccess.reset()
@@ -197,15 +240,17 @@ Page({
       const quoteUpdatedAt = formatUpdatedAt(result.quoteUpdatedAt)
       this.setData({ refreshing: false, items, quoteUpdatedAt, dataQuality: result.dataQuality || {}, dataUnavailable: Boolean(result.dataUnavailable), error: refreshFailureMessage(result), nextDayAvailable: result.nextDayAvailable !== false, nextDayReason: result.nextDayReason || '' })
       getApp().globalData.lastPredictionRefresh = result.quoteUpdatedAt || null
+      this.saveScopeView(scope)
       return result
     }).catch(() => {
       if (requestId !== this.readRequestId || scope !== this.data.scope) return null
       this.setData({ refreshing: false, error: '刷新失败，请稍后重试' })
+      this.saveScopeView(scope)
       return { refreshStatus: 'failed' }
     })
   },
   onPullDownRefresh() {
-    // 仅使用小程序系统下拉刷新；切换 Tab 仍只读已发布数据集。
+    // 手动刷新取最新行情；已加载标签切回只恢复本页内存视图。
     return this.refresh().finally(() => wx.stopPullDownRefresh())
   },
   openStock(event) {
@@ -217,6 +262,7 @@ Page({
   onHide() { stopBoundaryWatch(this) },
   onUnload() {
     this._predictionDisposed = true
+    this._scopeViews = {}
     this._nextIntent = (this._nextIntent || 0) + 1
     if (this._nextAccess) this._nextAccess.dispose()
     stopBoundaryWatch(this)

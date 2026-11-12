@@ -5,7 +5,7 @@ const { businessDateKey, startBoundaryWatch, stopBoundaryWatch } = require('../.
 
 Page({
   data: { type: 'all', items: [], rawItems: [], visibleCount: 0, updatedAt: '', loading: false, refreshing: false, error: '', skeletonRows: [0, 1, 2, 3], types: [{ key: 'all', label: '全部' }, { key: 'risk', label: '风险提示' }, { key: 'severe', label: '严重异动' }, { key: 'delisting', label: '退市整理' }] },
-  onLoad() { this._monitorBusinessDate = businessDateKey(); this.loadData() },
+  onLoad() { this._monitorDisposed = false; this._monitorBusinessDate = businessDateKey(); return this.loadData() },
   onShow() {
     const tabBar = this.getTabBar && this.getTabBar()
     if (tabBar) tabBar.setData({ selected: 1 })
@@ -17,6 +17,8 @@ Page({
     const date = businessDateKey()
     if (this._monitorBusinessDate && date !== this._monitorBusinessDate) {
       this._monitorBusinessDate = date
+      this._hasMonitorView = false
+      this._monitorLoadedAt = 0
       if (this.pollTimer) clearTimeout(this.pollTimer)
       this.pollTimer = null
       this.pollAttempts = 0
@@ -30,34 +32,39 @@ Page({
     this.loadData()
   },
   selectType(event) {
-    this.requestSeq = (this.requestSeq || 0) + 1
-    if (this.pollTimer) clearTimeout(this.pollTimer)
-    this.pollAttempts = 0
-    this.setData({
-      type: event.currentTarget.dataset.type,
-      items: [], rawItems: [], visibleCount: 0, updatedAt: '', error: '', loading: true
-    }, () => this.loadData())
+    const type = event.currentTarget.dataset.type
+    if (!this.data.types.some(item => item.key === type)) return
+    this.setData({ type })
+    if (this._monitorBusinessDate !== businessDateKey()) return this.checkTimeBoundary()
+    // Every tab derives from one same-day result, never from older per-tab lists.
+    this.applyFilters(this.data.rawItems || [])
+    if (!this._hasMonitorView) return this.loadPromise || this.loadData()
   },
   loadData() {
-    const requestType = this.data.type
+    const requestDate = businessDateKey()
+    if (this._monitorBusinessDate && this._monitorBusinessDate !== requestDate) return this.checkTimeBoundary()
     const requestId = (this.requestSeq || 0) + 1
     this.requestSeq = requestId
     this.waitStartedAt = Date.now()
     this.setData({ loading: true, error: '' })
-    const request = getMonitor({ status: 'current', type: requestType }).then((result) => {
-      // 筛选切换或新请求已经发生时，丢弃晚返回的旧响应，不能覆盖当前列表。
-      if (requestId !== this.requestSeq || requestType !== this.data.type) return
+    const request = getMonitor({ status: 'current', type: 'all' }).then((result) => {
+      if (this._monitorDisposed || requestId !== this.requestSeq || requestDate !== businessDateKey()) return
       const items = result.items || []
       const waiting = Boolean(result.refreshing) && !items.length
       if (!waiting) {
         this.setData({ rawItems: items, updatedAt: result.updatedAt || '' })
         this.applyFilters(items)
+        this._hasMonitorView = !result.error
+        this._monitorLoadedAt = Date.now()
       }
       this.setData({ loading: waiting && !(this.data.rawItems || []).length, error: result.error || '', refreshing: Boolean(result.refreshing) })
       if (result.refreshing) this.schedulePoll()
+      return result
     }).catch(() => {
-      if (requestId === this.requestSeq && requestType === this.data.type) this.setData({ loading: false, error: '监控数据暂时不可用，请稍后重试' })
+      if (requestId === this.requestSeq && requestDate === businessDateKey()) this.setData({ loading: false, error: '监控数据暂时不可用，请稍后重试' })
     })
+    this.loadPromise = request
+    request.finally(() => { if (this.loadPromise === request) this.loadPromise = null })
     return request
   },
   schedulePoll() {
@@ -68,28 +75,34 @@ Page({
       this.setData({ loading: false, refreshing: false, error: this.data.items.length ? '今日快照更新超时，当前仍显示上次成功数据' : '今日监控快照获取超时，请稍后重试' })
       return
     }
-    const pollType = this.data.type
+    const pollDate = businessDateKey()
     const pollRequestId = this.requestSeq
     this.pollTimer = setTimeout(() => {
       this.pollTimer = null
-      getMonitor({ status: 'current', type: pollType }).then((result) => {
-        if (pollRequestId !== this.requestSeq || pollType !== this.data.type) return
+      getMonitor({ status: 'current', type: 'all' }).then((result) => {
+        if (pollRequestId !== this.requestSeq || pollDate !== businessDateKey()) return
         const items = result.items || []
         const waiting = Boolean(result.refreshing) && !items.length
         if (!waiting) {
           this.setData({ rawItems: items, updatedAt: result.updatedAt || '' })
           this.applyFilters(items)
+          this._hasMonitorView = !result.error
+          this._monitorLoadedAt = Date.now()
         }
         this.setData({ loading: waiting && !(this.data.rawItems || []).length, refreshing: Boolean(result.refreshing), error: result.error || '' })
         if (result.refreshing) this.schedulePoll()
         else this.pollAttempts = 0
       }).catch(() => {
-        if (pollRequestId === this.requestSeq && pollType === this.data.type) this.schedulePoll()
+        if (pollRequestId === this.requestSeq && pollDate === businessDateKey()) this.schedulePoll()
       })
     }, 1200)
   },
   applyFilters(items) {
-    let filtered = items.filter(isVisibleMonitorItem).map(item => ({
+    const type = this.data.type
+    const matches = item => type === 'all' || (type === 'risk' && item.riskTone === 'ordinary') ||
+      (type === 'severe' && ['severe-10d', 'severe-30d'].includes(item.riskTone)) ||
+      (type === 'delisting' && item.riskTone === 'delisting-warning')
+    let filtered = items.filter(matches).filter(isVisibleMonitorItem).map(item => ({
       ...item,
       // 剩余自然日由后端计算，前端只负责格式化展示。
       days: formatRemainingDays(item.days),
@@ -105,14 +118,27 @@ Page({
     getApp().globalData.pendingStock = stock || { ts_code: tsCode, symbol: tsCode.split('.')[0], name: '' }
     wx.switchTab({ url: '/pages/stock/index' })
   },
-  openSource(event) {
-    const url = event.currentTarget.dataset.url
+  async openSource(event) {
+    let url = event.currentTarget.dataset.url
     if (!url) return
     if (this.openingSource) return
     this.openingSource = true
-    openPdf(url, {
-      onError: () => wx.showToast({ title: '公告暂时无法打开，请稍后重试', icon: 'none' })
-    }).catch(() => {}).finally(() => { this.openingSource = false })
+    try {
+      // Proxy PDF URLs expire in five minutes. Cache the list, not its authority:
+      // renew only when reading a document after four minutes or a date switch.
+      if (!this._monitorLoadedAt || Date.now() - this._monitorLoadedAt >= 240000 || this._monitorBusinessDate !== businessDateKey()) {
+        const old = (this.data.rawItems || []).find(item => item.sourceUrl === url)
+        if (!old) throw new Error('公告记录已更新')
+        if (this._monitorBusinessDate !== businessDateKey()) await this.checkTimeBoundary()
+        else await (this.loadPromise || this.loadData())
+        const latest = (this.data.rawItems || []).find(item => old.monitorKey
+          ? item.monitorKey === old.monitorKey : item.sourceId === old.sourceId && item.ts_code === old.ts_code)
+        if (!latest || !latest.pdfAvailable || !latest.sourceUrl || this.data.error) throw new Error('公告地址刷新失败')
+        url = latest.sourceUrl
+      }
+      if (!this._monitorDisposed) await openPdf(url)
+    } catch (_) { wx.showToast({ title: '公告暂时无法打开，请稍后重试', icon: 'none' }) }
+    finally { this.openingSource = false }
   },
   onHide() {
     this._monitorHidden = true
@@ -121,6 +147,8 @@ Page({
     this.pollTimer = null
   },
   onUnload() {
+    this._monitorDisposed = true
+    this._hasMonitorView = false
     this.onHide()
     this.requestSeq = (this.requestSeq || 0) + 1
     if (this.pollTimer) clearTimeout(this.pollTimer)

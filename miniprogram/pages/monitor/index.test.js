@@ -36,7 +36,7 @@ assert.strictEqual(isVisibleMonitorItem({ riskTone: 'ordinary', symbol: '301234'
 assert.strictEqual(isVisibleMonitorItem({ riskTone: 'ordinary', symbol: '301234', name: '五洲医疗' }), true)
 assert.strictEqual(isVisibleMonitorItem({ riskTone: 'delisting-warning', symbol: '301139', name: '*ST元道', marketChange: -10 }), true)
 
-async function testTabSwitchDropsOldResponseAndDoesNotRestoreStaleCache() {
+async function testTabSwitchUsesOneSnapshotAndDropsSupersededResponse() {
   const page = Object.assign({}, pageDefinition, {
     data: JSON.parse(JSON.stringify(pageDefinition.data)),
     setData(patch, callback) {
@@ -50,20 +50,31 @@ async function testTabSwitchDropsOldResponseAndDoesNotRestoreStaleCache() {
   assert.strictEqual(requests[0].options.type, 'all')
 
   page.selectType({ currentTarget: { dataset: { type: 'risk' } } })
-  assert.strictEqual(requests.length, 2, 'tab switch starts a new request even while the previous one is pending')
-  assert.strictEqual(requests[1].options.type, 'risk')
-  assert.deepStrictEqual(page.data.items, [], 'old-tab countdown is removed while new data loads')
+  assert.strictEqual(requests.length, 1, 'tab switch joins the original all-list request')
+  assert.deepStrictEqual(page.data.items, [])
+  const newer = page.loadData()
+  assert.strictEqual(requests.length, 2)
+  assert.strictEqual(requests[1].options.type, 'all')
 
   requests[0].resolve({ items: [{ ts_code: '301313.SZ', symbol: '301313', days: 7 }], updatedAt: '2026-11-04 16:00' })
   await Promise.resolve()
   assert.deepStrictEqual(page.data.items, [], 'late response for the previous tab cannot restore stale items')
 
-  requests[1].resolve({ items: [{ ts_code: '301313.SZ', symbol: '301313', days: 1 }], updatedAt: '2026-11-05 09:00' })
-  await Promise.resolve()
+  requests[1].resolve({ items: [{ ts_code: '301313.SZ', symbol: '301313', riskTone: 'ordinary', days: 1 },
+    { ts_code: '002724.SZ', symbol: '002724', riskTone: 'severe-10d', days: 2 }], updatedAt: '2026-11-05 09:00' })
+  await newer
   assert.strictEqual(page.data.items[0].days, '01')
+  page.selectType({ currentTarget: { dataset: { type: 'all' } } })
+  assert.strictEqual(page.data.items.length, 2)
+  page.selectType({ currentTarget: { dataset: { type: 'severe' } } })
+  assert.strictEqual(page.data.items[0].symbol, '002724')
+  page.selectType({ currentTarget: { dataset: { type: 'risk' } } })
+  assert.strictEqual(page.data.items[0].days, '01', 'tabs share the newest countdown, never old per-tab copies')
+  assert.strictEqual(requests.length, 2, 'loaded filter changes need no further GET')
+  page.onUnload()
 }
 
-testTabSwitchDropsOldResponseAndDoesNotRestoreStaleCache().then(() => {
+testTabSwitchUsesOneSnapshotAndDropsSupersededResponse().then(() => {
   console.log('monitor tab-switch freshness tests passed')
 }).catch((error) => {
   console.error(error)
