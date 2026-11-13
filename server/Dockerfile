@@ -1,4 +1,5 @@
-FROM python:3.11-slim
+# Docker Official Images mirror; avoids Docker Hub shared-builder pull limits.
+FROM mirror.gcr.io/library/python:3.11-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \

@@ -1,0 +1,35 @@
+{
+  "checkedAt": "2026-11-13T03:15:09.410842+00:00",
+  "failedDeployment": "flask-9a5y-315",
+  "observedFailure": "Docker Hub base-image manifest HEAD returned HTTP 429 before application build",
+  "baseImage": "mirror.gcr.io/library/python:3.11-slim",
+  "indexDigest": "sha256:07d4824036af339fa1b6ef769cc99d9c10a141769538b52b3b597c84f7a7b535",
+  "linuxAmd64Digest": "sha256:b701198cb708b68d9413ca67d6311bd97c9389a2c5fe4da0511fc652642366cd",
+  "dockerHubLinuxAmd64Digest": "sha256:b701198cb708b68d9413ca67d6311bd97c9389a2c5fe4da0511fc652642366cd",
+  "linuxAmd64Matches": true,
+  "layerHeadChecks": [
+    {
+      "digest": "sha256:37fb86c2a767b88d500c6872195f88078f64765fe0d2f9cc375cc2efbd4c0a41",
+      "status": 200,
+      "bytes": 29856132
+    },
+    {
+      "digest": "sha256:53daecf7856e9b7235583f1ec326387aae7d29af3d5cd2efc20246259ab817cc",
+      "status": 200,
+      "bytes": 1289815
+    },
+    {
+      "digest": "sha256:7efbce397249e9202b070b8e638baff71160948c640b9a44f2226419a71f410d",
+      "status": 200,
+      "bytes": 14457101
+    },
+    {
+      "digest": "sha256:bbe7053e6def9842d628414346e26f25e499463adb6ca48c0c8932e036e44000",
+      "status": 200,
+      "bytes": 249
+    }
+  ],
+  "localDockerBuild": "not_run_no_local_container_runtime",
+  "cloudRebuild": "pending_user_publish",
+  "miniProgramReuploadRequired": false
+}

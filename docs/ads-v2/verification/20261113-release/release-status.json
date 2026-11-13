@@ -9,10 +9,13 @@
   ],
   "uploaded": true,
   "uploadBytes": 248423,
-  "cloudDeployment": "user_operated_pending_verification",
+  "cloudDeployment": "315_build_failed_docker_hub_429_rebuild_pending",
   "deviceAcceptance": "pending",
   "adsEnabled": false,
   "featureGates": "free",
   "submittedForReview": false,
-  "publicMiniProgramPublished": false
+  "publicMiniProgramPublished": false,
+  "failedCloudVersion": "flask-9a5y-315",
+  "buildFix": "use_mirror.gcr.io_same_linux_amd64_image",
+  "baseImageEvidence": "base-image-verification.json"
 }
