@@ -1,0 +1,18 @@
+{
+  "releaseId": "20261113.1",
+  "miniProgramVersion": "2.0.0",
+  "ruleVersion": "v75",
+  "sourceCommit": "0b20eba",
+  "gitPushedBranches": [
+    "Stock-Abnormal",
+    "codex/ads-v2-design-20261112"
+  ],
+  "uploaded": true,
+  "uploadBytes": 248423,
+  "cloudDeployment": "user_operated_pending_verification",
+  "deviceAcceptance": "pending",
+  "adsEnabled": false,
+  "featureGates": "free",
+  "submittedForReview": false,
+  "publicMiniProgramPublished": false
+}
