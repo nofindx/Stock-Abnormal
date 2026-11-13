@@ -190,6 +190,12 @@ class TushareClient:
         key = "daily:" + json.dumps(params, ensure_ascii=False, sort_keys=True)
         return self._cached(key, 300 if trade_date else 900, lambda: self.call("daily", **params))
 
+    def release_daily_cache(self, trade_date: str) -> None:
+        """Release a consumed full-market day after a background history batch."""
+        key = "daily:" + json.dumps({"trade_date": trade_date}, ensure_ascii=False, sort_keys=True)
+        with self._cache_lock:
+            self._cache.pop(key, None)
+
     def suspend_d(self, start_date: str, end_date: str):
         """读取停复牌状态，用于解释计算向量中的市场日期缺口，不保存原始行情。"""
 

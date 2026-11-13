@@ -473,14 +473,17 @@ class ApiHandler(BaseHTTPRequestHandler):
                 monitor_type = query.get("type", ["all"])[0]
                 if monitor_type not in ("all", "risk", "severe", "delisting"):
                     raise ApiError(40001, "type 必须是 all、risk、severe 或 delisting", 400)
-                data = OFFICIAL_MONITOR.read(status, monitor_type)
-                # 只附加本地正式收益向量的最新日涨跌；重点监控仍保留全部监管事实，
-                # 展示层据此隐藏下跌行情，不发起实时行情请求。
-                for item in data.get("items", []):
-                    try:
-                        change = SERVICE.latest_stock_return(str(item.get("ts_code") or ""))
-                    except Exception:  # noqa: BLE001 - 行情附加字段失败不应丢弃监管事实
-                        change = None
+                snapshot = OFFICIAL_MONITOR.read(status, monitor_type)
+                # Trim a response copy only; resets and replay retain all facts.
+                data = {key: value for key, value in snapshot.items()
+                        if key not in {"resetFacts", "unresolvedFacts", "items"}}
+                data["items"] = [dict(item) for item in snapshot.get("items", [])]
+                try:
+                    changes = SERVICE.latest_stock_returns(item.get("ts_code") for item in data["items"])
+                except Exception:  # display-price failure must retain official facts
+                    changes = {}
+                for item in data["items"]:
+                    change = changes.get(item.get("ts_code"))
                     if change:
                         item["marketChange"] = change["value"]
                         item["marketChangeDate"] = change["tradeDate"]

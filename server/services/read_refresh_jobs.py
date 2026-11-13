@@ -8,8 +8,8 @@ from server.data.publication_store import PublicationUnavailable
 class ReadRefreshJobs:
     def __init__(self, reads, store):
         self.reads, self.store = reads, store
-        self.executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="read-refresh")
-        self.slots = BoundedSemaphore(8)
+        self.executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="read-refresh")
+        self.slots = BoundedSemaphore(4)
 
     def _run(self, context, job):
         try:
@@ -35,7 +35,11 @@ class ReadRefreshJobs:
                 self.slots.release()
             raise
         if job["owner"]:
-            future = self.executor.submit(self._run, context, job)
+            try:
+                future = self.executor.submit(self._run, context, job)
+            except Exception:
+                self.slots.release()
+                raise
             if wait_seconds:
                 try:
                     future.result(timeout=wait_seconds)

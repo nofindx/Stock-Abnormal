@@ -70,6 +70,36 @@ class ReadApiTests(unittest.TestCase):
         self.assertEqual(status, 200)
         return response["data"]
 
+    def test_monitor_trims_response_only_and_preserves_two_facts_and_pdf(self):
+        from types import SimpleNamespace
+        from unittest.mock import Mock
+        snapshot = {"items": [
+            {"ts_code": "A", "sourceId": "ordinary", "pdfAvailable": True, "sourceUrl": "original"},
+            {"ts_code": "A", "sourceId": "severe", "pdfAvailable": True, "sourceUrl": "original"}],
+            "resetFacts": [{"evidence": "keep internally"}], "unresolvedFacts": [{"reason": "pending"}],
+            "dataQuality": {"status": "partial"}, "updatedAt": "2026-11-13 00:10:00"}
+        original = deepcopy(snapshot)
+        monitor = SimpleNamespace(read=lambda *_: snapshot, create_pdf_token=lambda item: item["sourceId"])
+        with patch.object(app, "OFFICIAL_MONITOR", monitor), patch.object(
+                self.service, "latest_stock_returns", Mock(return_value={"A": {"value": 2, "tradeDate": "20261112"}})) as get:
+            status, response = self.call("/api/monitor", {"type": "all"})
+            self.assertEqual(status, 200)
+            body = response["data"]
+            self.assertNotIn("resetFacts", body)
+            self.assertNotIn("unresolvedFacts", body)
+            self.assertEqual(len(body["items"]), 2)
+            self.assertEqual([item["marketChange"] for item in body["items"]], [2, 2])
+            self.assertTrue(all("/api/monitor/announcement?token=" in item["sourceUrl"] for item in body["items"]))
+            self.assertEqual(body["dataQuality"], snapshot["dataQuality"])
+            self.assertEqual(get.call_count, 1)
+        self.assertEqual(snapshot, original)
+        with patch.object(app, "OFFICIAL_MONITOR", monitor), patch.object(
+                self.service, "latest_stock_returns", side_effect=RuntimeError("database unavailable")):
+            status, response = self.call("/api/monitor", {})
+            self.assertEqual(status, 200)
+            self.assertEqual(len(response["data"]["items"]), 2)
+            self.assertNotIn("marketChange", response["data"]["items"][0])
+
     def test_old_token_reads_saved_dataset_after_latest_changes(self):
         context = self.context()
         self.assertEqual(len(context["dataset_id"]), 64)

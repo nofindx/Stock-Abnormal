@@ -203,6 +203,8 @@ class PublicationStore:
         return self.get(identity, "monitor") if identity else None
 
     def publish(self, snapshot, announcements, run_id):
+        from server.services.background_work import check_owner
+        check_owner()
         with self.locked("stock-abnormal:monitor:publish", wait_seconds=10) as db:
             pointer = self.execute(db, "SELECT state_value FROM publication_state WHERE state_key='active_snapshot_id'").fetchone()
             # An older worker finishing late may not replace a newer snapshot.

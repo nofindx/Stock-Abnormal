@@ -22,7 +22,10 @@ def build_realtime_key(kind: str, *parts: str) -> str:
     if kind not in {"quote", "singleflight", "view"}:
         raise ValueError("未知 realtime key 类型")
     digest = hashlib.sha256("|".join(str(part) for part in parts).encode("utf-8")).hexdigest()
-    return f"sa:realtime:v1:{kind}:{digest}"
+    # Same policy/bucket pool shares a Redis Cluster slot for MGET. Lease
+    # suffixes inherit the tag, so each two-key Lua script is slot-safe too.
+    group = hashlib.sha256("|".join(str(part) for part in parts[1:]).encode("utf-8")).hexdigest()[:16]
+    return f"sa:realtime:v1:{kind}:{{{group}}}:{digest}"
 
 
 def quote_bucket(now: Optional[float] = None, bucket_seconds: int = 3) -> str:
@@ -49,6 +52,7 @@ class _MemoryBackend:
         self.values: Dict[str, tuple[float, Any]] = {}
         self.leases: Dict[str, RealtimeLease] = {}
         self.fences: Dict[str, int] = {}
+        self.fence_expiry: Dict[str, float] = {}
         self.attempts: Dict[str, tuple[float, int]] = {}
 
     def purge(self) -> None:
@@ -56,6 +60,10 @@ class _MemoryBackend:
         for key, (expires, _value) in list(self.values.items()):
             if expires and expires <= now:
                 self.values.pop(key, None)
+        for key, expires in list(self.fence_expiry.items()):
+            if expires <= now:
+                self.fence_expiry.pop(key, None)
+                self.fences.pop(key, None)
         for key, lease in list(self.leases.items()):
             if lease.expires_at <= now:
                 self.leases.pop(key, None)
@@ -119,6 +127,7 @@ class RealtimeCoordinator:
                 self._redis.delete(key)
                 raise TimeoutError("realtime upstream attempt cap reached")
             fence = int(self._redis.incr(f"{key}:fence"))
+            self._redis.expire(f"{key}:fence", self.lease_seconds * 2)
             lease = RealtimeLease(singleflight_key, token, fence, time.time() + self.lease_seconds, attempt == 2)
         else:
             with self._memory.lock:
@@ -133,6 +142,7 @@ class RealtimeCoordinator:
                 self._memory.attempts[key] = (time.time() + self.lease_seconds * 2, attempt)
                 fence = self._memory.fences.get(key, 0) + 1
                 self._memory.fences[key] = fence
+                self._memory.fence_expiry[key] = time.time() + self.lease_seconds * 2
                 lease = RealtimeLease(singleflight_key, token, fence, time.time() + self.lease_seconds, attempt == 2)
                 self._memory.leases[key] = lease
         try:
@@ -143,14 +153,12 @@ class RealtimeCoordinator:
     def release(self, lease: RealtimeLease) -> bool:
         key = f"{lease.key}:lease"
         if self._redis:
-            if self._redis.get(key) != lease.owner_token:
-                return False
-            deleted = bool(self._redis.delete(key))
-            # A normally completed request starts a fresh singleflight
-            # window; attempts are retained only when the owner disappears
-            # and another worker must take over an expired lease.
-            self._redis.delete(f"{key}:attempts")
-            return deleted
+            # Compare and delete atomically: an expired owner cannot remove
+            # a successor's lease or attempt budget.
+            return bool(self._redis.eval(
+                "if redis.call('get',KEYS[1]) == ARGV[1] then "
+                "redis.call('del',KEYS[2]); return redis.call('del',KEYS[1]) end; return 0",
+                2, key, f"{key}:attempts", lease.owner_token))
         with self._memory.lock:
             current = self._memory.leases.get(key)
             if not current or current.owner_token != lease.owner_token:
@@ -158,6 +166,85 @@ class RealtimeCoordinator:
             self._memory.leases.pop(key, None)
             self._memory.attempts.pop(key, None)
             return True
+
+    def get_many(self, keys):
+        """One cache round trip for a stock/index pool; never renew TTL on read."""
+        keys = list(keys)
+        if not keys:
+            return {}
+        if self._redis:
+            return {key: json.loads(raw) for key, raw in zip(keys, self._redis.mget(keys)) if raw is not None}
+        with self._memory.lock:
+            self._memory.purge()
+            return {key: self._memory.values[key][1] for key in keys if key in self._memory.values}
+
+    @contextmanager
+    def quote_leases(self, keys):
+        """Claim independent securities in one Redis pipeline, without view fencing.
+
+        Returning only owned keys lets intersecting pools fetch their own
+        missing subset. Expired owners cannot release a successor's lease.
+        """
+        keys = list(dict.fromkeys(keys))
+        owner = uuid.uuid4().hex
+        acquired = []
+        if self._redis:
+            script = (
+                "if not redis.call('set',KEYS[1],ARGV[1],'NX','EX',ARGV[2]) then return 0 end; "
+                "local n=redis.call('incr',KEYS[2]); redis.call('expire',KEYS[2],ARGV[2]*2); "
+                "if n>2 then redis.call('del',KEYS[1]); return 0 end; return 1")
+            with self._redis.pipeline(transaction=False) as pipe:
+                for key in keys:
+                    pipe.eval(script, 2, f"{key}:lease", f"{key}:lease:attempts", owner, self.lease_seconds)
+                results = pipe.execute()
+            acquired = [key for key, claimed in zip(keys, results) if claimed]
+        else:
+            with self._memory.lock:
+                self._memory.purge()
+                now = time.time()
+                for key in keys:
+                    lease_key = f"{key}:lease"
+                    if lease_key in self._memory.leases:
+                        continue
+                    attempt = self._memory.attempts.get(lease_key, (0, 0))[1] + 1
+                    if attempt > 2:
+                        continue
+                    self._memory.attempts[lease_key] = (now + self.lease_seconds * 2, attempt)
+                    self._memory.leases[lease_key] = RealtimeLease(
+                        key, owner, 0, now + self.lease_seconds, attempt == 2)
+                    acquired.append(key)
+        try:
+            yield set(acquired)
+        finally:
+            if self._redis:
+                script = ("if redis.call('get',KEYS[1]) == ARGV[1] then "
+                          "redis.call('del',KEYS[2]); return redis.call('del',KEYS[1]) end; return 0")
+                with self._redis.pipeline(transaction=False) as pipe:
+                    for key in acquired:
+                        pipe.eval(script, 2, f"{key}:lease", f"{key}:lease:attempts", owner)
+                    pipe.execute()
+            else:
+                with self._memory.lock:
+                    for key in acquired:
+                        lease_key = f"{key}:lease"
+                        current = self._memory.leases.get(lease_key)
+                        if current and current.owner_token == owner:
+                            self._memory.leases.pop(lease_key, None)
+                            self._memory.attempts.pop(lease_key, None)
+
+    def put_many(self, values, ttl_seconds=3):
+        """Fill missing quote keys in one round trip; hits keep their old expiry."""
+        if self._redis:
+            with self._redis.pipeline(transaction=False) as pipe:
+                for key, value in values.items():
+                    pipe.set(key, json.dumps(value, ensure_ascii=False), ex=ttl_seconds, nx=True)
+                pipe.execute()
+        else:
+            with self._memory.lock:
+                self._memory.purge()
+                for key, value in values.items():
+                    if key not in self._memory.values:
+                        self._memory.values[key] = (time.time() + ttl_seconds, value)
 
     def get_or_set(self, key: str, value: Any = None, ttl_seconds: int = 3) -> Any:
         if self._redis:

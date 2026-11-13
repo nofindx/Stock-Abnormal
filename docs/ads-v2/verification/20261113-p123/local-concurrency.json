@@ -1,0 +1,42 @@
+{
+  "environment": "local simulated sources and process-shared cache; no network",
+  "release": {
+    "releaseId": "20261113.ads-local.3",
+    "miniProgramVersion": "2.0.0",
+    "quoteRefreshPolicy": "latest-available-all-hours"
+  },
+  "monitor_fixture": {
+    "cards": 23,
+    "before_bytes": 62185,
+    "after_bytes": 15629,
+    "removed_percent": 74.87
+  },
+  "concurrency": [
+    {
+      "users": 5,
+      "service_objects": 2,
+      "source_calls_cold": 1,
+      "source_calls_warm_added": 0,
+      "source_security_requests": 3,
+      "cold_queued_partial": 4,
+      "warm_complete_responses": 5,
+      "warm_p95_ms": 0.028,
+      "cpu_seconds": 0.3282,
+      "wall_seconds": 0.0432,
+      "peak_process_rss_mib": 82.12
+    },
+    {
+      "users": 10,
+      "service_objects": 2,
+      "source_calls_cold": 1,
+      "source_calls_warm_added": 0,
+      "source_security_requests": 3,
+      "cold_queued_partial": 9,
+      "warm_complete_responses": 10,
+      "warm_p95_ms": 0.026,
+      "cpu_seconds": 0.0116,
+      "wall_seconds": 0.046,
+      "peak_process_rss_mib": 82.27
+    }
+  ]
+}

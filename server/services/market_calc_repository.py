@@ -299,7 +299,8 @@ class MarketCalcRepository:
         with self.connection() as db:
             with db.cursor(self._driver().cursors.DictCursor) as cursor:
                 cursor.execute("""
-                    SELECT b.*, c.as_of_trade_date, c.latest_close,
+                    SELECT b.*, b.is_st AS isST, b.price_limit_enabled AS priceLimitEnabled,
+                           c.as_of_trade_date, c.latest_close,
                            c.stock_return_vector, c.deviation_3, c.deviation_10,
                            c.deviation_30, c.same_direction_up, c.same_direction_down
                     FROM stock_basic b
@@ -313,6 +314,52 @@ class MarketCalcRepository:
         result["isST"] = bool(result.get("isST"))
         result["stock_return_vector"] = self._json_value(result.get("stock_return_vector"), [])
         return result
+
+    def get_calcs(self, ts_codes, *, db=None):
+        """Read only requested securities in one deduplicated SQL query."""
+        codes = sorted({str(code).strip().upper() for code in ts_codes if str(code).strip()})
+        if not codes or not self.available:
+            return {}
+        if db is None:
+            self.ensure_schema()
+            with self.connection() as connection:
+                return self.get_calcs(codes, db=connection)
+        with db.cursor(self._driver().cursors.DictCursor) as cursor:
+            cursor.execute(
+                "SELECT b.*, b.is_st AS isST, b.price_limit_enabled AS priceLimitEnabled, "
+                "c.as_of_trade_date, c.latest_close, c.stock_return_vector, "
+                "c.deviation_3, c.deviation_10, c.deviation_30, "
+                "c.same_direction_up, c.same_direction_down "
+                "FROM stock_basic b LEFT JOIN stock_calc_base c ON c.ts_code=b.ts_code "
+                f"WHERE b.ts_code IN ({','.join(['%s'] * len(codes))})", tuple(codes))
+            rows = cursor.fetchall()
+        result = {}
+        for row in rows:
+            value = dict(row)
+            value["isST"] = bool(value.get("isST"))
+            value["stock_return_vector"] = self._json_value(value.get("stock_return_vector"), [])
+            result[value["ts_code"]] = value
+        return result
+
+    def read_inputs(self, ts_codes, index_for_stock):
+        """Capture stock and required index inputs on one request connection."""
+        codes = sorted(set(ts_codes))
+        if not codes or not self.available:
+            return {}, {}
+        self.ensure_schema()
+        with self.connection() as db:
+            calculations = self.get_calcs(codes, db=db)
+            index_codes = sorted({index_for_stock(row) for row in calculations.values()})
+            indexes = {}
+            if index_codes:
+                with db.cursor(self._driver().cursors.DictCursor) as cursor:
+                    cursor.execute("SELECT * FROM index_calc_base WHERE index_code IN ("
+                                   + ",".join(["%s"] * len(index_codes)) + ")", tuple(index_codes))
+                    for row in cursor.fetchall():
+                        value = dict(row)
+                        value["index_return_vector"] = self._json_value(value.get("index_return_vector"), [])
+                        indexes[value["index_code"]] = value
+        return calculations, indexes
 
     def get_index(self, index_code: str) -> Optional[Dict[str, Any]]:
         if not self.available:
@@ -604,6 +651,8 @@ class MarketCalcRepository:
             return 0
         self.ensure_schema()
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        from .background_work import check_owner
+        check_owner()
         with self.connection() as db:
             with db.cursor() as cursor:
                 for item in rows:
@@ -636,6 +685,8 @@ class MarketCalcRepository:
 
     def update_derived_metrics(self, updates):
         """Change only derived values, never market source data or metadata."""
+        from .background_work import check_owner
+        check_owner()
         with self.connection() as db:
             with db.cursor() as cursor:
                 for item in updates:
@@ -653,6 +704,8 @@ class MarketCalcRepository:
             raise RuntimeError("MySQL 计算数据仓库未配置")
         self.ensure_schema()
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        from .background_work import check_owner
+        check_owner()
         with self.connection() as db:
             with db.cursor() as cursor:
                 for item in stocks:
@@ -814,6 +867,8 @@ class MarketCalcRepository:
         target_trade_date = str(target_trade_date or trade_date or "")
         base_trade_date = str(base_trade_date or trade_date or "")
         item_list = list(items)
+        from .background_work import check_owner
+        check_owner()
         with self.connection() as db:
             with db.cursor() as cursor:
                 cursor.execute("""

@@ -45,6 +45,7 @@ from server.resets.decisions import (
 from server.services.realtime import RealtimeCoordinator, build_realtime_key, quote_bucket
 from .realtime_quote import RealtimeQuoteClient
 from .market_calc_repository import MarketCalcRepository
+from .background_work import background_task
 from .tushare_client import TushareClient, TushareUnavailable
 
 
@@ -300,6 +301,7 @@ class MarketService:
         # 规则升级和显式强制重建共用同一任务，避免两个全量任务并行写库。
         Thread(target=self._rebuild_predictions_if_rule_changed, name="prediction-rebuild", daemon=True).start()
 
+    @background_task(update=True)
     def rebuild_formal_history(self) -> Dict[str, Any]:
         """重抓最近 31 个有效收盘点，并按前一交易日到目标日顺序重建预测。"""
 
@@ -364,20 +366,32 @@ class MarketService:
                 return trade_date
         raise RuntimeError("没有找到已完成收盘数据的交易日")
 
+    @background_task(retry=True)
     def _sync_stock_basic_on_startup(self) -> None:
         """启动时强制刷新完整 stock_basic，保证生产元数据可用于预测资格判断。"""
 
         if not self._calc_repository.available:
             return
         try:
+            shared_state = None
+            synced_at = int(self._now().timestamp())
+            if isinstance(self._calc_repository, MarketCalcRepository):
+                from server.data.publication_store import PublicationStore
+                shared_state = PublicationStore(self._calc_repository)
+                last_sync = int(shared_state.states().get("stock_basic_sync_at") or 0)
+                if 0 <= synced_at - last_sync < 600:
+                    return
             stocks = self._stock_rows(force=True)
             if not stocks:
                 raise RuntimeError("Tushare stock_basic 返回空结果")
             self._calc_repository.upsert_stock_basic(stocks)
             self._stocks_cache = (datetime.now(SHANGHAI_TZ), stocks)
+            if shared_state:
+                shared_state.set_state("stock_basic_sync_at", int(self._now().timestamp()))
         except Exception as exc:  # noqa: BLE001 - 元数据失败由健康接口暴露，不能阻止服务启动
             self._market_update_error = f"stock_basic 启动同步失败：{exc}"
 
+    @background_task(retry=True)
     def _rebuild_predictions_if_rule_changed(self) -> None:
         if not self._calc_repository.available:
             return
@@ -413,6 +427,7 @@ class MarketService:
             except Exception as exc:  # noqa: BLE001 - 重建失败不影响旧数据读取
                 self._prediction_last_error["today"] = f"预测规则重建失败：{exc}"
 
+    @background_task()
     def rebuild_predictions_from_existing_bases(self) -> bool:
         """Rebuild derived datasets after a new official-fact snapshot is published."""
 
@@ -523,75 +538,46 @@ class MarketService:
         self._prediction_executor.shutdown(wait=False)
 
     def realtime_quotes(self, ts_codes: Iterable[str]) -> Dict[str, Any]:
-        """透传一批盘中行情；只在本次请求内使用，不写入数据库或缓存。"""
-
-        requested: List[str] = []
-        seen = set()
-        for value in ts_codes:
-            code = str(value or "").strip().upper()
-            if code and code not in seen:
-                requested.append(code)
-                seen.add(code)
-        source_policy = os.getenv("SOURCE_POLICY_HASH", "unfrozen")
-        bucket = quote_bucket()
-        singleflight_key = build_realtime_key(
-            "singleflight", ",".join(sorted(requested)), source_policy, "continuous", bucket,
-        )
-        coordination = "leader"
-        try:
-            with self._realtime_coordinator.lease(singleflight_key):
-                quotes = self._realtime.fetch_many(requested)
-                for code, quote in quotes.items():
-                    quote_key = build_realtime_key("quote", code, source_policy, bucket)
-                    self._realtime_coordinator.get_or_set(quote_key, quote, ttl_seconds=3)
-        except TimeoutError:
-            coordination = "queued"
-            quotes = {}
-            for code in requested:
-                quote_key = build_realtime_key("quote", code, source_policy, bucket)
-                cached = self._realtime_coordinator.get_or_set(quote_key)
-                if cached:
-                    quotes[code] = cached
-        updated = [str(item.get("updatedAt") or "") for item in quotes.values() if item.get("updatedAt")]
-        return {
-            "quotes": quotes,
-            "requestedCount": len(requested),
-            "returnedCount": len(quotes),
-            "quoteUpdatedAt": max(updated, default=""),
-            "persisted": False,
-            "coordination": coordination,
-        }
+        """Return short-lived shared quotes, never formal/regulatory data."""
+        requested = sorted({str(code).strip().upper() for code in ts_codes if str(code).strip()})
+        quotes, coordination = self._coordinated_realtime_quotes(requested)
+        updated = [str(item.get("updatedAt")) for item in quotes.values() if item.get("updatedAt")]
+        return {"quotes": quotes, "requestedCount": len(requested), "returnedCount": len(quotes),
+                "quoteUpdatedAt": max(updated, default=""), "persisted": False, "coordination": coordination}
 
     def _fetch_realtime_many(self, ts_codes: Iterable[str]) -> Dict[str, Dict[str, Any]]:
-        """Fetch quotes through the vNext short-lived coordinator.
+        return self._coordinated_realtime_quotes(ts_codes)[0]
 
-        The returned values remain request-scoped.  A cached value is only a
-        best-effort source for joining callers and never becomes a formal
-        dataset or regulatory result.
-        """
-
-        codes = sorted({str(code).upper() for code in ts_codes if code})
+    def _coordinated_realtime_quotes(self, ts_codes):
+        codes = sorted({str(code).strip().upper() for code in ts_codes if str(code).strip()})
         if not codes:
-            return {}
-        policy_hash = os.getenv("SOURCE_POLICY_HASH", "unfrozen")
-        bucket = quote_bucket()
-        key = build_realtime_key("singleflight", ",".join(codes), policy_hash, "continuous", bucket)
-        try:
-            with self._realtime_coordinator.lease(key):
-                quotes = self._realtime.fetch_many(codes)
-                for code, quote in quotes.items():
-                    self._realtime_coordinator.get_or_set(
-                        build_realtime_key("quote", code, policy_hash, bucket), quote, ttl_seconds=3,
-                    )
-                return quotes
-        except TimeoutError:
-            return {
-                code: cached
-                for code in codes
-                if (cached := self._realtime_coordinator.get_or_set(
-                    build_realtime_key("quote", code, policy_hash, bucket),
-                ))
-            }
+            return {}, "leader"
+        policy, bucket = os.getenv("SOURCE_POLICY_HASH", "unfrozen"), quote_bucket()
+        coordinator = self._realtime_coordinator
+        keys = {code: build_realtime_key("quote", code, policy, bucket) for code in codes}
+
+        def cached():
+            hits = coordinator.get_many(keys.values())
+            return {code: hits[key] for code, key in keys.items() if hits.get(key)}
+
+        quotes = cached()
+        if len(quotes) == len(codes):
+            return quotes, "leader"
+        missing_codes = [code for code in codes if code not in quotes]
+        lease_keys = {code: build_realtime_key("singleflight", code, policy, "continuous", bucket)
+                      for code in missing_codes}
+        with coordinator.quote_leases(lease_keys.values()) as owned:
+            busy = len(owned) < len(missing_codes)
+            quotes.update(cached())
+            missing = [code for code in missing_codes if lease_keys[code] in owned and code not in quotes]
+            if missing:
+                fetched = self._realtime.fetch_many(missing)
+                new = {code: fetched[code] for code in missing if fetched.get(code)}
+                coordinator.put_many({keys[code]: quote for code, quote in new.items()}, ttl_seconds=3)
+                quotes.update(new)
+            quotes.update(cached())
+        # Missing/in-flight/source failures stay missing; S2 retains S1.
+        return quotes, "queued" if busy and len(quotes) < len(codes) else "leader"
 
     def set_clock(self, clock: Any) -> None:
         """Inject a Shanghai-time clock for deterministic phase tests."""
@@ -2807,72 +2793,69 @@ class MarketService:
         }
 
     def _market_scheduler_loop(self) -> None:
-        """按数据阶段更新：15:00 初态，16:00 后正式数据分时重试。
-
-        盘中行情不进入本线程，也不写入数据库。预测池只在初态/正式基础数据
-        更新成功后由后台计算；用户刷新只会读取已生成池并临时叠加实时行情。
-        """
-
+        """Run a whole update-and-publish workflow under one heavy-work lease."""
         self._market_scheduler_stop.wait(0.5)
         while not self._market_scheduler_stop.is_set():
             try:
-                if self._calc_repository.available:
-                    now = datetime.now(SHANGHAI_TZ)
-                    job = self._calc_repository.job() or {}
-                    today = now.strftime("%Y%m%d")
-                    # 周末、法定节假日和临时休市日不请求行情源，也不刷新基础资料。
-                    # 交易日历本身由 TushareClient 缓存，正常情况下每天只请求一次。
-                    if not self._is_trade_day(today):
-                        # 休息日只允许把最近已完成交易日的初态补确认为正式收盘数据。
-                        # 不把休市日当成行情日，也不在空库时触发全市场初始化。
-                        latest = self.client.latest_trade_date()
-                        latest_date, latest_stage = self._latest_data_stage_date()
-                        if latest_date and latest_date <= latest and latest_stage == "initial":
-                            catch_up_slot = now.strftime("%Y%m%d-%H-%M")[:-1]
-                            marker = f"rest-formal-{latest}-{catch_up_slot}"
-                            if self._market_last_formal_attempt != marker:
-                                self._market_last_formal_attempt = marker
-                                result = self.update_market_data(data_stage="formal", allow_non_trade_day=True)
-                                if result.get("updated") and result.get("tradeDate") == latest:
-                                    self._generate_prediction_datasets("formal")
-                        self._market_scheduler_stop.wait(60)
-                        continue
-                    if 15 <= now.hour <= 23:
-                        # 容器可能在 15:00 后冷启动；只要当日尚未成功生成初态，
-                        # 在当前允许时段补做一次，避免错过整天的初态数据。
-                        # 正式数据已成功写入当日时不重复覆盖为初态。
-                        initial_marker = f"{today}-initial"
-                        latest_stage_date = self._latest_data_stage_date()
-                        if latest_stage_date not in ((today, "initial"), (today, "formal")) and self._market_last_formal_attempt != initial_marker:
-                            self._market_last_formal_attempt = initial_marker
-                            if self.update_initial_data().get("updated"):
-                                self._generate_prediction_datasets("initial")
-                    if 16 <= now.hour <= 23:
-                        # 16:00-18:00 每 30 分钟，18:00-23:00 每小时；
-                        # 正式数据成功后当天不再重复请求，23:00 是最后一次尝试。
-                        latest = self.client.latest_trade_date()
-                        needs_formal = self._latest_data_stage() != "formal" or self._confirmed_market_trade_date() != latest
-                        retry_due = self._formal_retry_due(now)
-                        # 冷启动错过整点时，在当前小时的前 30 分钟补做一次；
-                        # 23:00 后不再补请求，避免突破当日最后重试边界。
-                        catch_up = self._formal_catch_up_due(now)
-                        slot_marker = f"{today}-{now.hour:02d}-{now.minute:02d}"
-                        catch_up_marker = f"{today}-catchup-{now.hour:02d}"
-                        marker = slot_marker if retry_due else catch_up_marker
-                        if needs_formal and (retry_due or catch_up) and self._market_last_formal_attempt != marker:
-                            self._market_last_formal_attempt = marker
-                            try:
-                                result = self.update_market_data(data_stage="formal")
-                            except Exception as exc:  # noqa: BLE001 - formal failure keeps provisional data usable
-                                self._market_update_error = str(exc)
-                                result = {"updated": False, "reason": str(exc)}
-                            if result.get("updated") and result.get("tradeDate") == latest:
-                                self._generate_prediction_datasets("formal")
-                            else:
-                                self._refresh_initial_snapshot_after_formal_failure(today)
-            except Exception as exc:  # noqa: BLE001
+                self._market_scheduler_tick()
+            except Exception as exc:
                 self._market_update_error = str(exc)
             self._market_scheduler_stop.wait(60)
+
+    @background_task()
+    def _market_scheduler_tick(self):
+        if self._calc_repository.available:
+            now = datetime.now(SHANGHAI_TZ)
+            today = now.strftime("%Y%m%d")
+            # 周末、法定节假日和临时休市日不请求行情源，也不刷新基础资料。
+            # 交易日历本身由 TushareClient 缓存，正常情况下每天只请求一次。
+            if not self._is_trade_day(today):
+                # 休息日只允许把最近已完成交易日的初态补确认为正式收盘数据。
+                # 不把休市日当成行情日，也不在空库时触发全市场初始化。
+                latest = self.client.latest_trade_date()
+                latest_date, latest_stage = self._latest_data_stage_date()
+                if latest_date and latest_date <= latest and latest_stage == "initial":
+                    catch_up_slot = now.strftime("%Y%m%d-%H-%M")[:-1]
+                    marker = f"rest-formal-{latest}-{catch_up_slot}"
+                    if self._market_last_formal_attempt != marker:
+                        self._market_last_formal_attempt = marker
+                        result = self.update_market_data(data_stage="formal", allow_non_trade_day=True)
+                        if result.get("updated") and result.get("tradeDate") == latest:
+                            self._generate_prediction_datasets("formal")
+                return
+            if 15 <= now.hour <= 23:
+                # 容器可能在 15:00 后冷启动；只要当日尚未成功生成初态，
+                # 在当前允许时段补做一次，避免错过整天的初态数据。
+                # 正式数据已成功写入当日时不重复覆盖为初态。
+                initial_marker = f"{today}-initial"
+                latest_stage_date = self._latest_data_stage_date()
+                if latest_stage_date not in ((today, "initial"), (today, "formal")) and self._market_last_formal_attempt != initial_marker:
+                    self._market_last_formal_attempt = initial_marker
+                    if self.update_initial_data().get("updated"):
+                        self._generate_prediction_datasets("initial")
+            if 16 <= now.hour <= 23:
+                # 16:00-18:00 每 30 分钟，18:00-23:00 每小时；
+                # 正式数据成功后当天不再重复请求，23:00 是最后一次尝试。
+                latest = self.client.latest_trade_date()
+                needs_formal = self._latest_data_stage() != "formal" or self._confirmed_market_trade_date() != latest
+                retry_due = self._formal_retry_due(now)
+                # 冷启动错过整点时，在当前小时的前 30 分钟补做一次；
+                # 23:00 后不再补请求，避免突破当日最后重试边界。
+                catch_up = self._formal_catch_up_due(now)
+                slot_marker = f"{today}-{now.hour:02d}-{now.minute:02d}"
+                catch_up_marker = f"{today}-catchup-{now.hour:02d}"
+                marker = slot_marker if retry_due else catch_up_marker
+                if needs_formal and (retry_due or catch_up) and self._market_last_formal_attempt != marker:
+                    self._market_last_formal_attempt = marker
+                    try:
+                        result = self.update_market_data(data_stage="formal")
+                    except Exception as exc:  # noqa: BLE001 - formal failure keeps provisional data usable
+                        self._market_update_error = str(exc)
+                        result = {"updated": False, "reason": str(exc)}
+                    if result.get("updated") and result.get("tradeDate") == latest:
+                        self._generate_prediction_datasets("formal")
+                    else:
+                        self._refresh_initial_snapshot_after_formal_failure(today)
 
     def _is_trade_day(self, trade_date: str) -> bool:
         """使用交易所日历判断日期是否开市，避免休市日触发行情请求。"""
@@ -2961,6 +2944,7 @@ class MarketService:
                 item["as_of_trade_date"] = row_date
                 item["quote_updated_at"] = f"{row_date[:4]}-{row_date[4:6]}-{row_date[6:]} 15:00:00"
 
+    @background_task(update=True)
     def update_market_data(self, data_stage: str = "formal", allow_non_trade_day: bool = False, force_history: bool = False, history_end_date: str = "") -> Dict[str, Any]:
         """生成或增量更新最小计算数据，不保存原始日线。"""
 
@@ -3008,35 +2992,27 @@ class MarketService:
                             self._calc_repository.record_failure("Tushare 当日收盘数据尚未入盘")
                         self._stocks_cache = (datetime.now(SHANGHAI_TZ), stocks)
                         return {"updated": False, "tradeDate": data_trade_date, "stockCount": len(stocks)}
-                daily_frames = {trade_date: self.client.daily(trade_date=trade_date) for trade_date in needed_dates}
                 if bootstrap:
-                    rows_by_date: Dict[str, Dict[str, Dict[str, Any]]] = {}
-                    for trade_date, frame in daily_frames.items():
-                        if frame is None or frame.empty:
-                            rows_by_date[trade_date] = {}
-                            continue
-                        rows_by_date[trade_date] = {
-                            str(row.get("ts_code") or ""): row
-                            for row in frame.to_dict("records")
-                            if row.get("ts_code") and row.get("close") is not None and float(row.get("close") or 0) > 0
-                        }
-                    for item in stocks:
-                        rows = [
-                            rows_by_date[trade_date][item["ts_code"]]
-                            for trade_date in needed_dates
-                            if item["ts_code"] in rows_by_date.get(trade_date, {})
-                        ]
-                        rows.sort(key=lambda row: str(row.get("trade_date")))
-                        vector = []
-                        for current in rows:
-                            entry = self._daily_return_entry(current, str(current["trade_date"]))
-                            if entry is not None:
-                                vector.append(entry)
-                        if rows:
-                            row_date = str(rows[-1]["trade_date"])
-                            existing[item["ts_code"]] = {"ts_code": item["ts_code"], "as_of_trade_date": row_date, "latest_close": float(rows[-1]["close"]), "stock_return_vector": vector[-30:], "quote_updated_at": f"{row_date[:4]}-{row_date[4:6]}-{row_date[6:]} 15:00:00"}
-                else:
-                    self._append_daily_rows(existing, daily_frames, needed_dates)
+                    existing = {stock["ts_code"]: {"ts_code": stock["ts_code"], "stock_return_vector": []}
+                                for stock in stocks}
+                latest_stock_ok = False
+                # Consume one full-market day at a time. Do not retain 31
+                # DataFrames plus a second all-days dict during cold rebuilds.
+                for trade_date in needed_dates:
+                    frame = self.client.daily(trade_date=trade_date)
+                    if trade_date == latest:
+                        latest_stock_ok = frame is not None and not frame.empty and any(
+                            str(row.get("trade_date")) == latest for row in frame.to_dict("records"))
+                    self._append_daily_rows(existing, {trade_date: frame}, [trade_date])
+                    if hasattr(self.client, "release_daily_cache"):
+                        self.client.release_daily_cache(trade_date)
+                    del frame
+                if bootstrap:
+                    for item in existing.values():
+                        item["stock_return_vector"] = [
+                            {"date": point["date"], "return": point["return"]}
+                            for point in item["stock_return_vector"]]
+                if not bootstrap:
                     # 新上市股票不在旧计算池中时，只为这些新增代码补取近 30 个交易日价格。
                     history_start = needed_dates[0] if len(needed_dates) >= 30 else open_dates[-31]
                     for stock in stocks:
@@ -3089,8 +3065,6 @@ class MarketService:
                 # 正式数据必须同时拿到目标交易日的股票日线和全部对应指数日线。
                 # 失败时只更新基础资料，保留已有初态/正式计算行，不能伪造成功。
                 if data_stage == "formal" and latest in needed_dates:
-                    latest_stock_frame = daily_frames.get(latest)
-                    latest_stock_ok = latest_stock_frame is not None and not latest_stock_frame.empty and any(str(row.get("trade_date")) == latest for row in latest_stock_frame.to_dict("records"))
                     latest_index_ok = bool(index_latest_flags) and all(index_latest_flags)
                     if not latest_stock_ok or not latest_index_ok:
                         self._calc_repository.upsert_market(stocks, [], [], previous_date or latest, data_stage="initial" if previous_date == latest else "formal")
@@ -3162,6 +3136,7 @@ class MarketService:
         except Exception:
             return "", ""
 
+    @background_task(update=True)
     def update_initial_data(self) -> Dict[str, Any]:
         """15:00 生成初态数据，只覆盖当前交易日的报价。
 
@@ -3235,6 +3210,7 @@ class MarketService:
             self._stocks_cache = (now, stocks)
             return {"updated": True, "tradeDate": today, "dataStage": "initial", "calculationCount": len(calculations)}
 
+    @background_task()
     def _generate_prediction_datasets(self, data_stage: str) -> None:
         """盘中沿用已发布池；收盘归档补齐当日正式计算进入范围的卡片。"""
         base_trade_date = self._latest_data_stage_date()[0] or self._confirmed_market_trade_date()
@@ -3449,6 +3425,22 @@ class MarketService:
             raise CalculationDataUnavailable("MySQL 计算数据读取失败，单股计算已停止") from exc
         if not result:
             raise CalculationDataUnavailable("数据库中的股票或指数基线缺失/日期不一致，单股计算已停止")
+        return result
+
+    def latest_stock_returns(self, ts_codes):
+        """Attach monitor display prices in one deduplicated database read."""
+        codes = sorted({str(code).strip().upper() for code in ts_codes if code})
+        if not codes or not self._calc_repository.available:
+            return {}
+        repository = self._calc_repository
+        calculations = repository.get_calcs(codes) if hasattr(repository, "get_calcs") else {
+            code: repository.get_calc(code) for code in codes}
+        result = {}
+        for code, calc in calculations.items():
+            vector = self._vector_entries((calc or {}).get("stock_return_vector"))
+            if vector:
+                latest = max(vector, key=lambda item: self._date_key(item.get("date")))
+                result[code] = {"value": float(latest["return"]), "tradeDate": self._date_key(latest.get("date"))}
         return result
 
     def latest_stock_return(self, ts_code: str) -> Optional[Dict[str, Any]]:

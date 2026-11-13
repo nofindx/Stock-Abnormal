@@ -1,0 +1,94 @@
+{
+  "release": {
+    "releaseId": "20261113.ads-local.3",
+    "miniProgramVersion": "2.0.0",
+    "quoteRefreshPolicy": "latest-available-all-hours"
+  },
+  "branch": "codex/ads-v2-design-20261112",
+  "frozenTag": "freeze/v1.0.21-20261112",
+  "frozenCommit": "39bcfd2bd6d58964251414cec9c9f01f1d80d2e9",
+  "backendTests": {
+    "total": 467,
+    "passed": 466,
+    "skipped": 1
+  },
+  "newTests": 25,
+  "frontend": {
+    "frontendTests": [
+      {
+        "file": "miniprogram/app.test.js",
+        "exitCode": 0
+      },
+      {
+        "file": "miniprogram/components/official-ad/index.test.js",
+        "exitCode": 0
+      },
+      {
+        "file": "miniprogram/pages/ads-integration.test.js",
+        "exitCode": 0
+      },
+      {
+        "file": "miniprogram/pages/business-boundary.test.js",
+        "exitCode": 0
+      },
+      {
+        "file": "miniprogram/pages/local-view-cache.test.js",
+        "exitCode": 0
+      },
+      {
+        "file": "miniprogram/pages/monitor/index.test.js",
+        "exitCode": 0
+      },
+      {
+        "file": "miniprogram/pages/prediction/index.test.js",
+        "exitCode": 0
+      },
+      {
+        "file": "miniprogram/pages/prediction/prediction.test.js",
+        "exitCode": 0
+      },
+      {
+        "file": "miniprogram/pages/prediction/scope-cache.test.js",
+        "exitCode": 0
+      },
+      {
+        "file": "miniprogram/pages/refresh-lifecycle.test.js",
+        "exitCode": 0
+      },
+      {
+        "file": "miniprogram/pages/stock/simulation.test.js",
+        "exitCode": 0
+      },
+      {
+        "file": "miniprogram/utils/ads-config.test.js",
+        "exitCode": 0
+      },
+      {
+        "file": "miniprogram/utils/api.test.js",
+        "exitCode": 0
+      },
+      {
+        "file": "miniprogram/utils/request-local.test.js",
+        "exitCode": 0
+      },
+      {
+        "file": "miniprogram/utils/rewarded-access.test.js",
+        "exitCode": 0
+      }
+    ],
+    "jsSyntaxFiles": 33,
+    "jsonFiles": 12,
+    "temporalPolicyPassed": true,
+    "release": {
+      "releaseId": "20261113.ads-local.3",
+      "miniProgramVersion": "2.0.0",
+      "quoteRefreshPolicy": "latest-available-all-hours"
+    }
+  },
+  "mysqlLockVerification": "two isolated local processes against advisory-lock simulator; no cloud connection",
+  "redisVerification": "fakeredis with Lua and Redis Cluster key-slot assertions; no cloud connection",
+  "diffAndDocLinksPassed": true,
+  "deployed": false,
+  "pushed": false,
+  "cloudConfigurationChanged": false
+}

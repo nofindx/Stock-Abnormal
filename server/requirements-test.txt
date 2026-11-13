@@ -1,0 +1,2 @@
+# Test-only Redis/Lua simulator; do not install into the production image.
+fakeredis[lua]==2.32.1

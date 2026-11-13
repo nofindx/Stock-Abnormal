@@ -2422,7 +2422,9 @@ class MarketVectorTests(unittest.TestCase):
         self.assertTrue(today_result[0]["deviation"].endswith("-0.29%"))
         self.assertNotEqual(today_result[0]["triggerValue"], result[0]["triggerValue"])
         quote_state["current"] = 60.0
-        recovered = service._refresh_existing_prediction_scope("next_day", "today")
+        # A changed source quote becomes visible in the next 3-second bucket.
+        with patch("server.services.market_service.quote_bucket", return_value="later-quote-bucket"):
+            recovered = service._refresh_existing_prediction_scope("next_day", "today")
         self.assertTrue(recovered[0]["triggered"])
         self.assertEqual(recovered[0]["cardTone"], "triggered")
         self.assertEqual(recovered[0]["trigger"], recovered[0]["triggerCondition"])

@@ -15,7 +15,7 @@ class ReadPublications:
     def capture(self, scope):
         # Pin announcement facts once per request; never let each stock read a
         # different worker's latest snapshot during the same calculation.
-        snapshot = deepcopy(self.service._monitor_provider() or {}) if self.service._monitor_provider else {}
+        snapshot = (self.service._monitor_provider() or {}) if self.service._monitor_provider else {}
         service = copy(self.service)
         service._monitor_provider = lambda: snapshot
         page, role = scope["page"], scope["role"]
@@ -28,11 +28,14 @@ class ReadPublications:
         else:
             data = deepcopy(snapshot)
             codes = []
-        rows = {x["ts_code"]: x for x in self.service._stock_rows() if x["ts_code"] in codes}
         repo = self.service._calc_repository
-        calculations = {code: repo.get_calc(code) for code in codes}
-        index_codes = {_index_code_for_stock(row) for row in rows.values()}
-        indexes = {code: repo.get_index(code) for code in index_codes}
+        if hasattr(repo, "read_inputs"):
+            calculations, indexes = repo.read_inputs(codes, _index_code_for_stock)
+        else:  # injected/local repository adapters retain the same contract
+            calculations = {code: repo.get_calc(code) for code in codes}
+            indexes = {code: repo.get_index(code) for code in {
+                _index_code_for_stock(row) for row in calculations.values() if row}}
+        rows = {code: service._normalise_stock_row(row) for code, row in calculations.items() if row}
         if page == "stock":
             # Render S1 from the exact inputs retained for S2, rather than
             # reading the stock/index again after producing the visible body.
@@ -42,8 +45,12 @@ class ReadPublications:
             data = service.detail(scope["security_id"], use_realtime=False)
             data["realtimeRefreshAllowed"] = service._detail_realtime_allowed()
         symbols = {x.split(".")[0] for x in codes}
+        scoped_snapshot = deepcopy({key: value for key, value in snapshot.items()
+                                    if key not in {"items", "resetFacts", "unresolvedFacts"}})
         for key in ("items", "resetFacts", "unresolvedFacts"):
-            snapshot[key] = [x for x in snapshot.get(key, []) if str(x.get("symbol") or "").split(".")[0] in symbols]
+            scoped_snapshot[key] = deepcopy([x for x in snapshot.get(key, [])
+                if str(x.get("symbol") or "").split(".")[0] in symbols])
+        snapshot = scoped_snapshot
         if page == "stock":
             data["monitoringFacts"] = deepcopy(snapshot["items"])
         basis = {"stocks": rows, "calculations": calculations, "indexes": indexes, "monitor": snapshot}

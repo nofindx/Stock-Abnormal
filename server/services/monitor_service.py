@@ -26,6 +26,7 @@ from .announcement_service import AnnouncementService
 from server.data.fact_ledger import FactLedger
 from server.data.publication_store import PublicationStore, PublicationBusy
 from .market_calc_repository import MarketCalcRepository
+from .background_work import heavy_work, BackgroundBusy
 from .tushare_client import TushareClient
 
 try:
@@ -226,6 +227,7 @@ class OfficialMonitorService:
         # production continues to use Shanghai local time.
         self._clock = lambda: datetime.now(SHANGHAI_TZ)
         self.refreshing = False
+        self._background_refresh_pending = False
         self.last_error = ""
         self._snapshot_published_callback = None
         self._lock = Lock()
@@ -303,7 +305,7 @@ class OfficialMonitorService:
                 last_attempt_date = state.get("last_attempt_date", "")
                 coverage_retry = state.get("coverage_retry_after", "")
                 # 无当前快照时冷启动立即补采；有当前快照时每天 00:00 后只尝试一次。
-                if (coverage_retry and now.strftime("%Y%m%d%H%M") >= coverage_retry) or state.get("monitor_rule_version") != MONITOR_RULE_VERSION or (
+                if self._background_refresh_pending or (coverage_retry and now.strftime("%Y%m%d%H%M") >= coverage_retry) or state.get("monitor_rule_version") != MONITOR_RULE_VERSION or (
                     not self.repository.active_snapshot() and not last_attempt_date
                 ) or (
                     now.hour == 0 and last_attempt_date != today
@@ -315,8 +317,9 @@ class OfficialMonitorService:
                     retry_date = (datetime.strptime(failure_date, "%Y-%m-%d") + timedelta(days=1)).strftime("%Y-%m-%d") if failure_date else ""
                     retry_key = f"retry_{today}_{now.hour:02d}"
                     if retry_date == today and state.get(retry_key) != "1" and state.get("last_status") == "failed":
-                        self.refresh()
-                        self.repository.set_state(retry_key, "1")
+                        result = self.refresh()
+                        if not result.get("deferred"):
+                            self.repository.set_state(retry_key, "1")
             except Exception as exc:  # noqa: BLE001 - 调度线程必须保持存活
                 self.last_error = str(exc)
             self._scheduler_stop.wait(60)
@@ -1209,7 +1212,52 @@ class OfficialMonitorService:
             return datetime.strptime(previous_start, "%Y%m%d").strftime("%Y-%m-%d")
         raise RuntimeError("正式交易日历不可用，无法确定公告最近30个交易日的采集边界")
 
+    def _issuer_bodies(self, announcements):
+        """Keep at most four notice bodies live; parse each batch before fetching more."""
+        if not isinstance(self.announcements, AnnouncementService):
+            for item in announcements:
+                yield item, {"text": self.announcements.extract_pdf_text(item["url"]), "method": "text_layer"}
+            return
+
+        def read_body(url):
+            try:
+                return url, self.announcements.extract_pdf_body(url)
+            except Exception as exc:
+                return url, {"text": "", "method": "unavailable", "error": type(exc).__name__}
+
+        with ThreadPoolExecutor(max_workers=2, thread_name_prefix="notice-body") as reader:
+            for start in range(0, len(announcements), 4):
+                batch = announcements[start:start + 4]
+                urls = sorted({item["url"] for item in batch if item.get("url")})
+                bodies = dict(reader.map(read_body, urls))
+                for item in batch:
+                    yield item, bodies.get(item.get("url")) or {"text": "", "method": "unavailable"}
+                bodies.clear()
+
     def refresh(self) -> Dict[str, Any]:
+        try:
+            with heavy_work(self.repository):
+                if self._background_refresh_pending:
+                    state = self.repository.states()
+                    now = self._clock()
+                    retry = state.get("coverage_retry_after", "")
+                    snapshot = self.repository.active_snapshot() or {}
+                    peer_completed = (
+                        str(snapshot.get("updatedAt") or "")[:10] == now.strftime("%Y-%m-%d")
+                        and state.get("last_status") == "success"
+                        and state.get("last_attempt_date") == now.strftime("%Y-%m-%d")
+                        and state.get("monitor_rule_version") == MONITOR_RULE_VERSION
+                        and (not retry or now.strftime("%Y%m%d%H%M") < retry))
+                    if peer_completed:
+                        self._background_refresh_pending = False
+                        return {"started": False, "refreshing": False, "reused": True}
+                self._background_refresh_pending = False
+                return self._refresh_owned()
+        except BackgroundBusy:
+            self._background_refresh_pending = True
+            return {"started": False, "refreshing": self.refreshing, "deferred": True, "reason": "background_busy"}
+
+    def _refresh_owned(self) -> Dict[str, Any]:
         """后台调用：公告源完整可用且快照校验通过后才原子发布。"""
 
         with self._lock:
@@ -1220,8 +1268,8 @@ class OfficialMonitorService:
         started_at = now.strftime("%Y-%m-%d %H:%M")
         # 允许失败后立即重试；秒级 ID 会在同一秒内重复并触发 SQLite 主键冲突。
         run_id = now.strftime("%Y%m%d%H%M%S%f")
-        self.repository.set_state("last_attempt_date", now.strftime("%Y-%m-%d"))
         try:
+            self.repository.set_state("last_attempt_date", now.strftime("%Y-%m-%d"))
             # Only the longest current calculation horizon needs backfill.
             # Monitoring expiry and durable evidence retention are independent.
             start_date = self._announcement_window_start(now)
@@ -1274,24 +1322,9 @@ class OfficialMonitorService:
             issuer_reset_verified = 0
             issuer_unread_facts: List[Dict[str, Any]] = []
             resolved_body_ids = set()
-            body_results = {}
-            if isinstance(self.announcements, AnnouncementService):
-                def read_body(url):
-                    try:
-                        return url, self.announcements.extract_pdf_body(url)
-                    except Exception as exc:
-                        return url, {"text": "", "method": "unavailable", "error": type(exc).__name__}
-                # Bound source concurrency; a long backfill must not serialize
-                # hundreds of independent PDF downloads or block API reads.
-                urls = sorted({item["url"] for item in issuer_items if item.get("url")})
-                with ThreadPoolExecutor(max_workers=4, thread_name_prefix="notice-body") as reader:
-                    body_results = dict(reader.map(read_body, urls))
-            for announcement in issuer_items if (issuer_available or issuer_has_rows) else []:
+            for announcement, body_result in self._issuer_bodies(
+                    issuer_items if (issuer_available or issuer_has_rows) else []):
                 title = announcement["title"]
-                if isinstance(self.announcements, AnnouncementService):
-                    body_result = body_results.get(announcement["url"]) or {"text": "", "method": "unavailable"}
-                else:  # compatibility for injected test and legacy readers
-                    body_result = {"text": self.announcements.extract_pdf_text(announcement["url"]), "method": "text_layer"}
                 body = str(body_result.get("text") or "")
                 issuer_body_checked += 1
                 issuer_body_ocr += int(body_result.get("method") == "ocr")
