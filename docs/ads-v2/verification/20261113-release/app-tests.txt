@@ -1,0 +1,1 @@
+mini-program JS-only App startup tests passed (develop/trial/release)
