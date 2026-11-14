@@ -1,0 +1,23 @@
+{
+  "miniProgramVersion": "2.0.1",
+  "releaseId": "20261114.1",
+  "sourceCommit": "1e03659",
+  "uploaded": true,
+  "uploadBytes": 330406,
+  "uploadReceipt": "upload-2.0.1.json",
+  "gitBranches": [
+    "Stock-Abnormal",
+    "codex/ads-v2-design-20261112"
+  ],
+  "backendTargetVersion": "2.0.1",
+  "backendObservedVersion": "2.0.0",
+  "cloudDeploymentPerformed": false,
+  "releaseAndConfigBackendTestsPassed": 11,
+  "frontendFocusedChecks": [
+    "app",
+    "ads-config",
+    "share"
+  ],
+  "deviceAcceptance": "pending",
+  "submittedForReview": false
+}
