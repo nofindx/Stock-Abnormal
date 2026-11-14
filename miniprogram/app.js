@@ -1,11 +1,17 @@
 // 小程序启动文件：初始化微信云托管，不收集用户身份信息。
 const CLOUD_ENV = 'prod-d1g25zvvkd79d524b'
 const releaseInfo = require('./release-info')
+const { STOCK_PAGE, parseShareEntry } = require('./utils/share-entry')
 // 本地开发默认复用既有云端数据。仅启动隔离后端联调时显式设为true，
 // 并将devApiBaseUrl设为环回地址；本地开发不等于必须运行本地后端。
 const LOCAL_DEVELOPMENT_ONLY = false
 
 App({
+  onShow(options = {}) {
+    // onLoad does not run again when a shared link returns to an already-open tab.
+    const stock = String(options.path || '').replace(/^\//, '') === STOCK_PAGE ? parseShareEntry(options.query) : null
+    if (stock) this.globalData.pendingStock = stock
+  },
   onLaunch() {
     let envVersion = ''
     try {

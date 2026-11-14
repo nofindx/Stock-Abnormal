@@ -17,5 +17,15 @@
   "publicMiniProgramPublished": false,
   "failedCloudVersion": "flask-9a5y-315",
   "buildFix": "use_mirror.gcr.io_same_linux_amd64_image",
-  "baseImageEvidence": "base-image-verification.json"
+  "baseImageEvidence": "base-image-verification.json",
+  "localShareIncrement": {
+    "implemented": true,
+    "uploaded": false,
+    "requiresPrivacyGuidelineUpdate": null,
+    "actions": [
+      "friend_or_group_native_share",
+      "timeline_image_share_menu"
+    ],
+    "report": "../../单股整页分享本地验收_20261113.md"
+  }
 }

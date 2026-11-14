@@ -1,0 +1,168 @@
+{
+  "checkedAt": "2026-11-13T17:22:22.818013+00:00",
+  "scope": "local_only_stock_share",
+  "frontendTests": [
+    {
+      "file": "miniprogram/app.test.js",
+      "exitCode": 0
+    },
+    {
+      "file": "miniprogram/components/official-ad/index.test.js",
+      "exitCode": 0
+    },
+    {
+      "file": "miniprogram/pages/ads-integration.test.js",
+      "exitCode": 0
+    },
+    {
+      "file": "miniprogram/pages/business-boundary.test.js",
+      "exitCode": 0
+    },
+    {
+      "file": "miniprogram/pages/local-view-cache.test.js",
+      "exitCode": 0
+    },
+    {
+      "file": "miniprogram/pages/monitor/index.test.js",
+      "exitCode": 0
+    },
+    {
+      "file": "miniprogram/pages/prediction/index.test.js",
+      "exitCode": 0
+    },
+    {
+      "file": "miniprogram/pages/prediction/prediction.test.js",
+      "exitCode": 0
+    },
+    {
+      "file": "miniprogram/pages/prediction/scope-cache.test.js",
+      "exitCode": 0
+    },
+    {
+      "file": "miniprogram/pages/refresh-lifecycle.test.js",
+      "exitCode": 0
+    },
+    {
+      "file": "miniprogram/pages/stock/share.test.js",
+      "exitCode": 0
+    },
+    {
+      "file": "miniprogram/pages/stock/simulation.test.js",
+      "exitCode": 0
+    },
+    {
+      "file": "miniprogram/utils/ads-config.test.js",
+      "exitCode": 0
+    },
+    {
+      "file": "miniprogram/utils/api.test.js",
+      "exitCode": 0
+    },
+    {
+      "file": "miniprogram/utils/request-local.test.js",
+      "exitCode": 0
+    },
+    {
+      "file": "miniprogram/utils/rewarded-access.test.js",
+      "exitCode": 0
+    }
+  ],
+  "syntax": [
+    {
+      "file": "miniprogram/app.js",
+      "exitCode": 0
+    },
+    {
+      "file": "miniprogram/components/official-ad/index.js",
+      "exitCode": 0
+    },
+    {
+      "file": "miniprogram/custom-tab-bar/index.js",
+      "exitCode": 0
+    },
+    {
+      "file": "miniprogram/pages/monitor/index.js",
+      "exitCode": 0
+    },
+    {
+      "file": "miniprogram/pages/prediction/index.js",
+      "exitCode": 0
+    },
+    {
+      "file": "miniprogram/pages/privacy/index.js",
+      "exitCode": 0
+    },
+    {
+      "file": "miniprogram/pages/rules/index.js",
+      "exitCode": 0
+    },
+    {
+      "file": "miniprogram/pages/stock/index.js",
+      "exitCode": 0
+    },
+    {
+      "file": "miniprogram/release-info.js",
+      "exitCode": 0
+    },
+    {
+      "file": "miniprogram/utils/ads-config.js",
+      "exitCode": 0
+    },
+    {
+      "file": "miniprogram/utils/api.js",
+      "exitCode": 0
+    },
+    {
+      "file": "miniprogram/utils/business-boundary.js",
+      "exitCode": 0
+    },
+    {
+      "file": "miniprogram/utils/cache.js",
+      "exitCode": 0
+    },
+    {
+      "file": "miniprogram/utils/format.js",
+      "exitCode": 0
+    },
+    {
+      "file": "miniprogram/utils/open-pdf.js",
+      "exitCode": 0
+    },
+    {
+      "file": "miniprogram/utils/request.js",
+      "exitCode": 0
+    },
+    {
+      "file": "miniprogram/utils/rewarded-access.js",
+      "exitCode": 0
+    },
+    {
+      "file": "miniprogram/utils/share-entry.js",
+      "exitCode": 0
+    },
+    {
+      "file": "miniprogram/utils/stock-share.js",
+      "exitCode": 0
+    }
+  ],
+  "backendCodeChanged": false,
+  "uploadedWithShare": false,
+  "deviceShareAcceptance": "pending",
+  "presentation": "separate_share_card_two_native_share_actions_weui_icons",
+  "shareActions": [
+    "native_friend_or_group",
+    "native_image_menu_timeline"
+  ],
+  "systemPermissions": [],
+  "albumSave": null,
+  "nativeCompilers": {
+    "wcc": {
+      "passed": true,
+      "files": 7
+    },
+    "wcsc": {
+      "passed": true,
+      "files": 8
+    }
+  }
+}

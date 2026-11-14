@@ -60,6 +60,7 @@
             <view class="monitoring-reason"><text>监管原因：</text><text>{{detail.monitoringSummary.ruleText}}</text></view>
           </view>
         </view>
+
       </view>
     </view>
 
@@ -82,10 +83,19 @@
       </view>
       </block>
     </view>
+    <view class="stock-share-card card">
+      <view class="simulation-heading stock-share-heading"><view class="simulation-title">分享一下</view><view class="simulation-note">分享当前股票状态与异动计算结果</view></view>
+      <view class="share-actions">
+        <button class="share-btn share-btn--primary" open-type="share" hover-class="share-btn--primary-active" disabled="{{sharingStock || detailLoading}}" aria-label="发给微信好友或群"><image class="share-btn-icon" src="/assets/weui-share/friend.svg" mode="aspectFit" aria-hidden="true"></image><text>发给好友</text></button>
+        <button class="share-btn share-btn--ghost" bindtap="shareStockPage" data-action="timeline" hover-class="share-btn--ghost-active" disabled="{{sharingStock || detailLoading}}" aria-label="打开微信原生图片分享菜单，选择朋友圈"><image class="share-btn-icon" src="/assets/weui-share/timeline.svg" mode="aspectFit" aria-hidden="true"></image><text>{{sharingStock && shareAction === 'timeline' ? '生成中…' : '炫朋友圈'}}</text></button>
+      </view>
+    </view>
   </view>
   <view class="legal-footer-links">
     <navigator class="page-footer-link" url="/pages/privacy/index" hover-class="tap-feedback" hover-stay-time="80">隐私与用户协议</navigator>
     <text class="footer-separator">·</text>
     <navigator class="page-footer-link" url="/pages/rules/index" hover-class="tap-feedback" hover-stay-time="80">规则说明</navigator>
   </view>
+  <canvas type="2d" id="stock-share-canvas" class="stock-share-canvas" aria-hidden="true"></canvas>
+  <canvas type="2d" id="stock-share-cover-canvas" class="stock-share-canvas" aria-hidden="true"></canvas>
 </view>

@@ -3,6 +3,8 @@ const { searchStocks, getStockDetail, refreshStockDetail } = require('../../util
 const { businessDateKey: stockBusinessDateKey, businessBoundaryKey, startBoundaryWatch, stopBoundaryWatch } = require('../../utils/business-boundary')
 const { createRewardedAccess } = require('../../utils/rewarded-access')
 const { client: adsConfig } = require('../../utils/ads-config')
+const { parseShareEntry } = require('../../utils/share-entry')
+const { captureStockShare, shareMetadata, renderStockShare, openStockShareImage } = require('../../utils/stock-share')
 
 function formatSimulationDate(value) {
   const text = String(value == null ? '' : value).trim()
@@ -627,13 +629,22 @@ Page({
     detailLoading: false, detailError: '', searchError: '', searchFocused: false, dataUpdatedAt: '',
     futureTradeDates: [], nextDayForecastLine: '', nextDayForecastText: '正在核对下一交易日预测…', nextDayForecastNotice: '',
     dayOptions: ['10'], simulationExpanded: false, simulationReady: false, visibleDays: 2, simulationRewarded: false, simulationUnlocking: false,
-    inputRows: createInputRows(2), matrixGroups: buildMatrixGroups(createInputRows(2))
+    inputRows: createInputRows(2), matrixGroups: buildMatrixGroups(createInputRows(2)), sharingStock: false, shareAction: ''
   },
-  onLoad(options) {
+  onLoad(options = {}) {
     this._stockDisposed = false
     this._simulationAccess = createRewardedAccess()
     adsConfig.policy('simulation_10d').then(policy => { if (!this._stockDisposed) this.setData({ simulationRewarded: policy.mode === 'rewarded' }) })
     this.setData({ recentStocks: (wx.getStorageSync(STOCK_HISTORY_KEY) || []).slice(0, 8) })
+    if (typeof wx.showShareMenu === 'function') wx.showShareMenu({ menus: ['shareAppMessage', 'shareTimeline'], fail() {} })
+    const shared = parseShareEntry(options)
+    if (shared) {
+      // Consume the cold-start App handoff once, before page onShow.
+      const pending = getApp().globalData.pendingStock
+      if (pending && pending.fromShare && pending.ts_code === shared.ts_code) getApp().globalData.pendingStock = null
+      return this.chooseStock(shared)
+    }
+    if (options.from === 'stock_share') return
     if (options.ts_code) this.loadStockByCode(options.ts_code)
   },
   onShow() {
@@ -641,7 +652,12 @@ Page({
     const pending = getApp().globalData.pendingStock
     if (pending) {
       getApp().globalData.pendingStock = null
-      if (this.data.selected && pending.ts_code === this.data.selected.ts_code && this.data.detail) {
+      if (pending.fromShare) {
+        // A recipient starts with fresh data and default inputs, even on a warm launch.
+        this.ensureStockCacheScope()
+        this._stockViews.delete(pending.ts_code)
+        this.chooseStock(pending)
+      } else if (this.data.selected && pending.ts_code === this.data.selected.ts_code && this.data.detail) {
         this.resetSimulationInputs()
       } else if (!this.data.selected || pending.ts_code !== this.data.selected.ts_code || !this.data.detailLoading) {
         this.chooseStock(pending)
@@ -900,6 +916,7 @@ Page({
       const recentStocks = [{ ts_code: detailWithMonitoring.ts_code || stock.ts_code, symbol: detailWithMonitoring.symbol || stock.symbol || stock.ts_code.split('.')[0], name: detailWithMonitoring.name || stock.name || stock.ts_code }, ...(this.data.recentStocks || []).filter(item => item.ts_code !== (detailWithMonitoring.ts_code || stock.ts_code))].slice(0, 8)
       wx.setStorageSync(STOCK_HISTORY_KEY, recentStocks)
       this.setData({ selected: { ...stock, ...detailWithMonitoring }, detail: displayDetail, detailLoading: false, detailError: '', dataUpdatedAt, recentStocks, futureTradeDates, visibleDays, simulationExpanded: visibleDays === 10, inputRows: rows, matrixGroups: buildMatrixGroups(rows), simulationReady: true, query: `${detailWithMonitoring.name} ${detailWithMonitoring.symbol}`, nextDayForecastLine: forecast.line, nextDayForecastText: forecast.text, nextDayForecastNotice: forecast.notice || '' })
+      this.prepareStockShareCover()
   },
   invalidateSimulationAccess() {
     this._simulationEpoch = (this._simulationEpoch || 0) + 1
@@ -962,6 +979,69 @@ Page({
   clearInputs() {
     const inputRows = calculateSimulationRows(createInputRows(this.data.visibleDays, this.data.futureTradeDates), this.data.detail)
     this.setData({ inputRows, matrixGroups: buildMatrixGroups(inputRows) })
+  },
+  stockShareSnapshot() {
+    // Share the normal two-day baseline, never the sender's custom input.
+    const rows = calculateSimulationRows(createInputRows(2, this.data.futureTradeDates), this.data.detail)
+    return captureStockShare(this.data, rows)
+  },
+  prepareStockShareCover() {
+    this._stockShareCover = null
+    this._stockShareCoverVersion = (this._stockShareCoverVersion || 0) + 1
+    if (this._stockDisposed || !this.data.detail || typeof wx.createSelectorQuery !== 'function') return
+    if (this._stockShareCoverTask) return this._stockShareCoverTask
+    const work = async () => {
+      let version
+      do {
+        version = this._stockShareCoverVersion
+        const snapshot = captureStockShare(this.data)
+        const boundary = businessBoundaryKey()
+        try {
+          const image = await renderStockShare(this, snapshot, wx, true)
+          if (!this._stockDisposed && version === this._stockShareCoverVersion &&
+              boundary === businessBoundaryKey() && snapshot.code === (this.data.detail || {}).ts_code) {
+            this._stockShareCover = { path: image.path, code: snapshot.code, boundary }
+          }
+        } catch (_) { /* Keep the safe static cover when canvas is unavailable. */ }
+      } while (!this._stockDisposed && version !== this._stockShareCoverVersion && this.data.detail)
+    }
+    this._stockShareCoverTask = Promise.resolve().then(work).catch(() => {}).finally(() => { this._stockShareCoverTask = null })
+    return this._stockShareCoverTask
+  },
+  stockShareMetadata() {
+    const metadata = shareMetadata(this.data)
+    const cover = this._stockShareCover
+    if (cover && cover.code === (this.data.detail || {}).ts_code && cover.boundary === businessBoundaryKey()) metadata.imageUrl = cover.path
+    return metadata
+  },
+  async shareStockPage(event = {}) {
+    const action = String((event.currentTarget && event.currentTarget.dataset.action) || 'timeline')
+    if (this.data.sharingStock || action !== 'timeline') return
+    let snapshot
+    try { snapshot = this.stockShareSnapshot() } catch (error) {
+      wx.showToast({ title: error.message, icon: 'none' }); return
+    }
+    const boundary = businessBoundaryKey()
+    const epoch = this._simulationEpoch
+    this.setData({ sharingStock: true, shareAction: action })
+    try {
+      const image = await renderStockShare(this, snapshot)
+      if (this._stockDisposed || epoch !== this._simulationEpoch || boundary !== businessBoundaryKey() ||
+          snapshot.code !== ((this.data.selected || {}).ts_code || (this.data.detail || {}).ts_code)) return
+      await openStockShareImage(image.path, this.stockShareMetadata().path)
+    } catch (error) {
+      if (!this._stockDisposed) wx.showToast({ title: error.message || '分享图片生成失败', icon: 'none' })
+    } finally {
+      if (!this._stockDisposed) this.setData({ sharingStock: false, shareAction: '' })
+    }
+  },
+  onShareAppMessage() {
+    const { title, path, imageUrl } = this.stockShareMetadata()
+    return { title, path, imageUrl }
+  },
+  onShareTimeline() {
+    const { title, query, imageUrl } = this.stockShareMetadata()
+    return { title, query, imageUrl }
   },
   onHide() { stopBoundaryWatch(this) },
   onUnload() {

@@ -40,6 +40,15 @@ function boot(envVersion) {
   assert.strictEqual(cloudCalls.length, envVersion === 'develop' ? 0 : 1,
     'developer tools use the existing HTTPS source; trial/release retain cloud initialization')
   if (cloudCalls.length) assert.strictEqual(cloudCalls[0].traceUser, false)
+  definition.onShow({ path: 'pages/stock/index', query: { from: 'stock_share', ts_code: '301313.SZ', inputRows: 'never copy' } })
+  assert.strictEqual(definition.globalData.pendingStock.ts_code, '301313.SZ')
+  assert.strictEqual(definition.globalData.pendingStock.fromShare, true)
+  assert.strictEqual(definition.globalData.pendingStock.inputRows, undefined)
+  definition.globalData.pendingStock = null
+  definition.onShow({ path: 'pages/stock/index', query: { ts_code: '301313.SZ' } })
+  assert.strictEqual(definition.globalData.pendingStock, null, 'ordinary foreground must not initialize shared state')
+  definition.onShow({ path: 'pages/stock/index', query: { from: 'stock_share', ts_code: '../invalid' } })
+  assert.strictEqual(definition.globalData.pendingStock, null)
 }
 
 boot('develop')

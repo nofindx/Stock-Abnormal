@@ -1,0 +1,15 @@
+{
+  "version": "2.0.0",
+  "releaseId": "20261113.1",
+  "frontendPassed": 17,
+  "backendPassed": 466,
+  "backendSkipped": 1,
+  "wxmlCompiled": 7,
+  "wxssCompiled": 8,
+  "systemPermissions": [],
+  "backendChanged": false,
+  "cloudDeploymentNeeded": false,
+  "uploaded": false,
+  "deviceAcceptance": "pending",
+  "buildIdentification": "upload description + source Git commit; backend compatibility release unchanged"
+}

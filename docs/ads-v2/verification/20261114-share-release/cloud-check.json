@@ -1,0 +1,85 @@
+{
+  "release": {
+    "releaseId": "20261113.1",
+    "miniProgramVersion": "2.0.0",
+    "quoteRefreshPolicy": "latest-available-all-hours"
+  },
+  "redis": {
+    "redisEnabled": true,
+    "redisPing": true,
+    "sourcePolicyGate": {
+      "gateId": "G26",
+      "status": "pass",
+      "count": 3,
+      "errors": [],
+      "reason": "每个启用来源/交易阶段必须有证据支持的冻结版本和匹配配置哈希"
+    }
+  },
+  "predictions": {
+    "today": {
+      "available": true,
+      "targetTradeDate": "20261113",
+      "ruleVersion": "v75",
+      "itemCount": 4
+    },
+    "next_day": {
+      "available": true,
+      "targetTradeDate": "20261116",
+      "ruleVersion": "v75",
+      "itemCount": 3
+    }
+  },
+  "monitorAvailable": true,
+  "clientConfig": {
+    "configVersion": "ads-v2-2",
+    "ads": {
+      "enabled": false,
+      "allowedVersions": [
+        "2.0.0"
+      ],
+      "cacheTtlSeconds": 600,
+      "placements": {
+        "home_history_below": {
+          "enabled": false,
+          "type": "ad-custom",
+          "unitId": ""
+        },
+        "prediction_footer": {
+          "enabled": false,
+          "type": "ad-custom",
+          "unitId": ""
+        },
+        "stock_simulation_above": {
+          "enabled": false,
+          "type": "ad-custom",
+          "unitId": ""
+        },
+        "monitor_footer": {
+          "enabled": false,
+          "type": "ad-custom",
+          "unitId": ""
+        }
+      },
+      "rewarded": {
+        "simulation_10d": {
+          "enabled": false,
+          "type": "rewarded-video",
+          "unitId": ""
+        },
+        "prediction_next": {
+          "enabled": false,
+          "type": "rewarded-video",
+          "unitId": ""
+        }
+      }
+    },
+    "featureGates": {
+      "simulation_10d": {
+        "mode": "free"
+      },
+      "prediction_next": {
+        "mode": "free"
+      }
+    }
+  }
+}

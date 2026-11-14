@@ -1,0 +1,12 @@
+{
+  "wcc": {
+    "passed": true,
+    "files": 7,
+    "output": ""
+  },
+  "wcsc": {
+    "passed": true,
+    "files": 8,
+    "output": ""
+  }
+}

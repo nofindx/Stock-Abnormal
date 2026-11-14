@@ -1,4 +1,15 @@
 .stock-page { padding-top: 24rpx; padding-bottom: 220rpx; }
+.stock-share-card { margin-top: 24rpx; padding: 28rpx 32rpx; border: 0; border-radius: 28rpx; background: #FFFFFF; }
+.share-actions { display: flex; gap: 20rpx; margin-top: 28rpx; }
+.share-btn { box-sizing: border-box; display: flex; min-width: 0; height: 76rpx; flex: 1; align-items: center; justify-content: center; gap: 12rpx; margin: 0; padding: 0 12rpx; border-radius: 20rpx; font-size: 28rpx; font-weight: 500; line-height: 40rpx; white-space: nowrap; }
+.share-btn::after { border: none; }
+.share-btn--primary { background: #78A8F2; color: #FFFFFF; }
+.share-btn--primary-active { background: #6597E3; }
+.share-btn--ghost { border: 1rpx solid #D6DFEF; background: #FFFFFF; color: #3A6FD8; }
+.share-btn--ghost-active { background: #EFF4FF; }
+.share-btn[disabled] { opacity: .6; }
+.share-btn-icon { display: block; width: 30rpx; height: 30rpx; flex: 0 0 30rpx; }
+.stock-share-canvas { position: fixed; left: -2000px; top: 0; width: 750px; height: 1px; pointer-events: none; }
 .search-wrap { position: relative; z-index: 2; display: flex; height: 82rpx; flex-direction: column; align-items: center; justify-content: flex-start; margin-top: 12rpx; padding-top: 10rpx; }
 .search-box {
   display: flex;
