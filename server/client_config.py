@@ -9,7 +9,7 @@ REWARDED_FEATURES = ('simulation_10d', 'prediction_next')
 
 def default_config():
     return {'configVersion': 'ads-v2-2', 'ads': {
-        'enabled': False, 'allowedVersions': ['2.0.0'], 'cacheTtlSeconds': 600,
+        'enabled': False, 'allowedVersions': ['2.0.0', '2.0.1'], 'cacheTtlSeconds': 600,
         'placements': {key: {'enabled': False, 'type': 'ad-custom', 'unitId': ''} for key in DISPLAY_PLACEMENTS},
         'rewarded': {key: {'enabled': False, 'type': 'rewarded-video', 'unitId': ''} for key in REWARDED_FEATURES}},
         'featureGates': {key: {'mode': 'free'} for key in REWARDED_FEATURES}}

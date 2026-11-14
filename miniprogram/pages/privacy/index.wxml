@@ -1,5 +1,5 @@
 <view class="legal-page">
-  <view class="legal-updated">更新日期：2026-11-14（2.0.0分享功能本地候选）</view>
+  <view class="legal-updated">更新日期：2026-11-14（2.0.1分享功能本地候选）</view>
   <view class="legal-section">
     <view class="legal-heading">服务说明</view>
     <view class="legal-copy">本程序提供股票搜索、单股计算、重点监控、异动预测及主动分享计算结果功能，帮助你按照交易所公开规则和公开数据查看股票异动情况。本工具不要求登录，不提供账户、站内社交或支付功能。</view>
