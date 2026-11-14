@@ -9,7 +9,7 @@
   ],
   "uploaded": true,
   "uploadBytes": 248423,
-  "cloudDeployment": "315_build_failed_docker_hub_429_rebuild_pending",
+  "cloudDeployment": "verified_20261113.1_2.0.0_no_backend_change_needed_for_share",
   "deviceAcceptance": "pending",
   "adsEnabled": false,
   "featureGates": "free",
@@ -20,12 +20,15 @@
   "baseImageEvidence": "base-image-verification.json",
   "localShareIncrement": {
     "implemented": true,
-    "uploaded": false,
+    "uploaded": true,
     "requiresPrivacyGuidelineUpdate": null,
     "actions": [
       "friend_or_group_native_share",
       "timeline_image_share_menu"
     ],
-    "report": "../../单股整页分享本地验收_20261113.md"
-  }
+    "report": "../../单股整页分享本地验收_20261113.md",
+    "sourceCommit": "3fc9da5",
+    "uploadBytes": 330406
+  },
+  "latestShareReceipt": "../20261114-share-release/upload-2.0.0.json"
 }

@@ -9,7 +9,12 @@
   "systemPermissions": [],
   "backendChanged": false,
   "cloudDeploymentNeeded": false,
-  "uploaded": false,
+  "uploaded": true,
   "deviceAcceptance": "pending",
-  "buildIdentification": "upload description + source Git commit; backend compatibility release unchanged"
+  "buildIdentification": "upload description + source Git commit; backend compatibility release unchanged",
+  "sourceCommit": "3fc9da5",
+  "uploadBytes": 330406,
+  "uploadReceipt": "upload-2.0.0.json",
+  "submittedForReview": false,
+  "publicMiniProgramPublished": false
 }
