@@ -1,7 +1,8 @@
 const assert = require('assert')
 const { createConfigClient, validate } = require('./ads-config')
+const releaseVersion = require('../release-info').miniProgramVersion
 function config() {
-  return { configVersion: 'test', ads: { enabled: false, allowedVersions: ['2.0.0'], cacheTtlSeconds: 600,
+  return { configVersion: 'test', ads: { enabled: false, allowedVersions: [...new Set(['2.0.0', releaseVersion])], cacheTtlSeconds: 600,
     placements: Object.fromEntries(['home_history_below','prediction_footer','stock_simulation_above','monitor_footer'].map(k => [k, { enabled: false, type: 'ad-custom', unitId: '' }])),
     rewarded: Object.fromEntries(['simulation_10d','prediction_next'].map(k => [k, { enabled: false, type: 'rewarded-video', unitId: '' }])) },
     featureGates: { simulation_10d: { mode: 'free' }, prediction_next: { mode: 'free' } } }
@@ -9,7 +10,7 @@ function config() {
 async function run() {
   let clock = 0, calls = 0, offline = false
   const value = config()
-  const client = createConfigClient({ version: '2.0.0', now: () => clock, fetcher: async () => { calls++; if (offline) throw Error('offline'); return value } })
+  const client = createConfigClient({ version: releaseVersion, now: () => clock, fetcher: async () => { calls++; if (offline) throw Error('offline'); return value } })
   await Promise.all([client.get(),client.get(),client.policy('simulation_10d')])
   assert.strictEqual(calls, 1)
   assert.strictEqual((await client.policy('simulation_10d')).mode, 'free')

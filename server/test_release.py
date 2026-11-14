@@ -18,6 +18,11 @@ class ReleaseTests(unittest.TestCase):
         self.assertRegex(backend["miniProgramVersion"], r"^\d+\.\d+\.\d+$")
         self.assertEqual(backend["quoteRefreshPolicy"], "latest-available-all-hours")
 
+    def test_current_release_is_allowed_by_default_ad_config(self):
+        from server.client_config import default_config
+        release = json.loads(Path(__file__).with_name("release_info.json").read_text())
+        self.assertIn(release["miniProgramVersion"], default_config()["ads"]["allowedVersions"])
+
     def test_release_applies_only_additive_003_before_api(self):
         repository = MagicMock()
         repository.available = True

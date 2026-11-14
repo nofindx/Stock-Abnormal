@@ -1,0 +1,12 @@
+{
+  "miniprogram": {
+    "sha256": "ef8aba07fdee787825865d21808100faa0abb42ad63cd99dd3b5701032e524e2",
+    "files": 60,
+    "runtimeMatchesUploadedSource": "1e03659"
+  },
+  "server": {
+    "sha256": "4d74e4e9fce16be173a0c80033c0e5a2b3829b1e5183f161f271c44abebfd263",
+    "files": 65,
+    "runtimeMatchesUploadedSource": "1e03659"
+  }
+}

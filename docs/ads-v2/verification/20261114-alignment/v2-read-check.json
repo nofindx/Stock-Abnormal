@@ -1,0 +1,25 @@
+[
+  {
+    "page": "prediction",
+    "role": "current",
+    "items": 4,
+    "targetTradeDate": "20261113",
+    "passed": true,
+    "ruleVersion": "v75"
+  },
+  {
+    "page": "prediction",
+    "role": "next",
+    "items": 3,
+    "targetTradeDate": "20261116",
+    "passed": true,
+    "ruleVersion": "v75"
+  },
+  {
+    "page": "stock",
+    "securityId": "301313.SZ",
+    "warnings": 4,
+    "passed": true,
+    "ruleVersion": "v75"
+  }
+]

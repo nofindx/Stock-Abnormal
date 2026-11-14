@@ -19,5 +19,7 @@
     "share"
   ],
   "deviceAcceptance": "pending",
-  "submittedForReview": false
+  "submittedForReview": false,
+  "recordType": "historical_point_in_time",
+  "supersededBy": "docs/ads-v2/verification/20261114-alignment/release-status.json"
 }
