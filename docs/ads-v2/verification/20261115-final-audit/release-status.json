@@ -1,0 +1,50 @@
+{
+  "localVersion": "2.0.3",
+  "releaseId": "20261115.2",
+  "ruleVersion": "v75",
+  "backend": {
+    "total": 468,
+    "passed": 467,
+    "skipped": 1
+  },
+  "releaseAndConfigTests": 12,
+  "frontendTestFiles": 17,
+  "temporalPolicy": true,
+  "wxmlCompiled": 7,
+  "wxssCompiled": 8,
+  "jsSyntaxChecked": 38,
+  "jsonValidated": 12,
+  "apiContract": true,
+  "healthAlerts": 0,
+  "productionDataChanged": false,
+  "cloudMatchesLocalRelease": false,
+  "publicReleaseConfirmed": false,
+  "runtimeSourceCommit": "8f89e45",
+  "gitPushedBranches": [
+    "Stock-Abnormal",
+    "codex/ads-v2-design-20261112"
+  ],
+  "uploadedVersion": "2.0.3",
+  "uploadBytes": 367357,
+  "uploadReceipt": "upload-2.0.3.json",
+  "runtimeSourceManifest": "mini-source-manifest.json",
+  "runtimeSourceFiles": 64,
+  "runtimeSourceUnchangedAfterUpload": true,
+  "cloudRelease": {
+    "miniProgramVersion": "2.0.1",
+    "releaseId": "20261114.1"
+  },
+  "cloudDeploymentPerformed": false,
+  "databaseMigrationPerformed": false,
+  "privacyGuide": "user_confirmed_submitted",
+  "reviewVersion": "2.0.2",
+  "newCandidateSubmittedForReview": false,
+  "newCandidateDeviceAcceptance": "pending_user",
+  "adsEnabled": false,
+  "realAdsAcceptance": "waiting_eligibility_and_units",
+  "pending": [
+    "user_cloud_deployment_of_8f89e45_or_later_docs_only_commit",
+    "user_device_verification_2.0.3",
+    "platform_review_and_public_release"
+  ]
+}
