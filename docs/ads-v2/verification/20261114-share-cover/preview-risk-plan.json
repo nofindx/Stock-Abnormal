@@ -1,0 +1,450 @@
+{
+  "note": "Local constructed sample rendered from stock-page presentation; not real-time stock data",
+  "width": 750,
+  "height": 600,
+  "commands": [
+    {
+      "type": "box",
+      "x": 0,
+      "y": 0,
+      "w": 750,
+      "h": 600,
+      "fill": "#F2F3F5",
+      "stroke": "#F2F3F5"
+    },
+    {
+      "type": "box",
+      "x": 28,
+      "y": 20,
+      "w": 694,
+      "h": 132,
+      "fill": "#FFF5F5",
+      "stroke": "#D93025",
+      "radius": 14
+    },
+    {
+      "type": "text",
+      "value": "凡拓数创",
+      "x": 46,
+      "y": 42,
+      "size": 30,
+      "color": "#1A1A1A",
+      "weight": "bold",
+      "align": "left"
+    },
+    {
+      "type": "text",
+      "value": "301313",
+      "x": 178,
+      "y": 52,
+      "size": 20,
+      "color": "#6B7280",
+      "weight": "normal",
+      "align": "left"
+    },
+    {
+      "type": "text",
+      "value": "32.51",
+      "x": 472.38999938964844,
+      "y": 32,
+      "size": 40,
+      "color": "#D93025",
+      "weight": "bold",
+      "align": "left"
+    },
+    {
+      "type": "text",
+      "value": "+2.37%",
+      "x": 599.1100006103516,
+      "y": 44,
+      "size": 28,
+      "color": "#D93025",
+      "weight": "bold",
+      "align": "left"
+    },
+    {
+      "type": "box",
+      "x": 46,
+      "y": 88,
+      "w": 658,
+      "h": 1,
+      "fill": "#F2F2F7",
+      "stroke": "#F2F2F7",
+      "radius": 0
+    },
+    {
+      "type": "box",
+      "x": 46,
+      "y": 104,
+      "w": 195,
+      "h": 34,
+      "fill": "#FDF3F2",
+      "stroke": "#E7A8A2",
+      "radius": 7
+    },
+    {
+      "type": "text",
+      "value": "当日已触发严重异动",
+      "x": 58,
+      "y": 111,
+      "size": 19,
+      "color": "#C0271E",
+      "weight": "bold",
+      "align": "left"
+    },
+    {
+      "type": "box",
+      "x": 28,
+      "y": 172,
+      "w": 337,
+      "h": 176,
+      "fill": "#FFFAE8",
+      "stroke": "#F0D36A",
+      "radius": 12
+    },
+    {
+      "type": "box",
+      "x": 44,
+      "y": 186,
+      "w": 112,
+      "h": 38,
+      "fill": "#FFF5CC",
+      "stroke": "#F0D36A",
+      "radius": 7
+    },
+    {
+      "type": "text",
+      "value": "3 日偏离",
+      "x": 100,
+      "y": 196,
+      "size": 19,
+      "color": "#8A6D0B",
+      "weight": "bold",
+      "align": "center"
+    },
+    {
+      "type": "text",
+      "value": "+31.03",
+      "x": 44,
+      "y": 257,
+      "size": 27,
+      "color": "#1C1C1E",
+      "weight": "bold",
+      "align": "left"
+    },
+    {
+      "type": "text",
+      "value": "%",
+      "x": 140.1500015258789,
+      "y": 264,
+      "size": 20,
+      "color": "#1C1C1E",
+      "weight": "bold",
+      "align": "left"
+    },
+    {
+      "type": "text",
+      "value": "阈值 +30%",
+      "x": 44,
+      "y": 311,
+      "size": 20,
+      "color": "#4B5563",
+      "weight": "normal",
+      "align": "left"
+    },
+    {
+      "type": "ring",
+      "x": 277,
+      "y": 260,
+      "radius": 61,
+      "lineWidth": 18,
+      "progress": 100,
+      "color": "#F5C542"
+    },
+    {
+      "type": "circle",
+      "x": 277,
+      "y": 260,
+      "radius": 52,
+      "fill": "#FFFFFF"
+    },
+    {
+      "type": "text",
+      "value": "已触及",
+      "x": 277,
+      "y": 250,
+      "size": 20,
+      "color": "#4B5563",
+      "weight": "bold",
+      "align": "center"
+    },
+    {
+      "type": "box",
+      "x": 385,
+      "y": 172,
+      "w": 337,
+      "h": 176,
+      "fill": "#FFF5F5",
+      "stroke": "#E7A8A2",
+      "radius": 12
+    },
+    {
+      "type": "box",
+      "x": 401,
+      "y": 186,
+      "w": 112,
+      "h": 38,
+      "fill": "#FDF3F2",
+      "stroke": "#E7A8A2",
+      "radius": 7
+    },
+    {
+      "type": "text",
+      "value": "10 日同向",
+      "x": 457,
+      "y": 196,
+      "size": 19,
+      "color": "#C0271E",
+      "weight": "bold",
+      "align": "center"
+    },
+    {
+      "type": "text",
+      "value": "+3",
+      "x": 401,
+      "y": 264,
+      "size": 20,
+      "color": "#1C1C1E",
+      "weight": "bold",
+      "align": "left"
+    },
+    {
+      "type": "text",
+      "value": "次",
+      "x": 428.26000022888184,
+      "y": 264,
+      "size": 20,
+      "color": "#1C1C1E",
+      "weight": "bold",
+      "align": "left"
+    },
+    {
+      "type": "text",
+      "value": "阈值 +3次",
+      "x": 401,
+      "y": 311,
+      "size": 20,
+      "color": "#4B5563",
+      "weight": "normal",
+      "align": "left"
+    },
+    {
+      "type": "ring",
+      "x": 634,
+      "y": 260,
+      "radius": 61,
+      "lineWidth": 18,
+      "progress": 100,
+      "color": "#D94A45"
+    },
+    {
+      "type": "circle",
+      "x": 634,
+      "y": 260,
+      "radius": 52,
+      "fill": "#FFFFFF"
+    },
+    {
+      "type": "text",
+      "value": "已触及",
+      "x": 634,
+      "y": 250,
+      "size": 20,
+      "color": "#4B5563",
+      "weight": "bold",
+      "align": "center"
+    },
+    {
+      "type": "box",
+      "x": 28,
+      "y": 368,
+      "w": 337,
+      "h": 176,
+      "fill": "#FFF5F5",
+      "stroke": "#E7A8A2",
+      "radius": 12
+    },
+    {
+      "type": "box",
+      "x": 44,
+      "y": 382,
+      "w": 112,
+      "h": 38,
+      "fill": "#FDF3F2",
+      "stroke": "#E7A8A2",
+      "radius": 7
+    },
+    {
+      "type": "text",
+      "value": "10 日偏离",
+      "x": 100,
+      "y": 392,
+      "size": 19,
+      "color": "#C0271E",
+      "weight": "bold",
+      "align": "center"
+    },
+    {
+      "type": "text",
+      "value": "+110.46",
+      "x": 44,
+      "y": 456,
+      "size": 24,
+      "color": "#1C1C1E",
+      "weight": "bold",
+      "align": "left"
+    },
+    {
+      "type": "text",
+      "value": "%",
+      "x": 145.44000244140625,
+      "y": 460,
+      "size": 20,
+      "color": "#1C1C1E",
+      "weight": "bold",
+      "align": "left"
+    },
+    {
+      "type": "text",
+      "value": "阈值 +100%",
+      "x": 44,
+      "y": 507,
+      "size": 20,
+      "color": "#4B5563",
+      "weight": "normal",
+      "align": "left"
+    },
+    {
+      "type": "ring",
+      "x": 277,
+      "y": 456,
+      "radius": 61,
+      "lineWidth": 18,
+      "progress": 100,
+      "color": "#D94A45"
+    },
+    {
+      "type": "circle",
+      "x": 277,
+      "y": 456,
+      "radius": 52,
+      "fill": "#FFFFFF"
+    },
+    {
+      "type": "text",
+      "value": "已触及",
+      "x": 277,
+      "y": 446,
+      "size": 20,
+      "color": "#4B5563",
+      "weight": "bold",
+      "align": "center"
+    },
+    {
+      "type": "box",
+      "x": 385,
+      "y": 368,
+      "w": 337,
+      "h": 176,
+      "fill": "#FFFFFF",
+      "stroke": "#E5E5EA",
+      "radius": 12
+    },
+    {
+      "type": "box",
+      "x": 401,
+      "y": 382,
+      "w": 112,
+      "h": 38,
+      "fill": "#EAF3FC",
+      "stroke": "#B9D6F2",
+      "radius": 7
+    },
+    {
+      "type": "text",
+      "value": "30 日偏离",
+      "x": 457,
+      "y": 392,
+      "size": 19,
+      "color": "#185A96",
+      "weight": "bold",
+      "align": "center"
+    },
+    {
+      "type": "text",
+      "value": "+134.78",
+      "x": 401,
+      "y": 456,
+      "size": 24,
+      "color": "#1C1C1E",
+      "weight": "bold",
+      "align": "left"
+    },
+    {
+      "type": "text",
+      "value": "%",
+      "x": 502.44000244140625,
+      "y": 460,
+      "size": 20,
+      "color": "#1C1C1E",
+      "weight": "bold",
+      "align": "left"
+    },
+    {
+      "type": "text",
+      "value": "阈值 +200%",
+      "x": 401,
+      "y": 507,
+      "size": 20,
+      "color": "#4B5563",
+      "weight": "normal",
+      "align": "left"
+    },
+    {
+      "type": "ring",
+      "x": 634,
+      "y": 456,
+      "radius": 61,
+      "lineWidth": 18,
+      "progress": 67.39,
+      "color": "#B9D6F2"
+    },
+    {
+      "type": "circle",
+      "x": 634,
+      "y": 456,
+      "radius": 52,
+      "fill": "#FFFFFF"
+    },
+    {
+      "type": "text",
+      "value": "65.22%",
+      "x": 634,
+      "y": 446,
+      "size": 20,
+      "color": "#4B5563",
+      "weight": "bold",
+      "align": "center"
+    },
+    {
+      "type": "text",
+      "value": "行情时间：2026-11-13 15:00",
+      "x": 28,
+      "y": 565,
+      "size": 18,
+      "color": "#6B7280",
+      "weight": "normal",
+      "align": "left"
+    }
+  ]
+}

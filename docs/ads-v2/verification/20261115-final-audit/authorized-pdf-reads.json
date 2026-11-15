@@ -1,0 +1,38 @@
+{
+  "predictionReads": [
+    {
+      "role": "current",
+      "targetTradeDate": "20261113",
+      "cards": 4,
+      "datasetMatchesContext": true
+    },
+    {
+      "role": "next",
+      "targetTradeDate": "20261116",
+      "cards": 3,
+      "datasetMatchesContext": true
+    }
+  ],
+  "pdfReads": [
+    {
+      "type": "ordinary",
+      "status": "pass",
+      "httpStatus": 200,
+      "pdfHeader": true
+    },
+    {
+      "type": "severe-10d",
+      "status": "pass",
+      "httpStatus": 200,
+      "pdfHeader": true
+    },
+    {
+      "type": "severe-30d",
+      "status": "no_readable_pdf_sample"
+    },
+    {
+      "type": "delisting-warning",
+      "status": "no_readable_pdf_sample"
+    }
+  ]
+}

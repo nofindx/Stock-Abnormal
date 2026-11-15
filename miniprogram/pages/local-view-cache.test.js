@@ -47,6 +47,23 @@ async function run() {
   clock = NativeDate.parse('2026-11-13T00:00:01+08:00')
   await stock.chooseStock(b)
   assert.deepStrictEqual([reads, quotes], [3, 4], 'next day must reacquire stock data and quote')
+  // S1 carries reset history and a Friday quote through the weekend. Rendering
+  // must select facts/count down against today's Shanghai date, not quote date.
+  const expired = { symbol: '600825', riskTone: 'severe-10d', monitorStartDate: '20261012', monitorEndDate: '20261023' }
+  const ordinary = { symbol: '600825', riskTone: 'ordinary', monitorStartDate: '20261113', monitorEndDate: '20261126' }
+  clock = NativeDate.parse('2026-11-15T12:00:00+08:00')
+  stock.renderStockDetail({ ...detail(a.ts_code), tradeDate: '20261113', monitoring: expired,
+    monitoringFacts: [expired, ordinary] }, { items: [] }, a, stock.detailRequestId)
+  assert.strictEqual(stock.data.detail.monitoring.riskTone, 'ordinary')
+  assert.strictEqual(stock.data.detail.monitoringSummary.dateText, '20261113-20261126')
+  assert.strictEqual(stock.data.detail.monitoringSummary.remainingText, '11')
+  clock = NativeDate.parse('2026-11-27T00:00:01+08:00')
+  stock.renderStockDetail({ ...detail(a.ts_code), tradeDate: '20261126', monitoring: ordinary,
+    monitoringFacts: [expired, ordinary], monitoringStatus: 'active' }, { items: [] }, a, stock.detailRequestId)
+  assert.strictEqual(stock.data.detail.monitoring, null, 'expired primary fact must also be removed')
+  assert.strictEqual(stock.data.detail.monitoringStatus, 'none')
+  assert.strictEqual(stock.data.detail.monitoringSummary, null)
+  clock = NativeDate.parse('2026-11-13T00:00:01+08:00')
   stock.onUnload(); assert.strictEqual(stock._stockViews.size, 0)
 
   let monitorReads = 0, opened = [], fail = false

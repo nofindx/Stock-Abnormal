@@ -36,7 +36,7 @@ async function run(){
   const markup=name=>fs.readFileSync(path.join(__dirname,name,'index.wxml'),'utf8')
   const stockMarkup=markup('stock')
   assert(stockMarkup.indexOf('placement="home_history_below"')>stockMarkup.indexOf('class="history-row"'))
-  assert(stockMarkup.indexOf('placement="stock_simulation_above"')<stockMarkup.indexOf('class="section simulation-section"'))
+  assert(stockMarkup.indexOf('placement="stock_simulation_above"')<stockMarkup.indexOf('class="section simulation-section'))
   assert.strictEqual((stockMarkup.match(/<official-ad /g)||[]).length,2)
   for(const name of ['prediction','monitor']){
     const text=markup(name)

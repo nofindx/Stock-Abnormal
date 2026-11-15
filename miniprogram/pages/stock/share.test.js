@@ -27,19 +27,34 @@ function detail(code = '301313.SZ') {
 }
 const measure = { font: '', measureText(s) { return { width: Array.from(s).length * (Number.parseFloat(this.font.match(/[\d.]+/)[0]) * 0.6) } } }
 const drawLog = []
-const ctx = { ...measure, fillRect() {}, strokeRect() {}, beginPath() {}, arc() {}, stroke() {},
+const ctx = { ...measure, fillRect() {}, strokeRect() {}, beginPath() {}, arc() {}, stroke() {}, fill() {},
+  moveTo() {}, lineTo() {}, quadraticCurveTo() {}, closePath() {},
+  save() {}, restore() {}, rect() {}, clip() {}, scale() {}, drawImage() {},
   fillText(s) { drawLog.push(s) } }
-let exportOptions, shareCalls, previews, toasts, menus, exportMode, selectedCanvas
+let exportOptions, saveCalls, previews, imageMenus, toasts, menus, exportMode, selectedCanvas, saveError
 function resetPlatform() {
-  shareCalls = []; previews = []; toasts = []; menus = []; exportMode = 'success'
+  saveCalls = []; previews = []; imageMenus = []; toasts = []; menus = []; exportMode = 'success'; saveError = null
   global.wx = {
     getStorageSync: () => [], setStorageSync() {}, showToast: v => toasts.push(v.title),
     showShareMenu: v => menus.push(v.menus),
-    createSelectorQuery: () => ({ in() { return this }, select(selector) { selectedCanvas = selector; return this }, fields() { return this },
-      exec(fn) { fn([{ node: canvas }]) } }),
+    createSelectorQuery: () => {
+      let page, layout = false
+      return { in(value) { page = value; return this }, select(selector) { selectedCanvas = selector; return this },
+        selectAll() { layout = true; return this }, fields() { return this },
+        exec(fn) {
+          if (!layout) { fn([{ node: canvas }]); return }
+          const section = (key, top, height) => ({ left: 14, top, width: 347, height, dataset: { exportSection: key }, 'margin-top': '10px' })
+          fn([{ left: 0, top: 0, width: 375, height: 1200, 'padding-left': '14px' },
+            [section('status', 100, 120), section('warnings', 240, 180), section('simulation', 440, 600)],
+            page.data.inputRows.slice(0, page.data.visibleDays).map((row, i) => ({ left: 80, top: 480 + i * 20, width: 60, height: 20,
+              'font-size': '12px', 'line-height': '20px', dataset: { exportSection: 'simulation', exportKind: 'input', exportText: row.stock } })),
+            { node: canvas }])
+        } }
+    },
     canvasToTempFilePath(o) { if (selectedCanvas === '#stock-share-cover-canvas') { o.success({ tempFilePath: '/tmp/current-stock-cover.png' }); return }; exportOptions = o; if (exportMode === 'success') o.success({ tempFilePath: '/tmp/result.png' });
       else if (exportMode === 'fail') o.fail({ errMsg: 'export failed' }) },
-    showShareImageMenu(o) { shareCalls.push(o); o.success({}) },
+    showShareImageMenu(o) { imageMenus.push(o); o.success({}) },
+    saveImageToPhotosAlbum(o) { saveCalls.push(o); if (saveError) o.fail(saveError); else o.success({}) },
     previewImage(o) { previews.push(o); o.success({}) }
   }
 }
@@ -93,24 +108,71 @@ async function run() {
   for (const excluded of ['T+10', '5.38%', '-0.24%']) assert(!plan.commands.some(c => c.value === excluded))
   const cover = share.createShareCoverPlan(custom, measure)
   assert.deepStrictEqual([cover.width, cover.height], [750, 600])
-  custom.warnings.forEach(w => assert(cover.commands.some(c => c.value === w.value)))
+  custom.warnings.forEach(w => assert(cover.commands.some(c => c.value === w.number)))
   assert(!cover.commands.some(c => c.type === 'text' && c.value.includes('模拟')))
+  const header = cover.commands.filter(c => c.type === 'text' && c.y < 80)
+  assert.deepStrictEqual(header.map(c => c.value), [custom.name, custom.symbol, custom.price, custom.change])
+  assert.strictEqual(new Set(header.map(c => c.y + c.size)).size, 1, 'all four quote fields share one row')
+  const conclusion = cover.commands.find(c => c.type === 'text' && c.value === custom.status)
+  assert(conclusion && conclusion.y > Math.max(...header.map(c => c.y + c.size)) && conclusion.y < 152)
+  const coverRings = cover.commands.filter(c => c.type === 'ring')
+  assert.strictEqual(coverRings.length, 4)
+  assert.strictEqual(cover.commands[0].fill, '#F2F3F5', 'cover uses the stock page background')
+  assert.strictEqual(cover.commands.filter(c => c.type === 'box' && c.w === 337 && c.radius === 12).length, 4)
+  assert.strictEqual(cover.commands.filter(c => c.type === 'circle' && c.fill === '#FFFFFF').length, 4)
+  const coloredCover = share.createShareCoverPlan({ ...custom,
+    warnings: custom.warnings.map((w, i) => ({ ...w, tone: i === 0 ? 'warning' : 'severe', progress: 100 })) }, measure)
+  assert(coloredCover.commands.some(c => c.type === 'box' && c.w === 337 && c.fill === '#FFFAE8'))
+  assert(coloredCover.commands.some(c => c.type === 'box' && c.w === 337 && c.fill === '#FFF5F5'))
+  coloredCover.commands.filter(c => c.type === 'text' && custom.warnings.some(w => w.number === c.value))
+    .forEach(c => assert.strictEqual(c.color, '#1C1C1E', 'metric values retain the stock page black text'))
+  const fullRingArcs = []
+  share.paintSharePlan({ ...ctx, arc(...args) { fullRingArcs.push(args) } }, coloredCover)
+  assert(fullRingArcs.filter(a => a[2] === 61).every(a => a[3] === 0 && a[4] === Math.PI * 2), '100% uses an explicit full circle')
+
+  const coverArcs = [], fullArcs = []
+  share.paintSharePlan({ ...ctx, arc(...args) { coverArcs.push(args) } }, cover)
+  share.paintSharePlan({ ...ctx, arc(...args) { fullArcs.push(args) } }, plan)
+  assert(coverArcs.length >= 4 && coverArcs.every(a => [61, 52].includes(a[2])), 'compact cover rings fit the warning cards')
+  assert(fullArcs.length >= 4 && fullArcs.every(a => a[2] === 49), 'full saved-result ring size stays unchanged')
+
+  custom.warnings.forEach((w, i) => {
+    assert.strictEqual(coverRings[i].progress, w.progress)
+    assert.strictEqual(coverRings[i].color, w.color)
+    assert(cover.commands.some(c => c.type === 'text' && c.value === w.ring && c.align === 'center'))
+  })
+  const triggeredCover = share.createShareCoverPlan({ ...custom, status: '当日已触发严重异动',
+    statusClass: 'current-triggered', summaryTone: 'risk' }, measure)
+  assert.strictEqual(triggeredCover.commands.find(c => c.value === '当日已触发严重异动').color, '#C0271E')
+  const unavailableCover = share.createShareCoverPlan({ ...custom, status: '未知状态', summaryTone: 'unknown',
+    warnings: custom.warnings.map(w => ({ ...w, value: '待核验', number: '待核验', unit: '', ring: '—', progress: 0, color: '#999999', tone: 'unknown' })) }, measure)
+  assert(unavailableCover.commands.filter(c => c.type === 'ring').every(c => c.progress === 0))
+  assert.strictEqual(unavailableCover.commands.find(c => c.value === '未知状态').color, '#8A6D0B')
+  const longNameCover = share.createShareCoverPlan({ ...custom, name: '这是一只名称特别长的示例股票用来检验单行布局' }, measure)
+  assert(longNameCover.commands.find(c => c.type === 'text').value.endsWith('…'))
+  assert.strictEqual(longNameCover.commands.filter(c => c.type === 'text' && c.y < 80).length, 4)
+
   p.data.inputRows[0].stock = '99'
   assert.strictEqual(JSON.stringify(custom), customSerialized, 'later edits cannot mutate a captured image')
+  assert.strictEqual(saveCalls.length, 0, 'opening, editing and metadata capture never request album access')
   const countBefore = [reads, quotes]
-  await p.shareStockPage()
+  await p.saveStockPage()
   assert.deepStrictEqual([reads, quotes], countBefore, 'sharing never requests S1 or S2')
   assert.strictEqual(p.data.visibleDays, 10)
   assert.strictEqual(p.data.inputRows[0].stock, '99')
+  assert(drawLog.includes('99'), 'saving renders the current custom input rather than a default two-day image')
   assert.strictEqual(canvas.width, 1, 'release canvas buffer after export')
-  assert.strictEqual(shareCalls.length, 1)
-  assert.strictEqual(shareCalls[0].needShowEntrance, true)
+  assert.strictEqual(saveCalls.length, 1)
+  assert.strictEqual(saveCalls[0].filePath, '/tmp/result.png')
+  assert.strictEqual(toasts.at(-1), '已保存到相册')
+  assert.strictEqual(imageMenus.length, 0, 'save does not open a combined share menu')
+  assert.strictEqual(previews.length, 0, 'save does not fall back to preview')
   assert.strictEqual(p.data.sharingStock, false)
   const route = p.onShareAppMessage()
   const timeline = p.onShareTimeline()
   assert.strictEqual(route.path, '/' + entry.shareEntry(custom.code))
   assert.strictEqual(timeline.query, route.path.split('?')[1])
-  assert.strictEqual(route.title, '凡拓数创｜异动计算')
+  assert(!Object.hasOwn(route, 'title'), 'custom stock-name/title is removed; native title area belongs to WeChat')
   assert.strictEqual(route.imageUrl, '/tmp/current-stock-cover.png', 'native card uses the current stock status cover')
   const savedCover = p._stockShareCover
   p._stockShareCover = { ...savedCover, code: '600825.SH' }
@@ -122,29 +184,47 @@ async function run() {
   assert.strictEqual(entry.parseShareEntry(null), null)
 
   exportMode = 'defer'
-  const first = p.shareStockPage(); await tick()
-  const duplicate = p.shareStockPage(); await duplicate
+  const first = p.saveStockPage(); await tick()
+  const duplicate = p.saveStockPage(); await duplicate
   assert.strictEqual(p.data.sharingStock, true)
   exportOptions.success({ tempFilePath: '/tmp/duplicate.png' }); await first
-  assert.strictEqual(shareCalls.length, 2, 'double tapping produces only one more menu')
-  const beforeRace = shareCalls.length
-  const raced = p.shareStockPage(); await tick()
+  assert.strictEqual(saveCalls.length, 2, 'double tapping produces only one more save')
+  const beforeRace = saveCalls.length
+  const raced = p.saveStockPage(); await tick()
   await p.chooseStock({ ts_code: '600825.SH', name: '新华传媒' })
   exportOptions.success({ tempFilePath: '/tmp/old-stock.png' }); await raced
-  assert.strictEqual(shareCalls.length, beforeRace, 'late export cannot share the wrong selected stock')
-  exportMode = 'fail'; await p.shareStockPage()
+  assert.strictEqual(saveCalls.length, beforeRace, 'late export cannot share the wrong selected stock')
+  exportMode = 'fail'; await p.saveStockPage()
   assert.strictEqual(p.data.sharingStock, false)
   assert(toasts.some(t => t.includes('失败')))
   exportMode = 'success'
-  wx.showShareImageMenu = o => o.fail({ errMsg: 'showShareImageMenu:fail cancel' })
-  const beforeCancel = toasts.length
-  await p.shareStockPage()
-  assert.strictEqual(toasts.length, beforeCancel, 'cancel does not claim success or show failure')
+  for (const [error, expected] of [
+    [{ errMsg: 'saveImageToPhotosAlbum:fail auth deny' }, '未获保存授权'],
+    [{ errMsg: 'saveImageToPhotosAlbum:fail privacy permission denied', errno: 103 }, '未获保存授权'],
+    [{ errMsg: 'saveImageToPhotosAlbum:fail cancel' }, '已取消'],
+    [{ errMsg: 'api scope is not declared in the privacy agreement', errno: 112 }, '保存功能暂不可用'],
+    [{ errMsg: 'appid privacy api banned' }, '保存功能暂不可用'],
+    [{ errMsg: 'disk full' }, '图片保存失败']
+  ]) {
+    saveError = error
+    await p.saveStockPage()
+    assert(toasts.at(-1).includes(expected), `unexpected save failure: ${toasts.at(-1)}`)
+    assert.strictEqual(p.data.sharingStock, false, 'failure always releases the save button')
+  }
+  saveError = null
+  const nativeSave = wx.saveImageToPhotosAlbum
+  delete wx.saveImageToPhotosAlbum
+  await p.saveStockPage()
+  assert(toasts.at(-1).includes('不支持保存图片'))
+  assert.strictEqual(p.data.sharingStock, false)
+  wx.saveImageToPhotosAlbum = nativeSave
+  await p.saveStockPage()
+  assert.strictEqual(toasts.at(-1), '已保存到相册', 'successful retry is possible after refusal/failure')
   assert.strictEqual(previews.length, 0)
-  delete wx.showShareImageMenu
-  await p.shareStockPage(); assert.strictEqual(previews.length, 1, 'old clients can preview and long-press the full result')
-  wx.showShareImageMenu = o => o.fail({ errMsg: 'not supported' })
-  await p.shareStockPage(); assert.strictEqual(previews.length, 2, 'unsupported menu falls back to image preview')
+  assert.strictEqual(imageMenus.length, 0)
+  const beforeFriend = saveCalls.length
+  p.onShareAppMessage()
+  assert.strictEqual(saveCalls.length, beforeFriend, 'friend sharing never requests album authorization')
 
   // Warm launch must discard recipient inputs/grants/cache, even for the same stock.
   await p.expandSimulation(); p.data.inputRows[0].stock = '77'
@@ -175,11 +255,11 @@ async function run() {
   const lifetime = page(); lifetime.onLoad({})
   await lifetime.chooseStock({ ts_code: '301313.SZ', name: '凡拓数创' })
   exportMode = 'defer'
-  let late = lifetime.shareStockPage(); await tick()
+  let late = lifetime.saveStockPage(); await tick()
   lifetime.resetSimulationInputs()
   exportOptions.success({ tempFilePath: '/tmp/old-session.png' }); await late
-  assert.strictEqual(shareCalls.length, 0, 'reinitializing the same stock invalidates a late image')
-  late = lifetime.shareStockPage(); await tick()
+  assert.strictEqual(saveCalls.length, 0, 'reinitializing the same stock invalidates a late image')
+  late = lifetime.saveStockPage(); await tick()
   const NativeDate = Date, nextDay = NativeDate.now() + 86400000
   global.Date = class extends NativeDate {
     constructor(...args) { super(...(args.length ? args : [nextDay])) }
@@ -187,12 +267,12 @@ async function run() {
   }
   try {
     exportOptions.success({ tempFilePath: '/tmp/yesterday.png' }); await late
-    assert.strictEqual(shareCalls.length, 0, 'cross-date export cannot open yesterday\'s image')
+    assert.strictEqual(saveCalls.length, 0, 'cross-date export cannot open yesterday\'s image')
   } finally { global.Date = NativeDate }
-  late = lifetime.shareStockPage(); await tick()
+  late = lifetime.saveStockPage(); await tick()
   lifetime.onUnload()
   exportOptions.success({ tempFilePath: '/tmp/closed-page.png' }); await late
-  assert.strictEqual(shareCalls.length, 0, 'unloaded pages cannot open a share menu')
+  assert.strictEqual(saveCalls.length, 0, 'unloaded pages cannot save an image')
 
   const failed = { ...defaults, simulationReady: false, simulationNotice: '暂不适用', dataNotice: '最新行情刷新失败' }
   const failedPlan = share.createSharePlan(failed, measure)
@@ -204,23 +284,25 @@ async function run() {
   const shareSection = markup.indexOf('class="stock-share-card card"')
   assert(shareSection > markup.indexOf('class="section simulation-section"'))
   assert(shareSection < markup.indexOf('class="legal-footer-links"'))
-  assert(markup.includes('分享一下') && markup.includes('分享当前股票状态与异动计算结果'))
+  assert(markup.includes('分享一下') && markup.includes('保存当前股票状态与异动计算结果'))
   assert(markup.includes('stock-share-card card'))
   assert(markup.includes('class="share-actions"'), 'share buttons use the horizontal action row')
   const stockCss = fs.readFileSync(path.join(__dirname, 'index.wxss'), 'utf8')
   for (const style of ['#78A8F2', '#6597E3', '#D6DFEF', 'height: 76rpx', 'gap: 20rpx']) assert(stockCss.includes(style), `missing share styling: ${style}`)
   assert(stockCss.includes('share-btn--ghost { border: 1rpx solid #D6DFEF; background: #FFFFFF; color: #3A6FD8;'))
-  const timelineIcon = fs.readFileSync(path.join(__dirname, '../../assets/weui-share/timeline.svg'), 'utf8')
-  assert(timelineIcon.includes('fill="#3A6FD8"'), 'timeline icon matches the button text color')
-  for (const channel of ['发给好友', '炫朋友圈']) assert(markup.includes(channel), `missing share channel: ${channel}`)
-  assert(!markup.includes('保存图片'), 'no album-saving action is exposed')
+  const saveIcon = fs.readFileSync(path.join(__dirname, '../../assets/weui-share/save.svg'), 'utf8')
+  assert(saveIcon.includes('fill="#3A6FD8"'), 'save icon matches the button text color')
+  for (const channel of ['发给朋友', '保存图片']) assert(markup.includes(channel), `missing share channel: ${channel}`)
+  assert(!markup.includes('炫朋友圈'), 'no custom Moments entry remains')
   assert(markup.includes('open-type="share"'), 'friend share uses the native mini-program share action')
-  for (const icon of ['friend.svg', 'timeline.svg']) assert(markup.includes(icon), `missing official WeUI icon: ${icon}`)
-  assert(markup.includes('data-action="timeline"'))
+  for (const icon of ['friend.svg', 'save.svg']) assert(markup.includes(icon), `missing official WeUI icon: ${icon}`)
+  assert(markup.includes('bindtap="saveStockPage"'))
   const appJson = JSON.parse(fs.readFileSync(path.join(__dirname, '../../app.json'), 'utf8'))
-  assert(!JSON.stringify(appJson).includes('scope.writePhotosAlbum'), 'sharing requires no album permission')
+  assert(!JSON.stringify(appJson).includes('scope.writePhotosAlbum'), 'app.json does not support an album permission description; native API handles the scope')
+  const privacy = fs.readFileSync(path.join(__dirname, '../privacy/index.wxml'), 'utf8')
+  for (const description of ['保存图片', '相册写入', '不读取', '模拟输入信息不上传', '不建立用户画像']) assert(privacy.includes(description))
   const footerCss = fs.readFileSync(path.join(__dirname, '../../app.wxss'), 'utf8')
   assert(footerCss.includes('margin: 42rpx 0 24rpx;'), 'legal footer spacing stays unchanged')
-  console.log('stock share tests passed: current stock cover and empty default simulation, native paths, privacy, warm/cold initialization, races, cancel, failures and fallback')
+  console.log('stock share tests passed: current stock cover and empty default simulation, native paths, privacy, warm/cold initialization, races, direct saving, permission refusal, cancel, configuration failures and retry')
 }
 run().catch(e => { console.error(e); process.exitCode = 1 })

@@ -21,6 +21,7 @@ function captureStockShare(data, defaultRows = [], now = new Date()) {
       remaining: text(monitor.remainingText), rule: text(monitor.ruleText) } : null,
     dataNotice: text(data.detailError),
     warnings: (d.warnings || []).map(w => ({ title: text(w.title), value: text(w.currentText || '--'),
+      number: text(w.currentNumber || w.currentText || '--'), unit: text(w.currentUnit), numberSize: Number(w.currentFontSize) || 30,
       target: text(w.target), remaining: text(w.remainingText), ring: text(w.ringText),
       progress: Math.min(100, Math.max(0, Number(w.progress) || 0)), tone: text(w.labelTone), color: text(w.toneColor) })),
     simulationReady: Boolean(data.simulationReady),
@@ -35,7 +36,8 @@ function captureStockShare(data, defaultRows = [], now = new Date()) {
 function shareMetadata(data) {
   const d = data.detail || {}
   const code = stockCode(d.ts_code || (data.selected || {}).ts_code)
-  return { title: code ? `${text(d.name) || code.split('.')[0]}｜异动计算` : '异动计算',
+  // Omit the custom title. WeChat owns the native title area and may show the app name.
+  return {
     path: '/' + shareEntry(code), query: code ? shareEntry(code).split('?')[1] : '',
     // Explicit fallback avoids platform screenshots containing local search history.
     imageUrl: '/assets/share-stock.png' }
@@ -158,49 +160,103 @@ function paintSharePlan(ctx, plan) {
   ctx.textBaseline = 'top'
   plan.commands.forEach(c => {
     if (c.type === 'box') {
-      ctx.fillStyle = c.fill; ctx.fillRect(c.x, c.y, c.w, c.h)
-      ctx.strokeStyle = c.stroke; ctx.lineWidth = 1; ctx.strokeRect(c.x, c.y, c.w, c.h)
+      ctx.fillStyle = c.fill; ctx.strokeStyle = c.stroke; ctx.lineWidth = 1
+      if (c.radius) {
+        const r = Math.min(c.radius, c.w / 2, c.h / 2), x = c.x, y = c.y, w = c.w, h = c.h
+        ctx.beginPath(); ctx.moveTo(x + r, y); ctx.lineTo(x + w - r, y)
+        ctx.quadraticCurveTo(x + w, y, x + w, y + r); ctx.lineTo(x + w, y + h - r)
+        ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h); ctx.lineTo(x + r, y + h)
+        ctx.quadraticCurveTo(x, y + h, x, y + h - r); ctx.lineTo(x, y + r)
+        ctx.quadraticCurveTo(x, y, x + r, y); ctx.closePath(); ctx.fill(); ctx.stroke()
+      } else {
+        ctx.fillRect(c.x, c.y, c.w, c.h); ctx.strokeRect(c.x, c.y, c.w, c.h)
+      }
+    } else if (c.type === 'circle') {
+      ctx.fillStyle = c.fill; ctx.beginPath(); ctx.arc(c.x, c.y, c.radius, 0, Math.PI * 2); ctx.fill()
     } else if (c.type === 'text') {
       ctx.font = `${c.weight} ${c.size}px sans-serif`; ctx.fillStyle = c.color; ctx.textAlign = c.align
       ctx.fillText(c.value, c.x, c.y)
     } else if (c.type === 'ring') {
-      ctx.lineWidth = 12; ctx.strokeStyle = '#E5E7EB'
-      ctx.beginPath(); ctx.arc(c.x, c.y, 49, 0, Math.PI * 2); ctx.stroke()
+      ctx.lineWidth = c.lineWidth || 12; ctx.strokeStyle = '#E5E7EB'
+      ctx.beginPath(); ctx.arc(c.x, c.y, c.radius || 49, 0, Math.PI * 2); ctx.stroke()
       if (c.progress > 0) {
         ctx.strokeStyle = c.color; ctx.beginPath()
-        ctx.arc(c.x, c.y, 49, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * c.progress / 100); ctx.stroke()
+        const full = c.progress >= 100
+        ctx.arc(c.x, c.y, c.radius || 49, full ? 0 : -Math.PI / 2, full ? Math.PI * 2 : -Math.PI / 2 + Math.PI * 2 * c.progress / 100); ctx.stroke()
       }
     }
   })
 }
 
 function createShareCoverPlan(snapshot, ctx) {
-  const commands = [{ type: 'box', x: 0, y: 0, w: 750, h: 600, fill: '#FFFFFF', stroke: '#FFFFFF' }]
-  const label = (value, x, y, size, color = COLORS.ink, weight = 'normal') =>
-    commands.push({ type: 'text', value, x, y, size, color, weight, align: 'left' })
-  const fit = (value, width, size) => {
-    ctx.font = 'normal ' + size + 'px sans-serif'
-    const chars = Array.from(text(value))
-    const originalLength = chars.length
-    while (chars.length && ctx.measureText(chars.join('') + (chars.length < originalLength ? '…' : '')).width > width) chars.pop()
+  const commands = [{ type: 'box', x: 0, y: 0, w: 750, h: 600, fill: '#F2F3F5', stroke: '#F2F3F5' }]
+  const box = (x, y, w, h, fill, stroke, radius) => commands.push({ type: 'box', x, y, w, h, fill, stroke, radius })
+  const label = (value, x, y, size, color = COLORS.ink, weight = 'normal', align = 'left') =>
+    commands.push({ type: 'text', value: text(value), x, y, size, color, weight, align })
+  const measure = (value, size, weight = 'normal') => {
+    ctx.font = `${weight} ${size}px sans-serif`
+    return ctx.measureText(text(value)).width
+  }
+  const fit = (value, width, size, weight = 'normal') => {
+    const chars = Array.from(text(value)), originalLength = chars.length
+    while (chars.length && measure(chars.join('') + (chars.length < originalLength ? '…' : ''), size, weight) > width) chars.pop()
     return chars.join('') + (chars.length < originalLength ? '…' : '')
   }
-  label(fit(snapshot.name + '  ' + snapshot.symbol, 654, 32), 40, 30, 32, COLORS.ink, 'bold')
-  label(snapshot.price + '  ' + snapshot.change, 40, 82, 30,
-    snapshot.change.startsWith('-') ? '#16835D' : snapshot.change.startsWith('+') ? COLORS.severe : COLORS.ink, 'bold')
-  label(fit(snapshot.status || '状态暂不可用', 654, 24), 40, 132, 24,
-    ['severe', 'monitoring', 'risk'].includes(snapshot.statusClass) ? COLORS.severe :
-      snapshot.summaryTone === 'warning' ? COLORS.warning : COLORS.base)
+  // Mirror the stock page's final CSS: gray page, tinted status card, colored pills,
+  // black metric values, and a white ring center even on a tinted warning card.
+  const palettes = {
+    base: { fill: '#FFFFFF', border: '#E5E5EA', pill: '#EAF3FC', pillBorder: '#B9D6F2', ink: '#185A96' },
+    warning: { fill: '#FFFAE8', border: '#F0D36A', pill: '#FFF5CC', pillBorder: '#F0D36A', ink: '#8A6D0B' },
+    severe: { fill: '#FFF5F5', border: '#E7A8A2', pill: '#FDF3F2', pillBorder: '#E7A8A2', ink: '#C0271E' },
+    unknown: { fill: '#FFFFFF', border: '#E5E5EA', pill: '#F3F8FD', pillBorder: '#DCEBFA', ink: '#6B7280' }
+  }
+  const statusClass = snapshot.statusClass
+  const triggered = statusClass === 'current-triggered'
+  const severeCard = ['risk', 'severe', 'monitoring'].includes(statusClass)
+  const statusCard = statusClass === 'warning' ? palettes.warning : severeCard ? palettes.severe : palettes.base
+  box(28, 20, 694, 132, triggered ? '#FFF5F5' : severeCard ? '#FDF3F2' : statusCard.fill,
+    triggered ? '#D93025' : severeCard ? '#E7A8A2' : statusCard.border, 14)
+  const changeColor = snapshot.change.startsWith('-') ? '#16835D' : snapshot.change.startsWith('+') ? '#D93025' : '#6B7280'
+  const priceWidth = measure(snapshot.price, 40, 'bold'), changeWidth = measure(snapshot.change, 28, 'bold')
+  const quoteX = 704 - priceWidth - 12 - changeWidth
+  const name = fit(snapshot.name, Math.max(0, quoteX - 46 - measure(snapshot.symbol, 20) - 32), 30, 'bold')
+  label(name, 46, 42, 30, '#1A1A1A', 'bold')
+  label(snapshot.symbol, 46 + measure(name, 30, 'bold') + 12, 52, 20, '#6B7280')
+  label(snapshot.price, quoteX, 32, 40, changeColor, 'bold')
+  label(snapshot.change, 704 - changeWidth, 44, 28, changeColor, 'bold')
+  box(46, 88, 658, 1, '#F2F2F7', '#F2F2F7', 0)
+  const tone = snapshot.summaryTone
+  const statusPill = ['risk', 'severe'].includes(tone) ? palettes.severe :
+    ['warning', 'unknown'].includes(tone) ? palettes.warning : palettes.base
+  const statusText = fit(snapshot.status || '状态暂不可用', 634, 19, 'bold')
+  const pillWidth = measure(statusText, 19, 'bold') + 24
+  box(46, 104, pillWidth, 34, statusPill.pill, statusPill.pillBorder, 7)
+  label(statusText, 58, 111, 19, statusPill.ink, 'bold')
   snapshot.warnings.slice(0, 4).forEach((w, i) => {
-    const x = 40 + i % 2 * 344, y = 190 + Math.floor(i / 2) * 158
-    const color = w.tone === 'severe' ? COLORS.severe : w.tone === 'warning' ? COLORS.warning : COLORS.ink
-    commands.push({ type: 'box', x, y, w: 326, h: 140, fill: '#FFFFFF', stroke: '#E5E7EB' })
-    label(w.title, x + 18, y + 18, 23, color)
-    label(fit(w.value, 290, 30), x + 18, y + 56, 30, color, 'bold')
-    label(fit(w.target, 290, 18), x + 18, y + 104, 18, COLORS.muted)
+    const x = 28 + i % 2 * 357, y = 172 + Math.floor(i / 2) * 196
+    const palette = palettes[w.tone] || palettes.base
+    box(x, y, 337, 176, palette.fill, palette.border, 12)
+    box(x + 16, y + 14, 112, 38, palette.pill, palette.pillBorder, 7)
+    label(fit(w.title, 96, 19, 'bold'), x + 72, y + 24, 19, palette.ink, 'bold', 'center')
+    const number = w.number || w.value, unit = w.unit || ''
+    let numberSize = Math.min(30, Math.max(20, w.numberSize || 30))
+    const unitWidth = unit ? measure(unit, 20, 'bold') + 1 : 0
+    while (numberSize > 18 && measure(number, numberSize, 'bold') > 155 - unitWidth) numberSize--
+    const displayNumber = fit(number, 155 - unitWidth, numberSize, 'bold')
+    label(displayNumber, x + 16, y + 112 - numberSize, numberSize, COLORS.ink, 'bold')
+    if (unit) label(unit, x + 17 + measure(displayNumber, numberSize, 'bold'), y + 92, 20, COLORS.ink, 'bold')
+    label(fit(w.target, 155, 20), x + 16, y + 139, 20, '#4B5563')
+    const ringX = x + 249, ringY = y + 88
+    commands.push({ type: 'ring', x: ringX, y: ringY, radius: 61, lineWidth: 18,
+      progress: w.progress || 0, color: w.color || '#B9D6F2' })
+    commands.push({ type: 'circle', x: ringX, y: ringY, radius: 52, fill: '#FFFFFF' })
+    let ringSize = 20
+    const ringText = w.ring || '—'
+    while (ringSize > 16 && measure(ringText, ringSize, 'bold') > 92) ringSize--
+    label(fit(ringText, 92, ringSize, 'bold'), ringX, ringY - ringSize / 2, ringSize, '#4B5563', 'bold', 'center')
   })
-  if (snapshot.dataNotice) label(fit(snapshot.dataNotice, 670, 18), 40, 508, 18, COLORS.severe)
-  label(fit('行情时间：' + (snapshot.quoteTime || '暂不可用'), 670, 19), 40, 542, 19, COLORS.muted)
+  const footer = snapshot.dataNotice || ('行情时间：' + (snapshot.quoteTime || '暂不可用'))
+  label(fit(footer, 694, 18), 28, 565, 18, snapshot.dataNotice ? COLORS.severe : '#6B7280')
   return { width: 750, height: 600, commands }
 }
 
@@ -226,18 +282,25 @@ function renderStockShare(page, snapshot, platform = wx, cover = false) {
   })
 }
 
-function openStockShareImage(path, entryPath, platform = wx) {
+function saveStockShareImage(path, platform = wx) {
   return new Promise((resolve, reject) => {
-    const preview = () => platform.previewImage({ urls: [path], current: path, success: resolve, fail: reject })
-    if (typeof platform.showShareImageMenu !== 'function') { preview(); return }
-    try {
-      platform.showShareImageMenu({ path, needShowEntrance: true, entrancePath: entryPath.replace(/^\//, ''),
-        success: resolve, fail: error => {
-          if (/cancel/i.test(text(error && error.errMsg))) resolve({ cancelled: true })
-          else preview()
-        } })
-    } catch (_) { preview() }
+    if (typeof platform.saveImageToPhotosAlbum !== 'function') {
+      reject(new Error('当前微信版本不支持保存图片')); return
+    }
+    // The native API triggers WeChat privacy/album authorization only after an explicit tap.
+    // No application share sheet, album reads, or global authorization request.
+    platform.saveImageToPhotosAlbum({ filePath: path, success: resolve, fail: error => {
+      const message = text(error && error.errMsg)
+      const errno = Number(error && error.errno)
+      if (/scope is not declared|api banned/i.test(message) || errno === 112) {
+        reject(new Error('保存功能暂不可用，请稍后重试'))
+      } else if (/auth|deny|denied|privacy/i.test(message) || [103, 104].includes(errno)) {
+        reject(new Error('未获保存授权，图片未保存'))
+      } else if (/cancel/i.test(message)) {
+        reject(new Error('已取消，图片未保存'))
+      } else reject(new Error('图片保存失败，请稍后重试'))
+    } })
   })
 }
 
-module.exports = { captureStockShare, shareMetadata, splitLines, createSharePlan, createShareCoverPlan, paintSharePlan, renderStockShare, openStockShareImage }
+module.exports = { captureStockShare, shareMetadata, splitLines, createSharePlan, createShareCoverPlan, paintSharePlan, renderStockShare, saveStockShareImage }

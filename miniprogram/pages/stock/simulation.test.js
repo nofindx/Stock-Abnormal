@@ -241,6 +241,22 @@ const inactiveDelistingFact = findStockMonitoring([
 ], '002731.SZ')
 assert.strictEqual(inactiveDelistingFact.riskTone, 'severe-10d')
 
+// S1 retains historical facts for resets. An expired severe event must never
+// outrank a currently valid ordinary fact (Xinhua; Tianpu is the control).
+const currentRisk = symbol => ({ symbol, riskTone: 'ordinary', monitorStartDate: '20261113', monitorEndDate: '20261126' })
+const expiredSevere = { symbol: '600825', riskTone: 'severe-10d', monitorStartDate: '20261012', monitorEndDate: '20261023' }
+const xinhuaMonitoring = selectStockMonitoring(currentRisk('600825'), [expiredSevere, currentRisk('600825')], '600825.SH', '600825', '20261115')
+const tianpuMonitoring = selectStockMonitoring(currentRisk('605255'), [currentRisk('605255')], '605255.SH', '605255', '20261115')
+assert.strictEqual(xinhuaMonitoring.riskTone, 'ordinary')
+assert.deepStrictEqual(formatMonitoringSummary(xinhuaMonitoring, '20261115'), formatMonitoringSummary(tianpuMonitoring, '20261115'))
+assert.strictEqual(formatMonitoringSummary(xinhuaMonitoring, '20261115').dateText, '20261113-20261126')
+assert.strictEqual(formatMonitoringSummary(xinhuaMonitoring, '20261115').remainingText, '11')
+assert.strictEqual(findStockMonitoring([expiredSevere], '600825.SH', '20261115'), null)
+assert.strictEqual(findStockMonitoring([currentRisk('600825')], '600825.SH', '20261126').riskTone, 'ordinary', 'last monitoring day stays valid')
+assert.strictEqual(findStockMonitoring([currentRisk('600825')], '600825.SH', '20261127'), null, 'expires the following day')
+assert.strictEqual(findStockMonitoring([{ ...expiredSevere, monitorEndDate: '', monitorEnd: '10-23' }], '600825.SH', '20261115'), null)
+assert.strictEqual(findStockMonitoring([{ ...expiredSevere, monitorEndDate: '', monitorEnd: '', monitorDates: ['20261012', '20261023'] }], '600825.SH', '20261115'), null)
+
 const maxTrailingInterval = bestDeviation([10, 10, 0, 0, 0, 0, 0, 0, -50, 10], Array(10).fill(0), 10)
 assert.strictEqual(maxTrailingInterval.window, 1)
 assert(Math.abs(maxTrailingInterval.value - 10) < 1e-9)
@@ -262,9 +278,9 @@ assert.deepStrictEqual(buildMatrixGroups(rows)[0].rows.map(item => item.label), 
 const simulationMarkup = require('fs').readFileSync(require('path').join(__dirname, 'index.wxml'), 'utf8')
 assert(simulationMarkup.includes('wx:for="{{matrix.columns}}" wx:for-item="column" wx:key="rowIndex"'))
 assert(simulationMarkup.includes('wx:for="{{matrixRow.values}}" wx:for-item="cell" wx:key="rowIndex"'))
-assert(simulationMarkup.includes('wx:if="{{!simulationReady}}" class="simulation-loading"'))
+assert(/wx:if="\{\{!simulationReady\}\}" class="simulation-loading[^\"]*"/.test(simulationMarkup))
 assert(simulationMarkup.includes('<block wx:if="{{simulationReady}}">'))
-assert(simulationMarkup.includes('<text class="matrix-suffix">%</text>'), 'blank simulation inputs must still show their percent unit')
+assert(/<text class="matrix-suffix[^\"]*"[^>]*>%<\/text>/.test(simulationMarkup), 'blank simulation inputs must still show their percent unit')
 assert(!simulationMarkup.includes('（百分点）'))
 assert(!simulationMarkup.includes('距最近阈值为在该模拟价格上还能上涨的百分比，指数按该行假设不变'))
 for (const count of [2, 10]) {

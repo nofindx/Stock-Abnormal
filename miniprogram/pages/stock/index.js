@@ -4,7 +4,8 @@ const { businessDateKey: stockBusinessDateKey, businessBoundaryKey, startBoundar
 const { createRewardedAccess } = require('../../utils/rewarded-access')
 const { client: adsConfig } = require('../../utils/ads-config')
 const { parseShareEntry } = require('../../utils/share-entry')
-const { captureStockShare, shareMetadata, renderStockShare, openStockShareImage } = require('../../utils/stock-share')
+const { captureStockShare, shareMetadata, renderStockShare, saveStockShareImage } = require('../../utils/stock-share')
+const { stockSaveSignature, renderCurrentStockSave } = require('../../utils/stock-save')
 
 function formatSimulationDate(value) {
   const text = String(value == null ? '' : value).trim()
@@ -138,9 +139,19 @@ function monitoringStartKey(item = {}, asOf = '') {
     : ''
 }
 
+function monitoringEndKey(item = {}, asOf = '') {
+  const dates = (item.monitorDates || []).map(dateKey).filter(value => value.length === 8).sort()
+  const raw = String(item.monitorEndDate || item.monitorEnd || dates[dates.length - 1] || '').trim()
+  const full = dateKey(raw)
+  if (full.length === 8) return full
+  const short = raw.match(/^(\d{1,2})[/-](\d{1,2})$/)
+  return short && String(asOf).length >= 4
+    ? `${String(asOf).slice(0, 4)}${String(short[1]).padStart(2, '0')}${String(short[2]).padStart(2, '0')}`
+    : ''
+}
+
 function localTodayKey() {
-  const now = new Date()
-  return `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`
+  return stockBusinessDateKey()
 }
 
 function remainingMonitoringDays(monitoring = {}, today = localTodayKey()) {
@@ -185,7 +196,8 @@ function findStockMonitoring(items = [], tsCode = '', asOfDate = '') {
     .filter(item => {
       if (!item || item.active === false || String(item.ts_code || item.symbol || '').split('.')[0] !== code) return false
       const start = monitoringStartKey(item, asOf)
-      return !asOf || !start || start <= asOf
+      const end = monitoringEndKey(item, asOf)
+      return !asOf || ((!start || start <= asOf) && (!end || end >= asOf))
     })
     .sort((left, right) => monitoringPriority(right) - monitoringPriority(left) || String(right.monitorEndDate || '').localeCompare(String(left.monitorEndDate || '')))[0] || null
 }
@@ -845,16 +857,20 @@ Page({
       // The endpoint may choose a severe event as its primary monitoring fact;
       // keep all current facts available for the display label so delisting
       // management is not mislabeled as severe monitoring on retired stocks.
+      // Regulatory validity follows today's Shanghai date, independently of
+      // the last available quote date. Historical facts remain in S1 for
+      // reset/audit, but must not override a current fact in the status card.
+      const monitoringDate = stockBusinessDateKey()
       const monitoring = selectStockMonitoring(
         detail.monitoring,
         Array.isArray(detail.monitoringFacts) ? detail.monitoringFacts : monitorSnapshot.items,
         stockCode,
         detail.symbol || stock.symbol,
-        detail.tradeDate
+        monitoringDate
       )
-      const detailWithMonitoring = monitoring
-        ? { ...detail, monitoring, monitoringStatus: 'active', monitoringStatusDisplay: '监管中' }
-        : detail
+      const detailWithMonitoring = { ...detail, monitoring,
+        monitoringStatus: monitoring ? 'active' : 'none',
+        monitoringStatusDisplay: monitoring ? '监管中' : '' }
       const futureTradeDates = detailWithMonitoring.futureTradeDates || []
       const baseKey = JSON.stringify([stockCode, detailWithMonitoring.tradeDate || '', futureTradeDates[0] || ''])
       const sameBaseline = this._simulationBaseline === baseKey
@@ -887,7 +903,7 @@ Page({
           ...monitoring,
           ts_code: monitoring.ts_code || detailWithMonitoring.ts_code || stock.ts_code,
           symbol: monitoring.symbol || detailWithMonitoring.symbol || stock.symbol
-        })
+        }, monitoringDate)
       }
       const currentSevereRules = currentSevereRuleTexts(detailWithMonitoring.warnings || [])
       // Monitoring facts describe regulatory status, not a current-session
@@ -933,6 +949,7 @@ Page({
     this.setData({ simulationExpanded: false, visibleDays: 2, inputRows, matrixGroups: buildMatrixGroups(inputRows), simulationReady: Boolean(this.data.detail) })
   },
   async expandSimulation() {
+    if (this.data.sharingStock) return
     if (this.data.simulationExpanded) return
     const detail = this.data.detail
     if (!detail || !this.data.simulationReady || (detail.simulationApplicability && detail.simulationApplicability.applicable !== true) ||
@@ -954,6 +971,7 @@ Page({
     this.setData({ simulationExpanded: true, visibleDays: 10, inputRows, matrixGroups: buildMatrixGroups(inputRows) })
   },
   editRow(event) {
+    if (this.data.sharingStock) return
     const { row, field } = event.currentTarget.dataset
     const value = event.detail.value
     const rows = this.data.inputRows.map((item, index) => index === Number(row)
@@ -977,6 +995,7 @@ Page({
     this.setData({ inputRows: rows, matrixGroups: buildMatrixGroups(rows) })
   },
   clearInputs() {
+    if (this.data.sharingStock) return
     const inputRows = calculateSimulationRows(createInputRows(this.data.visibleDays, this.data.futureTradeDates), this.data.detail)
     this.setData({ inputRows, matrixGroups: buildMatrixGroups(inputRows) })
   },
@@ -1014,34 +1033,38 @@ Page({
     if (cover && cover.code === (this.data.detail || {}).ts_code && cover.boundary === businessBoundaryKey()) metadata.imageUrl = cover.path
     return metadata
   },
-  async shareStockPage(event = {}) {
-    const action = String((event.currentTarget && event.currentTarget.dataset.action) || 'timeline')
-    if (this.data.sharingStock || action !== 'timeline') return
-    let snapshot
-    try { snapshot = this.stockShareSnapshot() } catch (error) {
+  async saveStockPage() {
+    if (this.data.sharingStock) return
+    let signature
+    try { signature = stockSaveSignature(this.data) } catch (error) {
       wx.showToast({ title: error.message, icon: 'none' }); return
     }
     const boundary = businessBoundaryKey()
     const epoch = this._simulationEpoch
-    this.setData({ sharingStock: true, shareAction: action })
+    const isCurrent = () => {
+      if (this._stockDisposed || epoch !== this._simulationEpoch || boundary !== businessBoundaryKey()) return false
+      try { return stockSaveSignature(this.data) === signature } catch (_) { return false }
+    }
     try {
-      const image = await renderStockShare(this, snapshot)
-      if (this._stockDisposed || epoch !== this._simulationEpoch || boundary !== businessBoundaryKey() ||
-          snapshot.code !== ((this.data.selected || {}).ts_code || (this.data.detail || {}).ts_code)) return
-      await openStockShareImage(image.path, this.stockShareMetadata().path)
+      await new Promise(resolve => this.setData({ sharingStock: true, shareAction: 'save' }, resolve))
+      if (!isCurrent()) return
+      const image = await renderCurrentStockSave(this, isCurrent)
+      if (!isCurrent()) return
+      await saveStockShareImage(image.path)
+      if (isCurrent()) wx.showToast({ title: '已保存到相册', icon: 'success' })
     } catch (error) {
-      if (!this._stockDisposed) wx.showToast({ title: error.message || '分享图片生成失败', icon: 'none' })
+      if (isCurrent()) wx.showToast({ title: error.message || '图片生成失败，请重试', icon: 'none' })
     } finally {
       if (!this._stockDisposed) this.setData({ sharingStock: false, shareAction: '' })
     }
   },
   onShareAppMessage() {
-    const { title, path, imageUrl } = this.stockShareMetadata()
-    return { title, path, imageUrl }
+    const { path, imageUrl } = this.stockShareMetadata()
+    return { path, imageUrl }
   },
   onShareTimeline() {
-    const { title, query, imageUrl } = this.stockShareMetadata()
-    return { title, query, imageUrl }
+    const { query, imageUrl } = this.stockShareMetadata()
+    return { query, imageUrl }
   },
   onHide() { stopBoundaryWatch(this) },
   onUnload() {
