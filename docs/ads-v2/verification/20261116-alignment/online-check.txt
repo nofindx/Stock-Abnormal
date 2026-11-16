@@ -1,0 +1,100 @@
+/Users/wuhy/Library/Python/3.8/lib/python/site-packages/urllib3/__init__.py:35: NotOpenSSLWarning: urllib3 v2 only supports OpenSSL 1.1.1+, currently the 'ssl' module is compiled with 'LibreSSL 2.8.3'. See: https://github.com/urllib3/urllib3/issues/3020
+  warnings.warn(
+{
+  "release": {
+    "releaseId": "20261115.2",
+    "miniProgramVersion": "2.0.3",
+    "quoteRefreshPolicy": "latest-available-all-hours"
+  },
+  "releaseMatchesLocal": true,
+  "configMatchesLocal": true,
+  "healthAlerts": [],
+  "predictions": [
+    {
+      "role": "current",
+      "targetTradeDate": "20261116",
+      "tradeDate": "20261113",
+      "status": "ready",
+      "dataStage": "formal",
+      "dataUnavailable": false,
+      "nextDayAvailable": false,
+      "count": 3,
+      "datasetContextMatches": true,
+      "cards": [
+        {
+          "code": "301578.SZ",
+          "rule": "severe_10d",
+          "triggered": false,
+          "condition": "涨幅达 17.89%"
+        },
+        {
+          "code": "688801.SH",
+          "rule": "severe_10d",
+          "triggered": false,
+          "condition": "涨幅达 19.35%"
+        },
+        {
+          "code": "603366.SH",
+          "rule": "same_direction_10d",
+          "triggered": false,
+          "condition": "涨幅达 2.26%"
+        }
+      ]
+    },
+    {
+      "role": "next",
+      "targetTradeDate": "20261116",
+      "tradeDate": "20261113",
+      "status": "ready",
+      "dataStage": "formal",
+      "dataUnavailable": false,
+      "nextDayAvailable": false,
+      "count": 0,
+      "datasetContextMatches": true,
+      "cards": []
+    }
+  ],
+  "fixtures": 3,
+  "s2": [
+    {
+      "page": "prediction",
+      "code": "",
+      "refresh_state": "ready",
+      "result_state": "fresh",
+      "refreshStatus": "applied",
+      "quoteUpdatedAt": "2026-11-16T11:46:33",
+      "reasons": [],
+      "elapsedSeconds": 0.46,
+      "polls": 0,
+      "quotes": [
+        {
+          "code": "301578.SZ",
+          "quoteUpdatedAt": "2026-11-16T11:46:06",
+          "quoteAvailable": true
+        },
+        {
+          "code": "688801.SH",
+          "quoteUpdatedAt": "2026-11-16T11:46:30",
+          "quoteAvailable": true
+        },
+        {
+          "code": "603366.SH",
+          "quoteUpdatedAt": "2026-11-16T11:46:33",
+          "quoteAvailable": true
+        }
+      ]
+    },
+    {
+      "page": "stock",
+      "code": "600825.SH",
+      "refresh_state": "ready",
+      "result_state": "fresh",
+      "refreshStatus": "applied",
+      "quoteUpdatedAt": null,
+      "reasons": [],
+      "elapsedSeconds": 0.67,
+      "polls": 0,
+      "quotes": []
+    }
+  ]
+}

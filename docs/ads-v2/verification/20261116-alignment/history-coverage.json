@@ -1,0 +1,11 @@
+{
+  "asOfTradeDate": "20261113",
+  "requiredReturnCount": 30,
+  "activeStockCount": 5579,
+  "completeStockCount": 5535,
+  "incompleteStockCount": 44,
+  "categoryCounts": {
+    "suspended_history_short": 29,
+    "recent_listing_short_history": 15
+  }
+}

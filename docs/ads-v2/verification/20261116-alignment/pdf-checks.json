@@ -1,0 +1,22 @@
+[
+  {
+    "group": "ordinary",
+    "http": 200,
+    "validPdfHeader": true,
+    "bytes": 166508
+  },
+  {
+    "group": "severe10",
+    "http": 200,
+    "validPdfHeader": true,
+    "bytes": 97594
+  },
+  {
+    "group": "severe30",
+    "result": "no_active_readable_sample"
+  },
+  {
+    "group": "delisting",
+    "result": "no_active_readable_sample"
+  }
+]

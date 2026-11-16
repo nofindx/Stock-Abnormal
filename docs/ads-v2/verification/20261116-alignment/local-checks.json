@@ -1,0 +1,88 @@
+{
+  "frontendTests": [
+    {
+      "file": "miniprogram/app.test.js",
+      "exitCode": 0
+    },
+    {
+      "file": "miniprogram/components/official-ad/index.test.js",
+      "exitCode": 0
+    },
+    {
+      "file": "miniprogram/pages/ads-integration.test.js",
+      "exitCode": 0
+    },
+    {
+      "file": "miniprogram/pages/business-boundary.test.js",
+      "exitCode": 0
+    },
+    {
+      "file": "miniprogram/pages/local-view-cache.test.js",
+      "exitCode": 0
+    },
+    {
+      "file": "miniprogram/pages/monitor/index.test.js",
+      "exitCode": 0
+    },
+    {
+      "file": "miniprogram/pages/prediction/index.test.js",
+      "exitCode": 0
+    },
+    {
+      "file": "miniprogram/pages/prediction/prediction.test.js",
+      "exitCode": 0
+    },
+    {
+      "file": "miniprogram/pages/prediction/scope-cache.test.js",
+      "exitCode": 0
+    },
+    {
+      "file": "miniprogram/pages/refresh-lifecycle.test.js",
+      "exitCode": 0
+    },
+    {
+      "file": "miniprogram/pages/stock/share.test.js",
+      "exitCode": 0
+    },
+    {
+      "file": "miniprogram/pages/stock/simulation.test.js",
+      "exitCode": 0
+    },
+    {
+      "file": "miniprogram/utils/ads-config.test.js",
+      "exitCode": 0
+    },
+    {
+      "file": "miniprogram/utils/api.test.js",
+      "exitCode": 0
+    },
+    {
+      "file": "miniprogram/utils/request-local.test.js",
+      "exitCode": 0
+    },
+    {
+      "file": "miniprogram/utils/rewarded-access.test.js",
+      "exitCode": 0
+    },
+    {
+      "file": "miniprogram/utils/stock-save.test.js",
+      "exitCode": 0
+    },
+    {
+      "file": "miniprogram/pages/temporal-policy.check.js",
+      "exitCode": 0
+    }
+  ],
+  "jsSyntaxCount": 38,
+  "jsSyntaxFailures": [],
+  "jsonCount": 12,
+  "jsonFailures": [],
+  "uploadManifestCount": 64,
+  "changedFromUploadedSource": [],
+  "releaseFilesEqual": true,
+  "release": {
+    "releaseId": "20261115.2",
+    "miniProgramVersion": "2.0.3",
+    "quoteRefreshPolicy": "latest-available-all-hours"
+  }
+}

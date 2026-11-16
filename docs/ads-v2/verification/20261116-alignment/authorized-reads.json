@@ -1,0 +1,45 @@
+[
+  {
+    "role": "current",
+    "targetTradeDate": "20261116",
+    "tradeDate": "20261113",
+    "status": "ready",
+    "dataStage": "formal",
+    "dataUnavailable": false,
+    "nextDayAvailable": false,
+    "count": 3,
+    "datasetContextMatches": true,
+    "cards": [
+      {
+        "code": "301578.SZ",
+        "rule": "severe_10d",
+        "triggered": false,
+        "condition": "涨幅达 17.89%"
+      },
+      {
+        "code": "688801.SH",
+        "rule": "severe_10d",
+        "triggered": false,
+        "condition": "涨幅达 19.35%"
+      },
+      {
+        "code": "603366.SH",
+        "rule": "same_direction_10d",
+        "triggered": false,
+        "condition": "涨幅达 2.26%"
+      }
+    ]
+  },
+  {
+    "role": "next",
+    "targetTradeDate": "20261116",
+    "tradeDate": "20261113",
+    "status": "ready",
+    "dataStage": "formal",
+    "dataUnavailable": false,
+    "nextDayAvailable": false,
+    "count": 0,
+    "datasetContextMatches": true,
+    "cards": []
+  }
+]

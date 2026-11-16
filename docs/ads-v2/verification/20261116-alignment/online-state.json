@@ -1,0 +1,173 @@
+{
+  "checkedAt": "2026-11-16T11:46:27.620331+08:00",
+  "release": {
+    "releaseId": "20261115.2",
+    "miniProgramVersion": "2.0.3",
+    "quoteRefreshPolicy": "latest-available-all-hours"
+  },
+  "releaseMatchesLocal": true,
+  "clientConfigMatchesLocalDefault": true,
+  "clientConfig": {
+    "configVersion": "ads-v2-2",
+    "ads": {
+      "enabled": false,
+      "allowedVersions": [
+        "2.0.0",
+        "2.0.1",
+        "2.0.2",
+        "2.0.3"
+      ],
+      "cacheTtlSeconds": 600,
+      "placements": {
+        "home_history_below": {
+          "enabled": false,
+          "type": "ad-custom",
+          "unitId": ""
+        },
+        "prediction_footer": {
+          "enabled": false,
+          "type": "ad-custom",
+          "unitId": ""
+        },
+        "stock_simulation_above": {
+          "enabled": false,
+          "type": "ad-custom",
+          "unitId": ""
+        },
+        "monitor_footer": {
+          "enabled": false,
+          "type": "ad-custom",
+          "unitId": ""
+        }
+      },
+      "rewarded": {
+        "simulation_10d": {
+          "enabled": false,
+          "type": "rewarded-video",
+          "unitId": ""
+        },
+        "prediction_next": {
+          "enabled": false,
+          "type": "rewarded-video",
+          "unitId": ""
+        }
+      }
+    },
+    "featureGates": {
+      "simulation_10d": {
+        "mode": "free"
+      },
+      "prediction_next": {
+        "mode": "free"
+      }
+    }
+  },
+  "service": "ok",
+  "vnext": {
+    "contextSigningConfigured": true,
+    "pdfSigningConfigured": true,
+    "publications": {
+      "available": true,
+      "backend": "mysql",
+      "factCount": 1243,
+      "outboxPending": 0
+    }
+  },
+  "realtimeCoordination": {
+    "redisEnabled": true,
+    "redisPing": true,
+    "sourcePolicyGate": {
+      "gateId": "G26",
+      "status": "pass",
+      "count": 3,
+      "errors": [],
+      "reason": "每个启用来源/交易阶段必须有证据支持的冻结版本和匹配配置哈希"
+    }
+  },
+  "prediction": {
+    "today": {
+      "available": true,
+      "phaseAvailable": true,
+      "tradeDate": "20261113",
+      "targetTradeDate": "20261116",
+      "updatedAt": "2026-11-16 00:08",
+      "ageSeconds": 41905,
+      "stale": false,
+      "effectiveScope": "next_day",
+      "phase": "intraday",
+      "itemCount": 3,
+      "datasetQuoteUpdatedAt": "2026-11-13 16:01",
+      "datasetQuoteComplete": true,
+      "exclusionStats": {
+        "excludedByLimit": 9529,
+        "excludedByMonitor": 0,
+        "excludedByTriggered": 0,
+        "excludedByDataQuality": 1234,
+        "excludedBySpecialStock": 197
+      },
+      "status": "ready",
+      "dataStage": "formal",
+      "dataQuality": "confirmed",
+      "ruleVersion": "v75",
+      "lastError": ""
+    },
+    "next_day": {
+      "available": false,
+      "phaseAvailable": false,
+      "tradeDate": "20261113",
+      "targetTradeDate": "20261116",
+      "updatedAt": "2026-11-16 00:08",
+      "ageSeconds": 41905,
+      "stale": false,
+      "effectiveScope": "next_day",
+      "phase": "intraday",
+      "itemCount": 0,
+      "datasetQuoteUpdatedAt": "2026-11-13 16:01",
+      "datasetQuoteComplete": true,
+      "exclusionStats": {
+        "excludedByLimit": 9529,
+        "excludedByMonitor": 0,
+        "excludedByTriggered": 0,
+        "excludedByDataQuality": 1234,
+        "excludedBySpecialStock": 197
+      },
+      "status": "not_available_in_phase",
+      "dataStage": "formal",
+      "dataQuality": "confirmed",
+      "ruleVersion": "v75",
+      "lastError": ""
+    }
+  },
+  "marketCalc": {
+    "latestDataDate": "20261113",
+    "dataStage": "formal",
+    "lastErrorActive": false,
+    "stockBasicCoverage": {
+      "total": 5580,
+      "active": 5579,
+      "activeWithListDate": 5579,
+      "activeWithPriceLimit": 5579,
+      "activeWithStFlag": 5579,
+      "complete": true
+    },
+    "predictionMigration": {
+      "compatReadEnabled": false,
+      "fallbackReadsSinceProcessStart": 0,
+      "predictionDatasetRows": 24,
+      "predictionCacheRows": 0,
+      "predictionCacheTableExists": true,
+      "legacyReadFree": true,
+      "legacyReadAudit": []
+    }
+  },
+  "monitor": {
+    "available": true,
+    "snapshotDate": "20261116",
+    "updatedAt": "2026-11-16 00:06",
+    "stale": false,
+    "itemCount": 21,
+    "lastStatus": "success",
+    "lastError": ""
+  },
+  "healthAlerts": []
+}

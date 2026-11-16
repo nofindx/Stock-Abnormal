@@ -1,0 +1,95 @@
+[
+  {
+    "code": "600825.SH",
+    "asOf": "20261116",
+    "quoteDate": "20261113",
+    "selectedTone": "ordinary",
+    "display": {
+      "dateText": "20261113-20261126",
+      "badgeText": "已被重点监管",
+      "ruleText": "交易所将对该证券的异常交易行为进行进一步从严认定",
+      "remainingText": "10"
+    },
+    "listMatches": true,
+    "listRemaining": 10,
+    "fourWarnings": 4,
+    "warningApplicability": [
+      {
+        "title": "3 日偏离",
+        "value": "-6.16%"
+      },
+      {
+        "title": "10 日同向",
+        "value": ""
+      },
+      {
+        "title": "10 日偏离",
+        "value": "+9.48%"
+      },
+      {
+        "title": "30 日偏离",
+        "value": "+9.48%"
+      }
+    ]
+  },
+  {
+    "code": "605255.SH",
+    "asOf": "20261116",
+    "quoteDate": "20261113",
+    "selectedTone": "ordinary",
+    "display": {
+      "dateText": "20261113-20261126",
+      "badgeText": "已被重点监管",
+      "ruleText": "交易所将对该证券的异常交易行为进行进一步从严认定",
+      "remainingText": "10"
+    },
+    "listMatches": true,
+    "listRemaining": 10,
+    "fourWarnings": 4,
+    "warningApplicability": [
+      {
+        "title": "3 日偏离",
+        "value": "+22.25%"
+      },
+      {
+        "title": "10 日同向",
+        "value": ""
+      },
+      {
+        "title": "10 日偏离",
+        "value": "+55.93%"
+      },
+      {
+        "title": "30 日偏离",
+        "value": "+55.93%"
+      }
+    ]
+  },
+  {
+    "code": "688827.SH",
+    "asOf": "20261116",
+    "quoteDate": "20261113",
+    "selectedTone": null,
+    "display": null,
+    "listMatches": true,
+    "fourWarnings": 4,
+    "warningApplicability": [
+      {
+        "title": "3 日偏离",
+        "value": "--"
+      },
+      {
+        "title": "10 日同向",
+        "value": "--"
+      },
+      {
+        "title": "10 日偏离",
+        "value": "--"
+      },
+      {
+        "title": "30 日偏离",
+        "value": "--"
+      }
+    ]
+  }
+]

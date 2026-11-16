@@ -1,0 +1,42 @@
+[
+  {
+    "page": "prediction",
+    "code": "",
+    "refresh_state": "ready",
+    "result_state": "fresh",
+    "refreshStatus": "applied",
+    "quoteUpdatedAt": "2026-11-16T11:46:33",
+    "reasons": [],
+    "elapsedSeconds": 0.46,
+    "polls": 0,
+    "quotes": [
+      {
+        "code": "301578.SZ",
+        "quoteUpdatedAt": "2026-11-16T11:46:06",
+        "quoteAvailable": true
+      },
+      {
+        "code": "688801.SH",
+        "quoteUpdatedAt": "2026-11-16T11:46:30",
+        "quoteAvailable": true
+      },
+      {
+        "code": "603366.SH",
+        "quoteUpdatedAt": "2026-11-16T11:46:33",
+        "quoteAvailable": true
+      }
+    ]
+  },
+  {
+    "page": "stock",
+    "code": "600825.SH",
+    "refresh_state": "ready",
+    "result_state": "fresh",
+    "refreshStatus": "applied",
+    "quoteUpdatedAt": null,
+    "reasons": [],
+    "elapsedSeconds": 0.67,
+    "polls": 0,
+    "quotes": []
+  }
+]
