@@ -14,5 +14,9 @@
   "lastVerifiedCloudVersion": "2.0.1",
   "lastVerifiedCloudReleaseId": "20261114.1",
   "runtimeChanged": false,
-  "repeatUploadNeeded": false
+  "repeatUploadNeeded": false,
+  "privacyGuideStatus": "completed_user_confirmed",
+  "filingStatus": "in_progress_user_confirmed",
+  "codeReviewStatus": "in_review_user_confirmed",
+  "wechatCertificationStatus": "completed_previously_user_confirmed"
 }
