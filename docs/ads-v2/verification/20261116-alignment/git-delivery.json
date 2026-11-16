@@ -1,0 +1,9 @@
+{
+  "runtimeSourceCommit": "8f89e45",
+  "remoteBeforeAudit": "4927dfa8a8dba51af7fc2f1060a88be738684570",
+  "documentationCommittedLocally": true,
+  "pushSucceeded": false,
+  "attempts": 2,
+  "reason": "GitHub HTTPS port 443 timeout; first low-speed transfer timeout, then connection timeout",
+  "runtimeChanged": false
+}
