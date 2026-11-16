@@ -2,8 +2,14 @@
   "runtimeSourceCommit": "8f89e45",
   "remoteBeforeAudit": "4927dfa8a8dba51af7fc2f1060a88be738684570",
   "documentationCommittedLocally": true,
-  "pushSucceeded": false,
-  "attempts": 2,
-  "reason": "GitHub HTTPS port 443 timeout; first low-speed transfer timeout, then connection timeout",
-  "runtimeChanged": false
+  "pushSucceeded": true,
+  "attempts": 3,
+  "reason": "Retry succeeded; both remote refs independently verified with git ls-remote",
+  "runtimeChanged": false,
+  "pushedCommit": "e38b3c4e8112aec267e2f5d3b052bd040d6d4b6a",
+  "verifiedBranches": [
+    "Stock-Abnormal",
+    "codex/ads-v2-design-20261112"
+  ],
+  "verifiedAt": "2026-11-16T14:16:08.574028+08:00"
 }
