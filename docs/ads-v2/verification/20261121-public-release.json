@@ -7,7 +7,7 @@
   "publicReleaseConfirmed": true,
   "publishedAt": "2026-11-17T23:12:52+08:00",
   "codeReviewStatus": "passed_for_published_version",
-  "filingStatus": "result_unverified",
+  "filingStatus": "completed_user_confirmed",
   "privacyGuideStatus": "completed_user_confirmed",
   "analytics": {
     "date": "2026-11-20",
@@ -33,5 +33,7 @@
       "today": "20261120",
       "next_day": "20261123"
     }
-  }
+  },
+  "filingConfirmationRecordedOn": "2026-11-21",
+  "filingConfirmationSource": "user_confirmation"
 }

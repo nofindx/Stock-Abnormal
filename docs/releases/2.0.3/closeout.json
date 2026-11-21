@@ -1,0 +1,46 @@
+{
+  "recordDate": "2026-11-21",
+  "publicRelease": {
+    "version": "2.0.3",
+    "releaseId": "20261115.2",
+    "publishedAt": "2026-11-17T23:12:52+08:00",
+    "runtimeSourceCommit": "8f89e45"
+  },
+  "filingStatus": "completed_user_confirmed",
+  "releaseBlockers": [],
+  "archiveTag": "freeze/v2.0.3-20261121",
+  "uploadManifest": {
+    "checked": 64,
+    "mismatches": 0
+  },
+  "cloudRecheck": {
+    "checkedAt": "2026-11-21T23:05:47+08:00",
+    "service": "ok",
+    "releaseId": "20261115.2",
+    "miniProgramVersion": "2.0.3",
+    "mysqlAvailable": true,
+    "outboxPending": 0,
+    "redisPing": true,
+    "predictionRuleVersion": "v75",
+    "prediction": {
+      "today": {
+        "date": "20261120",
+        "status": "ready"
+      },
+      "next_day": {
+        "date": "20261123",
+        "status": "ready"
+      }
+    },
+    "monitorSnapshotDate": "20261121",
+    "monitorSnapshotAvailable": true,
+    "adsEnabled": false,
+    "simulation10d": "free",
+    "predictionNext": "free"
+  },
+  "postReleaseFollowUp": [
+    "routine_observation",
+    "device_spot_checks_as_needed",
+    "ads_when_eligible"
+  ]
+}
