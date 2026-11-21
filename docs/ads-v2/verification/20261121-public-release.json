@@ -1,0 +1,37 @@
+{
+  "recordDate": "2026-11-21",
+  "source": "user_provided_wechat_console_screenshots",
+  "miniProgramVersion": "2.0.3",
+  "releaseId": "20261115.2",
+  "runtimeSourceCommit": "8f89e45",
+  "publicReleaseConfirmed": true,
+  "publishedAt": "2026-11-17T23:12:52+08:00",
+  "codeReviewStatus": "passed_for_published_version",
+  "filingStatus": "result_unverified",
+  "privacyGuideStatus": "completed_user_confirmed",
+  "analytics": {
+    "date": "2026-11-20",
+    "cumulativeUsers": 8,
+    "opens": 16,
+    "visitors": 8,
+    "newUsers": 7
+  },
+  "cloudVerified": {
+    "date": "2026-11-21",
+    "releaseId": "20261115.2",
+    "miniProgramVersion": "2.0.3",
+    "predictionRuleVersion": "v75",
+    "service": "ok",
+    "redisPing": true,
+    "mysqlAvailable": true,
+    "factCount": 1368,
+    "outboxPending": 0,
+    "adsEnabled": false,
+    "simulation10d": "free",
+    "predictionNext": "free",
+    "predictionTargets": {
+      "today": "20261120",
+      "next_day": "20261123"
+    }
+  }
+}
