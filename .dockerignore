@@ -8,7 +8,9 @@ design
 docs
 tools
 UI
-archive
+/archive
+/releases
+/.local
 __pycache__
 *.py[cod]
 *.log
