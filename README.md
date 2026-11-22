@@ -14,7 +14,7 @@
 .
 ├── docs/                 # 现行产品、开发、测试和运维文档
 ├── releases/             # 按版本保存发布记录、证据和快照
-├── archive/              # 历史设计、过程报告和冻结副本
+├── archive/              # Git 历史索引和本机冻结包
 ├── .local/               # 本机凭据，Git 与容器构建均忽略
 ├── miniprogram/          # 微信原生小程序，开发者工具打开此目录
 ├── server/               # Python HTTP 服务、规则和测试
