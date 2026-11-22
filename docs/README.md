@@ -8,7 +8,7 @@
 | `docs/` | 基础产品与规则、运维、发布状态 |
 | `docs/ads-v2/` | 2.0.3 的广告、分享和性能设计，以及发布验收证据 |
 | `docs/releases/` | 按版本保存冻结标签、上线记录和代码快照 |
-| `docs/archive/` | 历史 UI、vNext 评审、旧发布记录和测试证据。见[历史资料索引](archive/README.md) |
+| `docs/archive/` | 历史 UI、vNext 评审、旧发布记录、测试证据和本机冻结副本。[历史资料索引](archive/README.md) |
 
 ## 日常入口
 
@@ -24,7 +24,7 @@
 | 原目录 | 处理结果 |
 | --- | --- |
 | `Wechat_Applet/Stock-Abnormal` | 保留为主项目。把旧报告、UI 和 vNext 评审迁入 `docs/archive/`，从当前上线清单移出 1.0.21 的旧流程 |
-| `Stock-Abnormal-frozen-20261029` | 整体移入 `Stock-Abnormal-Archive/Stock-Abnormal-frozen-20261029`。保留独立 Git 历史、未提交改动、未跟踪文档和宣传物料 |
+| `Stock-Abnormal-frozen-20261029` | 整体归入主项目的 `docs/archive/Stock-Abnormal-frozen-20261029/`。保留独立 Git 历史、未提交改动、未跟踪文档和宣传物料 |
 | `Stock-Abnormal` | 已删除。目录只有三份早期代码，与主仓库 `98ab8da` 中同路径文件逐字节相同 |
 
 主项目清理了 Finder 缓存、Python 字节码及一份已有相同文本副本的测试日志。原有 2.0.3 ZIP 和两个冻结标签保留。旧报告中的原始路径和行号可在对应历史提交里查阅。
