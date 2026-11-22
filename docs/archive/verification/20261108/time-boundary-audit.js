@@ -1,7 +1,7 @@
 // Audit probe: exit 1 means the observed page behavior misses the stated policy.
 // Uses mocked API data and the real local page definitions; no cloud requests.
 const path = require('path')
-const root = path.resolve(__dirname, '../../..')
+const root = path.resolve(__dirname, '../../../..')
 const api = require(path.join(root, 'miniprogram/utils/api'))
 let definition
 let state = {}
