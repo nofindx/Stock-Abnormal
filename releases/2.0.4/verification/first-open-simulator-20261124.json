@@ -1,0 +1,22 @@
+{
+  "recordedAt": "2026-11-25T00:00:45.275312+08:00",
+  "environment": "official WeChat DevTools simulator against production 2.0.4 backend",
+  "miniProgramRelease": {
+    "releaseId": "20261124.1",
+    "miniProgramVersion": "2.0.4",
+    "quoteRefreshPolicy": "latest-available-all-hours"
+  },
+  "coldPage": "pages/prediction/index",
+  "scope": "today",
+  "cards": 3,
+  "dataUnavailable": false,
+  "error": "",
+  "quoteUpdatedAt": "2026-11-24 16:15:00",
+  "requestOrder": [
+    "/api/v2/context",
+    "/api/v2/predictions",
+    "/api/v2/realtime/refresh"
+  ],
+  "result": "pass",
+  "trueDevice": false
+}

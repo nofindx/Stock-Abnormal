@@ -1,7 +1,7 @@
 {
-  "recordedAt": "2026-11-24T09:51:37.686211-05:00",
+  "recordedAt": "2026-11-25T00:54:58.637198+08:00",
   "reportedCloudVersion": "flask-9a5y-328",
-  "status": "awaiting_rebuild_after_production_branch_sync",
+  "status": "superseded_runtime_mismatch_resolved",
   "expectedRelease": {
     "releaseId": "20261124.1",
     "miniProgramVersion": "2.0.4",
@@ -51,8 +51,8 @@
   ],
   "responseCacheControl": "no-store, no-cache, must-revalidate, max-age=0",
   "buildCommit": "not_yet_confirmed",
-  "trafficCutover": "not_yet_confirmed",
-  "requiredFollowup": "沿既有流水线重新构建发布已同步的Stock-Abnormal；实际接口变为2.0.4/20261124.1后再验收v76、v35和S1/S2。328原镜像不会因Git更新自动变化。",
+  "trafficCutover": "subsequent_public_responses_confirm_2.0.4_20261124.1_v76",
+  "requiredFollowup": "原发布分支同步及用户重跑流水线已完成，公网确认2.0.4/v76；后续巨潮覆盖重试、真机与公众发布见production-acceptance-20261124.json。",
   "confirmedRepositoryGap": {
     "productionBranch": "Stock-Abnormal",
     "before": "3d82dd04c90d0eef99058b2724977da793289257",
@@ -65,5 +65,40 @@
     "method": "fast-forward, no force push",
     "developmentAndProductionHeadsMatch": true,
     "frozenTagPreserved": "freeze/v2.0.3-20261121"
+  },
+  "followup": "Subsequent no-cache health samples consistently observed 2.0.4/v76; see production-acceptance-20261124.json. v75 had appeared immediately after rollout and was no longer observed in final samples.",
+  "latestRuntimeCheck": {
+    "observedAt": "2026-11-25T00:54:58.637198+08:00",
+    "release": {
+      "releaseId": "20261124.1",
+      "miniProgramVersion": "2.0.4",
+      "quoteRefreshPolicy": "latest-available-all-hours"
+    },
+    "predictions": {
+      "today": {
+        "status": "ready",
+        "ruleVersion": "v76",
+        "tradeDate": "20261123",
+        "targetTradeDate": "20261124",
+        "itemCount": 3,
+        "lastError": ""
+      },
+      "next_day": {
+        "status": "ready",
+        "ruleVersion": "v76",
+        "tradeDate": "20261124",
+        "targetTradeDate": "20261125",
+        "itemCount": 5,
+        "lastError": ""
+      }
+    },
+    "redisPing": true,
+    "sourcePolicyGate": "pass",
+    "publications": {
+      "available": true,
+      "backend": "mysql",
+      "factCount": 1416,
+      "outboxPending": 0
+    }
   }
 }

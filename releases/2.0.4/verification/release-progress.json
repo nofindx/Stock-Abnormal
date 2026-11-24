@@ -1,5 +1,5 @@
 {
-  "recordedAt": "2026-11-24T09:51:37.686211-05:00",
+  "recordedAt": "2026-11-25T00:54:58.637198+08:00",
   "codeCommit": "1ce2fcaabbb7525905a234c66e82f2b464bb0460",
   "gitPush": "passed",
   "baselineBeforeDeployment": {
@@ -37,7 +37,7 @@
     }
   },
   "wechatCompile": "passed_official_devtools_preview",
-  "backendDeployment": "production_branch_synced_awaiting_user_rebuild",
+  "backendDeployment": "2.0.4_active_confirmed",
   "miniUpload": "passed_official_devtools_2.0.4",
   "trueDevice": "pending",
   "publicRelease": "pending",
@@ -47,17 +47,18 @@
     "1ce2fca"
   ],
   "uploadBytes": 368656,
-  "simulator": "passed_with_existing_2.0.3_backend",
+  "simulator": "passed_existing_2.0.3_compatibility_and_deployed_2.0.4_core_paths",
   "latestObservedBackend": {
+    "observedAt": "2026-11-25T00:54:58.637198+08:00",
     "release": {
-      "releaseId": "20261115.2",
-      "miniProgramVersion": "2.0.3",
+      "releaseId": "20261124.1",
+      "miniProgramVersion": "2.0.4",
       "quoteRefreshPolicy": "latest-available-all-hours"
     },
     "predictions": {
       "today": {
         "status": "ready",
-        "ruleVersion": "v75",
+        "ruleVersion": "v76",
         "tradeDate": "20261123",
         "targetTradeDate": "20261124",
         "itemCount": 3,
@@ -65,10 +66,10 @@
       },
       "next_day": {
         "status": "ready",
-        "ruleVersion": "v75",
+        "ruleVersion": "v76",
         "tradeDate": "20261124",
         "targetTradeDate": "20261125",
-        "itemCount": 6,
+        "itemCount": 5,
         "lastError": ""
       }
     },
@@ -77,13 +78,34 @@
     "publications": {
       "available": true,
       "backend": "mysql",
-      "factCount": 1394,
+      "factCount": 1416,
       "outboxPending": 0
     }
   },
-  "newBackendAcceptance": "pending_new_runtime_after_rebuild",
+  "newBackendAcceptance": "core_paths_pass_announcement_retry_and_true_device_pending",
   "reportedCloudVersion": "flask-9a5y-328",
-  "latestRuntimeCheck": "cloud-328-verification.json",
+  "latestRuntimeCheck": "production-acceptance-20261124.json",
   "productionBranch": "Stock-Abnormal",
-  "productionBranchSync": "passed_fast_forward_to_6d97f4f"
+  "productionBranchSync": "passed_fast_forward_to_bfc7f60_then_documentation_only_sync",
+  "predictionDatasets": "v76_ready_today_3_next_5_as_of_20261125_0036",
+  "mysql": "available_1416_facts_outbox_0",
+  "redis": "ping_pass",
+  "sourcePolicyGate": "pass_60_seconds",
+  "cloudS1S2": "today_next_pass_pool_restricted_S1_immutable",
+  "officialDevtoolsSimulator": "fresh_first_open_and_manual_refresh_pass",
+  "pdfRead": "two_official_pdf_responses_pass",
+  "ads": "disabled_gates_free",
+  "pdf": "two_official_pdf_reads_pass",
+  "officialMiniSimulator": "cold_first_open_manual_refresh_monitor_filters_prediction_cache_rules_pass",
+  "announcementCoverage": "partial_due_live_CNINFO_page_identity_total_inconsistency_retry_pending",
+  "businessDate": "20261125",
+  "marketData": "last_success_20261124; nov25_preopen",
+  "monitor": "daily_refresh_completed_20261125_0036_CNINFO_partial_no_unread_bodies",
+  "knownVerificationLimits": [
+    "CNINFO issuer pagination remains partial.",
+    "Cloud console old-version instance inventory was not independently inspected.",
+    "Generic API/health scripts hit fixed short timeouts; extended targeted checks passed.",
+    "Concurrency sample does not prove two-instance identity or a complete live cross-day cycle.",
+    "True-device and public-release acceptance are pending."
+  ]
 }

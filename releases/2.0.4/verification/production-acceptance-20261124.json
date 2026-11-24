@@ -1,0 +1,276 @@
+{
+  "recordedAt": "2026-11-25T00:54:58.637198+08:00",
+  "release": {
+    "releaseId": "20261124.1",
+    "miniProgramVersion": "2.0.4",
+    "quoteRefreshPolicy": "latest-available-all-hours"
+  },
+  "productionBranchCommit": "bfc7f60",
+  "runtimeVersion": "2.0.4 / 20261124.1 / v76",
+  "runtimeStability": {
+    "noCacheHealthReads": 3,
+    "allReleaseIds": [
+      "20261124.1",
+      "20261124.1",
+      "20261124.1"
+    ],
+    "allPredictionRules": [
+      "v76",
+      "v76",
+      "v76",
+      "v76",
+      "v76",
+      "v76"
+    ],
+    "latestSamples": {
+      "today": {
+        "status": "ready",
+        "target": "20261124",
+        "cards": 3
+      },
+      "next_day": {
+        "status": "ready",
+        "target": "20261125",
+        "cards": 5
+      }
+    },
+    "earlierOldWriterObservation": "v75 was observed immediately after rollout; later stable v76 reads held through the final sample. Cloud console old-version instance inventory was not independently inspected."
+  },
+  "redis": {
+    "enabled": true,
+    "ping": true,
+    "sourcePolicyGate": "pass",
+    "quotePairing": {
+      "maxSkewSeconds": 60,
+      "timezone": "Asia/Shanghai",
+      "requireSameSource": true,
+      "maxQuoteAgeSeconds": null
+    }
+  },
+  "mysql": {
+    "available": true,
+    "backend": "mysql",
+    "factCount": 1416,
+    "outboxPending": 0
+  },
+  "marketData": {
+    "latestDataDate": "20261124",
+    "lastSuccessDate": "20261124",
+    "stockBasicCoverageComplete": true,
+    "lastError": ""
+  },
+  "predictionS1S2": {
+    "status": "passed",
+    "checks": [
+      {
+        "scope": "today",
+        "passed": true,
+        "version": "v76",
+        "tradeDate": "20261123",
+        "targetTradeDate": "20261124",
+        "cards": 3,
+        "s2State": "ready",
+        "resultState": "fresh",
+        "poolRestricted": true,
+        "s1Immutable": true
+      },
+      {
+        "scope": "next_day",
+        "passed": true,
+        "version": "v76",
+        "tradeDate": "20261124",
+        "targetTradeDate": "20261125",
+        "cards": 5,
+        "s2State": "ready",
+        "resultState": "fresh",
+        "poolRestricted": true,
+        "s1Immutable": true
+      }
+    ]
+  },
+  "cloudT138": {
+    "status": "pass",
+    "authorization": "idempotent/cross-role/cross-page/cross-stock/invalid-token pass",
+    "concurrentReads": {
+      "requests": 16,
+      "concurrency": 4,
+      "identical": true,
+      "sampleP95Ms": 297.0,
+      "maxMs": 306.9
+    },
+    "currentS2": {
+      "refresh_state": "ready",
+      "result_state": "fresh",
+      "refreshStatus": "applied",
+      "reasons": []
+    },
+    "currentCards": 3,
+    "limitations": [
+      "no instance identity; does not prove two cloud instances",
+      "point-in-time sample; does not prove a full live cross-day cycle"
+    ]
+  },
+  "singleStockS1S2": {
+    "security": "600825.SH",
+    "status": "passed",
+    "warningCount": 4,
+    "basisId": "2b41ecac6a37fada1f49143e8b84d00645cfbe7f27cfff909b03ca3982ea16e4",
+    "s2": "ready/fresh",
+    "oldS1Immutable": true,
+    "crossSecurityRejected": true,
+    "sameBasisPreservesSimulationInputAndTenDayLayout": true
+  },
+  "monitorPdf": {
+    "records": 24,
+    "openedOfficialPdfs": [
+      {
+        "security": "600825.SH",
+        "httpStatus": 200,
+        "contentType": "application/pdf",
+        "bytes": 121041,
+        "sha256": "f828b76eee2d0ee594c5b19b9116083624fd1c81879f2463ef9ea424be63e1fd",
+        "result": "pass"
+      },
+      {
+        "security": "002148.SZ",
+        "httpStatus": 200,
+        "contentType": "application/pdf",
+        "bytes": 194510,
+        "sha256": "9f939b0f0f271da4b6d0c4c2557812ba61bf96af4b9c3f20a5cf3393f1e38d54",
+        "result": "pass"
+      }
+    ],
+    "bodyParse": {
+      "status": "verified",
+      "checked": 626,
+      "ocrUsed": 0,
+      "ocrFailed": 0,
+      "unreadFacts": [],
+      "bodyAvailable": 626,
+      "bodyUnavailable": 0,
+      "resetFactsCount": 559,
+      "resetEvidenceVerified": 541
+    },
+    "latestSnapshotRecordCount": 23,
+    "latestSnapshotUpdatedAt": "2026-11-25 00:36"
+  },
+  "firstOpenSimulator": {
+    "recordedAt": "2026-11-25T00:00:45.275312+08:00",
+    "environment": "official WeChat DevTools simulator against production 2.0.4 backend",
+    "miniProgramRelease": {
+      "releaseId": "20261124.1",
+      "miniProgramVersion": "2.0.4",
+      "quoteRefreshPolicy": "latest-available-all-hours"
+    },
+    "coldPage": "pages/prediction/index",
+    "scope": "today",
+    "cards": 3,
+    "dataUnavailable": false,
+    "error": "",
+    "quoteUpdatedAt": "2026-11-24 16:15:00",
+    "requestOrder": [
+      "/api/v2/context",
+      "/api/v2/predictions",
+      "/api/v2/realtime/refresh"
+    ],
+    "result": "pass",
+    "trueDevice": false
+  },
+  "ads": {
+    "enabled": false,
+    "simulation10d": "free",
+    "predictionNext": "free"
+  },
+  "announcementCoverage": {
+    "state": "partial",
+    "complete": false,
+    "range": {
+      "endDate": "20261125",
+      "complete": false,
+      "requests": 202,
+      "startDate": "20261014"
+    },
+    "error": "szse:股票交易异常波动:2026-11-18~2026-11-18:pagination_incomplete:total_mismatch; szse:股票交易异常波动:2026-11-20~2026-11-20:pagination_incomplete:total_mismatch",
+    "unreadOfficialBodies": 0,
+    "interpretation": "The CNINFO per-day result total has intermittently disagreed with page identities. The completeness gate correctly reports partial; a corrected live page sample can return complete results, but the persisted snapshot has not yet cleared its retry marker."
+  },
+  "apiContractScript": {
+    "status": "incomplete",
+    "reason": "The existing generic check uses short fixed HTTP timeouts and timed out; extended targeted T138 authorization/concurrency checks and direct S1/S2 checks passed."
+  },
+  "trueDevice": "pending",
+  "publicRelease": "pending",
+  "businessDayFollowup": {
+    "businessDate": "20261125",
+    "isTradeDay": true,
+    "latestMarketDataDate": "20261124",
+    "marketLastSuccessDate": "20261124",
+    "prediction": {
+      "today": {
+        "status": "ready",
+        "ruleVersion": "v76",
+        "targetTradeDate": "20261124",
+        "itemCount": 3
+      },
+      "next_day": {
+        "status": "ready",
+        "ruleVersion": "v76",
+        "targetTradeDate": "20261125",
+        "itemCount": 5
+      }
+    },
+    "monitorRefreshCompletedAt": "2026-11-25 00:36",
+    "monitorRefreshing": false,
+    "monitorLastStatus": "success",
+    "issuerCoverage": {
+      "endDate": "20261126",
+      "complete": false,
+      "requests": 191,
+      "startDate": "20261014"
+    },
+    "issuerStatus": "partial",
+    "issuerError": "sse:股票交易异常波动:2026-11-18~2026-11-18:pagination_incomplete:total_mismatch",
+    "unreadOfficialBodies": 0,
+    "finalCheckedAt": "2026-11-25T00:54:58.637198+08:00",
+    "monitorItemCount": 23
+  },
+  "remaining": [
+    "CNINFO per-day pagination/total count remains partial despite scheduled retries; retain this quality state and continue scheduled retries.",
+    "User true-device acceptance for layout, sharing, PDF and saving image.",
+    "WeChat review and public release."
+  ],
+  "finalHealthCheck": {
+    "observedAt": "2026-11-25T00:54:58.637198+08:00",
+    "release": {
+      "releaseId": "20261124.1",
+      "miniProgramVersion": "2.0.4",
+      "quoteRefreshPolicy": "latest-available-all-hours"
+    },
+    "predictions": {
+      "today": {
+        "status": "ready",
+        "ruleVersion": "v76",
+        "tradeDate": "20261123",
+        "targetTradeDate": "20261124",
+        "itemCount": 3,
+        "lastError": ""
+      },
+      "next_day": {
+        "status": "ready",
+        "ruleVersion": "v76",
+        "tradeDate": "20261124",
+        "targetTradeDate": "20261125",
+        "itemCount": 5,
+        "lastError": ""
+      }
+    },
+    "redisPing": true,
+    "sourcePolicyGate": "pass",
+    "publications": {
+      "available": true,
+      "backend": "mysql",
+      "factCount": 1416,
+      "outboxPending": 0
+    }
+  }
+}
