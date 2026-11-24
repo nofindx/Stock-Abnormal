@@ -1,0 +1,85 @@
+{
+  "recordedAt": "2026-11-24T08:50:41.186064-05:00",
+  "codeCommit": "1ce2fcaabbb7525905a234c66e82f2b464bb0460",
+  "gitPush": "passed",
+  "baselineBeforeDeployment": {
+    "release": {
+      "releaseId": "20261115.2",
+      "miniProgramVersion": "2.0.3",
+      "quoteRefreshPolicy": "latest-available-all-hours"
+    },
+    "redisEnabled": true,
+    "redisPing": true,
+    "sourcePolicyGate": "pass",
+    "publications": {
+      "available": true,
+      "backend": "mysql",
+      "factCount": 1394,
+      "outboxPending": 0
+    },
+    "predictions": {
+      "today": {
+        "status": "ready",
+        "ruleVersion": "v75",
+        "tradeDate": "20261123",
+        "targetTradeDate": "20261124",
+        "itemCount": 3,
+        "lastError": ""
+      },
+      "next_day": {
+        "status": "ready",
+        "ruleVersion": "v75",
+        "tradeDate": "20261124",
+        "targetTradeDate": "20261125",
+        "itemCount": 6,
+        "lastError": ""
+      }
+    }
+  },
+  "wechatCompile": "passed_official_devtools_preview",
+  "backendDeployment": "awaiting_user_console_publish",
+  "miniUpload": "passed_official_devtools_2.0.4",
+  "trueDevice": "pending",
+  "publicRelease": "pending",
+  "backendTree": "39b1093e11e81737c92aabc7fa65ae4ba915ed53",
+  "backendEquivalentCommits": [
+    "661b220",
+    "1ce2fca"
+  ],
+  "uploadBytes": 368656,
+  "simulator": "passed_with_existing_2.0.3_backend",
+  "latestObservedBackend": {
+    "release": {
+      "releaseId": "20261115.2",
+      "miniProgramVersion": "2.0.3",
+      "quoteRefreshPolicy": "latest-available-all-hours"
+    },
+    "predictions": {
+      "today": {
+        "status": "ready",
+        "ruleVersion": "v75",
+        "tradeDate": "20261123",
+        "targetTradeDate": "20261124",
+        "itemCount": 3,
+        "lastError": ""
+      },
+      "next_day": {
+        "status": "ready",
+        "ruleVersion": "v75",
+        "tradeDate": "20261124",
+        "targetTradeDate": "20261125",
+        "itemCount": 6,
+        "lastError": ""
+      }
+    },
+    "redisPing": true,
+    "sourcePolicyGate": "pass",
+    "publications": {
+      "available": true,
+      "backend": "mysql",
+      "factCount": 1394,
+      "outboxPending": 0
+    }
+  },
+  "newBackendAcceptance": "pending_deployment"
+}

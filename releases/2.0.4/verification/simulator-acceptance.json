@@ -1,0 +1,63 @@
+{
+  "kind": "developer-tools-simulator",
+  "trueDevice": false,
+  "checks": [
+    {
+      "name": "stock-manual-refresh",
+      "passed": true,
+      "requests": [
+        "/api/v2/context",
+        "/api/v2/stocks/detail",
+        "/api/v2/realtime/refresh"
+      ],
+      "quoteTime": "2026-11-24 16:15:00",
+      "warnings": 4,
+      "baselineIdPresent": false,
+      "newInputRetained": true,
+      "expandedDays": 10,
+      "error": ""
+    },
+    {
+      "name": "monitor-local-filters",
+      "passed": true,
+      "visibleCount": 2,
+      "requests": [],
+      "error": ""
+    },
+    {
+      "name": "prediction-tab-cache",
+      "passed": true,
+      "todayCount": 3,
+      "nextCount": 6,
+      "requests": []
+    },
+    {
+      "name": "prediction-manual-refresh",
+      "passed": true,
+      "requests": [
+        "/api/v2/context",
+        "/api/v2/predictions",
+        "/api/v2/realtime/refresh"
+      ],
+      "items": 3,
+      "quoteTime": "2026-11-24 16:15:00",
+      "error": ""
+    },
+    {
+      "name": "rules-page",
+      "passed": true
+    }
+  ],
+  "release": {
+    "releaseId": "20261124.1",
+    "miniProgramVersion": "2.0.4",
+    "quoteRefreshPolicy": "latest-available-all-hours"
+  },
+  "observedBackend": {
+    "releaseId": "20261115.2",
+    "miniProgramVersion": "2.0.3",
+    "quoteRefreshPolicy": "latest-available-all-hours"
+  },
+  "exceptions": 0,
+  "status": "passed"
+}
