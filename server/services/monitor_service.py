@@ -49,7 +49,7 @@ MONITOR_PERIOD_TRADING_DAYS = {
 MONITOR_WINDOW_TRADING_DAYS = MONITOR_PERIOD_TRADING_DAYS
 # 公告分类口径变化时，启动任务主动重采一次当前快照；避免必须等到次日
 # 00:00 才让修复后的北交所严重异动进入重点监控。
-MONITOR_RULE_VERSION = "20261102-product-policy-v34"
+MONITOR_RULE_VERSION = "20261124-product-policy-v35"
 
 # 只有官方披露平台上的发行人/交易所事实，才有资格改变行情累计基线。
 # 可读正文优先；普通异动正文短时不可读时，官方标题只能作为待行情核验
@@ -325,77 +325,93 @@ class OfficialMonitorService:
             self._scheduler_stop.wait(60)
 
     @staticmethod
-    def _classify_monitor_text(title: str, body: str, symbol: str = "") -> tuple[str, str]:
-        """按公告正文语义分类：30 日、10 日、风险提示；无法确认则丢弃。
+    def _recognize_monitor_text(title: str, body: str, symbol: str = "") -> Dict[str, Any]:
+        """Keep the notice's actual recognition basis beside its legacy display family.
 
-        交易所公告经常把严重异动窗口写成“连续 6/8 个交易日”，而不是
-        固定复述“10 个交易日”。只要正文明确写出严重异常、上涨偏离值
-        累计达到 100% 以上，就归入产品的 10 日严重异动类型；3 日普通
-        异动没有“严重异常波动”语义，仍不会被纳入。
+        severe-10d remains the compatible family for count-based severe facts;
+        it does not establish that a notice met a ten-session price threshold.
+        Announcement evidence and the four computed warnings are independent.
         """
+        text = re.sub(r"\s+", "", str(body or "")).replace("％", "%")
 
-        # 分类严格基于正文；标题仅用于确认公告是否明确写明“严重异常波动”。
-        text = re.sub(r"\s+", "", body or "").replace("％", "%")
-        has_30_window = "30个交易日" in text
-        has_10_window = "10个交易日" in text
-        def deviation_values(window: str) -> List[float]:
-            values: List[float] = []
-            pattern = rf"(?:{window}个交易日.{{0,220}}?|连续\d+个交易日.{{0,220}}?)(?:涨幅|跌幅|偏离值).{{0,60}}?(?:达到|超过|为)([+-]?\d+(?:\.\d+)?)%"
-            for match in re.finditer(pattern, text):
-                try:
-                    value = float(match.group(1))
-                    fragment = text[max(0, match.start() - 24):match.end()]
-                    if "跌幅" in fragment and value > 0:
-                        value = -value
-                    values.append(value)
-                except ValueError:
-                    continue
-            return values
-
-        values_30 = deviation_values("30")
-        values_10 = deviation_values("10")
-        code_match = re.search(r"\d{6}", str(symbol or ""))
-        is_bse = bool(code_match and code_match.group(0).startswith(("4", "8", "9")))
-        threshold_10 = 150 if is_bse else 100
-        threshold_30 = 300 if is_bse else 200
-        down_10 = -60 if is_bse else -50
-        down_30 = -75 if is_bse else -70
-        has_30_threshold = any(value >= threshold_30 or value <= down_30 for value in values_30)
-        has_10_threshold = any(value >= threshold_10 or value <= down_10 for value in values_10)
-        # 上海主板、创业板/科创板等规则还允许以连续交易日内多次
-        # 同向异常波动认定为严重异常；这类公告可能不重复披露
-        # “10 个交易日涨幅偏离值”句式，不能因此漏掉。
-        same_direction_count = 0
-        same_direction_window = 0
-        same_match = re.search(r"连续(\d+)个交易日.{0,80}?出现(\d+)次同向异常波动", text)
-        if same_match:
-            same_direction_window = int(same_match.group(1))
-            same_direction_count = int(same_match.group(2))
-        code_value = code_match.group(0) if code_match else ""
-        same_direction_threshold = 3 if (
-            is_bse or code_value.startswith("3") or code_value.startswith("68")
-        ) else 4
-        has_same_direction_severe = (
-            same_direction_window > 0
-            and same_direction_count >= same_direction_threshold
+        def normalize_number(match):
+            token = match.group(0)
+            digits = {"一": 1, "二": 2, "两": 2, "三": 3, "四": 4, "五": 5, "六": 6, "七": 7, "八": 8, "九": 9}
+            if "十" in token:
+                tens, _, ones = token.partition("十")
+                value = digits.get(tens, 1) * 10 + digits.get(ones, 0)
+            else:
+                value = digits.get(token)
+            return str(value) if value is not None else token
+        text = re.sub(r"[一二两三四五六七八九十]+(?=个交易日|次同向异常波动)", normalize_number, text)
+        code = re.search(r"\d{6}", str(symbol or ""))
+        symbol = code.group(0) if code else ""
+        bse = symbol.startswith(("4", "8", "9"))
+        count_threshold = 3 if bse or symbol.startswith(("3", "68")) else 4
+        severe_wording = "严重异常波动" in str(title or "") or "严重异常波动" in text
+        bases = []
+        # Capture each complete price statement. Do not reuse an unrelated
+        # 10-day mention to relabel a 30-day/longer actual interval.
+        price_pattern = (
+            r"(?:连续|近)?(\d+)个交易日(?:(?!个交易日|[。；;]).){0,220}?"
+            r"(涨幅|跌幅|偏离值)(?:(?!个交易日|[。；;]).){0,60}?"
+            r"(达到|超过|为)([+-]?\d+(?:\.\d+)?)%"
         )
-        if has_same_direction_severe:
-            has_10_threshold = True
-        has_risk_wording = OfficialMonitorService._has_exchange_strict_monitoring_wording(text)
-        if has_30_window and has_30_threshold:
-            return "30日严重异动", "severe-30d"
-        if has_10_window and has_10_threshold:
-            return "10日严重异动", "severe-10d"
-        # 公告可能按实际连续交易日数披露本轮 10 日严重异动事实；方向阈值
-        # 仍按该证券板块的 10 日规则核验。
-        has_severe_title = "严重异常波动" in str(title or "") or "严重异常波动" in text
-        has_threshold_deviation = any(value >= threshold_10 or value <= down_10 for value in deviation_values(""))
-        has_actual_window = bool(re.search(r"连续\d+个交易日", text))
-        if has_severe_title and has_actual_window and not has_30_window and (has_threshold_deviation or has_same_direction_severe):
-            return "10日严重异动", "severe-10d"
-        if has_risk_wording:
-            return "风险提示", "ordinary"
-        return "", ""
+        for match in re.finditer(price_pattern, text):
+            window = int(match.group(1))
+            if not 1 <= window <= 30:
+                continue
+            value = float(match.group(4))
+            if match.group(2) == "跌幅" and value > 0:
+                value = -value
+            rule_window = 10 if window <= 10 else 30
+            threshold = ((150 if bse else 100) if value >= 0 else (-60 if bse else -50)) if rule_window == 10 else (
+                (300 if bse else 200) if value >= 0 else (-75 if bse else -70))
+            reached = value >= threshold if threshold > 0 else value <= threshold
+            if not reached or (window not in (10, 30) and not severe_wording):
+                continue
+            direction = "up" if value >= 0 else "down"
+            value_text = ("+" if value >= 0 else "-") + match.group(4).lstrip("+-")
+            bases.append({"kind": "price_deviation", "ruleKey": f"severe_{rule_window}d",
+                "windowDays": window, "direction": direction, "deviation": value, "threshold": threshold,
+                "evidenceText": match.group(0),
+                "text": f"公告认定：连续{window}个交易日收盘价{'涨幅' if value >= 0 else '跌幅'}偏离值{match.group(3)}{value_text}%"})
+        count_pattern = r"连续(\d+)个交易日(?:(?!个交易日|[。；;]).){0,80}?(?:出现|发生)(\d+)次同向(?:的)?(?:股票交易)?异常波动"
+        for match in re.finditer(count_pattern, text):
+            window, count = int(match.group(1)), int(match.group(2))
+            # A long-window announcement can be a formal severe fact, but must
+            # never masquerade as satisfying this product's 10-day counter.
+            if window <= 0 or count < count_threshold or not severe_wording:
+                continue
+            bases.append({"kind": "same_direction", "ruleKey": "same_direction_10d" if window <= 10 else "announcement_same_direction",
+                "windowDays": window, "count": count, "threshold": count_threshold,
+                "direction": OfficialMonitorService._severe_event_direction(match.group(0)) or OfficialMonitorService._severe_event_direction(text),
+                "evidenceText": match.group(0),
+                "text": f"公告认定：连续{window}个交易日内出现{count}次同向异常波动"})
+        unique = {(item["kind"], item["ruleKey"], item["windowDays"], item.get("count"), item.get("deviation")): item for item in bases}
+        bases = sorted(unique.values(), key=lambda item: ({"price_deviation": 0, "same_direction": 1}[item["kind"]], -item["windowDays"]))
+        if any(item["ruleKey"] == "severe_30d" for item in bases):
+            monitor_type, risk_tone = "30日严重异动", "severe-30d"
+        elif any(item["kind"] == "price_deviation" for item in bases):
+            monitor_type, risk_tone = "10日严重异动", "severe-10d"
+        elif bases:
+            monitor_type, risk_tone = "同向严重异动", "severe-10d"
+        elif OfficialMonitorService._has_exchange_strict_monitoring_wording(text):
+            monitor_type, risk_tone = "风险提示", "ordinary"
+        else:
+            monitor_type, risk_tone = "", ""
+        return {"monitorType": monitor_type, "riskTone": risk_tone,
+                "recognitionBasis": bases, "ruleText": "；".join(item["text"] for item in bases)}
+
+    @staticmethod
+    def _classify_monitor_text(title: str, body: str, symbol: str = "") -> tuple[str, str]:
+        result = OfficialMonitorService._recognize_monitor_text(title, body, symbol)
+        return result["monitorType"], result["riskTone"]
+
+    @staticmethod
+    def _recognition_fields(title: str, body: str, symbol: str = "") -> Dict[str, Any]:
+        parsed = OfficialMonitorService._recognize_monitor_text(title, body, symbol)
+        return {"recognitionBasis": parsed["recognitionBasis"], "ruleText": parsed["ruleText"]}
 
     @staticmethod
     def _severe_event_direction(body: str) -> str:
@@ -521,6 +537,7 @@ class OfficialMonitorService:
             "sourceUrl": str(source_url),
             "bodyHash": hashlib.sha256(normalized.encode("utf-8")).hexdigest(),
             "verifiedRiskTone": risk_tone,
+            "recognitionBasis": OfficialMonitorService._recognition_fields(title, body, symbol)["recognitionBasis"],
             "signals": ["严重异常波动", "板块阈值或同向次数条件"],
         }
 
@@ -1103,6 +1120,11 @@ class OfficialMonitorService:
                         same_date["ruleResetDate"] = item.get("ruleResetDate") or same_date.get("ruleResetDate", "")
                         if item.get("resetEvidence"):
                             same_date["resetEvidence"] = item["resetEvidence"]
+                    if item.get("recognitionBasis") and (
+                        not same_date.get("recognitionBasis") or item.get("sourceType") in RESET_AUTHORIZED_SOURCE_TYPES
+                    ):
+                        for field in ("recognitionBasis", "ruleText", "monitorType"):
+                            same_date[field] = item[field]
                     if item.get("eventDirection"):
                         # Prefer the direction parsed from the issuer/exchange
                         # notice when the primary feed only provides a summary.
@@ -1447,6 +1469,7 @@ class OfficialMonitorService:
                     "ruleResetConfirmed": False,
                     "resetEvidence": None,
                     "eventDirection": self._severe_event_direction(body) if risk_tone.startswith("severe-") else "",
+                    **self._recognition_fields(title, body, announcement.get("stockCode", "")),
                     "bodyReadMethod": str(body_result.get("method") or "text_layer"),
                     "bodyReadConfidence": body_result.get("confidence"),
                     "monitorType": monitor_type, "riskTone": risk_tone,
@@ -1498,6 +1521,7 @@ class OfficialMonitorService:
                     "monitorType": monitor_type, "riskTone": risk_tone,
                     "sourceRelation": self._risk_prompt_relation(alert["title"], alert.get("body", ""), risk_tone),
                     "eventDirection": self._severe_event_direction(alert.get("body", "")) if risk_tone.startswith("severe-") else "",
+                    **self._recognition_fields(alert["title"], alert.get("body", ""), alert.get("stockCode", "")),
                     "isST": "ST" in alert["stockName"].upper(),
                     "source": alert["source"], "sourceUrl": alert["url"] if risk_tone != "ordinary" else "",
                     "sourceType": alert["sourceType"], "sourceRole": alert["sourceRole"],

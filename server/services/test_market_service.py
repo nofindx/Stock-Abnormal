@@ -39,7 +39,7 @@ class MarketVectorTests(unittest.TestCase):
     def test_rule_fact_provider_failure_is_explicit_not_empty_fact_success(self):
         self.service.set_monitor_provider(lambda: (_ for _ in ()).throw(RuntimeError("公告库暂时不可用")))
         stock = {"symbol": "600825", "ts_code": "600825.SH"}
-        _, _, reset_meta, _ = self.service._rule_vectors_for_stock(
+        _, _, reset_meta = self.service._rule_vectors_for_stock(
             stock,
             [{"date": "20261022", "return": 0.0}],
             [{"date": "20261022", "return": 0.0}],
@@ -71,7 +71,7 @@ class MarketVectorTests(unittest.TestCase):
                 "issuerBodyVerification": {"status": "pending_verification"},
             },
         })
-        _, _, reset_meta, _ = self.service._rule_vectors_for_stock(
+        _, _, reset_meta = self.service._rule_vectors_for_stock(
             {"symbol": "600825", "ts_code": "600825.SH"},
             [{"date": "20261022", "return": 0.0}],
             [{"date": "20261022", "return": 0.0}],
@@ -84,13 +84,13 @@ class MarketVectorTests(unittest.TestCase):
             "items": [], "resetFacts": [], "unresolvedFacts": [],
             "dataQuality": {"sourceHealth": {"issuerBackup": "degraded"}},
         })
-        _, _, reset_meta, monitoring = self.service._rule_vectors_for_stock(
+        _, _, reset_meta = self.service._rule_vectors_for_stock(
             {"symbol": "600825", "ts_code": "600825.SH"},
             [{"date": "20261022", "return": 0.0}],
             [{"date": "20261022", "return": 0.0}],
         )
         self.assertIn(reset_meta["ruleFactsQuality"]["status"], {"partial", "unavailable"})
-        self.assertIsNone(monitoring)
+        self.assertIsNone(self.service._active_monitor_for_stock({"symbol": "600825"}))
 
     def test_single_stock_detail_fails_instead_of_fetching_daily_when_database_unavailable(self):
         service = self.service
@@ -101,7 +101,7 @@ class MarketVectorTests(unittest.TestCase):
         with self.assertRaisesRegex(CalculationDataUnavailable, "MySQL 计算数据仓库不可用"):
             service.detail("000001.SZ")
 
-    def test_single_stock_detail_fails_when_database_baseline_is_missing(self):
+    def test_single_stock_detail_returns_independent_status_when_database_baseline_is_missing(self):
         service = self.service
         service._stock = lambda _code: self.fail("must not fall back to another stock source")
         service._calc_repository = SimpleNamespace(available=True, get_calc=lambda _code: {
@@ -110,8 +110,11 @@ class MarketVectorTests(unittest.TestCase):
         })
         service._market_context = lambda: self.fail("must not fall back to remote daily data")
 
-        with self.assertRaisesRegex(CalculationDataUnavailable, "缺少该股票的历史收益向量"):
-            service.detail("000001.SZ")
+        detail = service.detail("000001.SZ")
+        self.assertEqual(detail["stockState"]["tradingState"], "unknown")
+        self.assertEqual(detail["stockState"]["marketDataState"], "unavailable")
+        self.assertEqual(len(detail["warnings"]), 4)
+        self.assertFalse(detail["realtimeRefreshAllowed"])
 
     def test_today_dataset_recomputes_candidate_fields_from_target_day_baseline(self):
         service = self.service
@@ -286,7 +289,7 @@ class MarketVectorTests(unittest.TestCase):
             "index_code": "399102.SZ", "latest_close": 100.0, "as_of_trade_date": "20261015",
             "index_return_vector": [{"date": "20261015", "return": 0.0}],
         })
-        service._realtime = SimpleNamespace(fetch_many=lambda _codes: {})
+        service._realtime = SimpleNamespace(fetch_many=lambda _codes, **_options: {})
         service._future_trade_dates = lambda *_args: ["2026-10-16"]
         stock = {"ts_code": "301686.SZ", "symbol": "301686", "name": "中塑股份", "market": "SZSE", "board": "创业板", "isST": False}
         calc = {
@@ -316,7 +319,7 @@ class MarketVectorTests(unittest.TestCase):
                 {"date": "20261016", "return": 0.0},
             ],
         })
-        service._realtime = SimpleNamespace(fetch_many=lambda _codes: {})
+        service._realtime = SimpleNamespace(fetch_many=lambda _codes, **_options: {})
         service._future_trade_dates = lambda *_args: ["2026-10-19"]
         stock = {"ts_code": "002731.SZ", "symbol": "002731", "name": "*ST萃华", "market": "SZSE", "board": "主板", "isST": True}
         calc = {
@@ -342,7 +345,7 @@ class MarketVectorTests(unittest.TestCase):
             "index_code": "399107.SZ", "latest_close": 100.0, "as_of_trade_date": "20261016",
             "index_return_vector": [{"date": "20261016", "return": 0.0}],
         })
-        service._realtime = SimpleNamespace(fetch_many=lambda _codes: {})
+        service._realtime = SimpleNamespace(fetch_many=lambda _codes, **_options: {})
         service._future_trade_dates = lambda *_args: ["2026-10-19"]
         stock = {"ts_code": "000196.SZ", "symbol": "000196", "name": "新股", "market": "SZSE", "board": "主板", "isST": False}
         calc = {
@@ -738,7 +741,7 @@ class MarketVectorTests(unittest.TestCase):
 
     def test_live_quotes_must_share_source_date_and_nearby_time(self):
         stock = {"source": "腾讯行情", "updatedAt": "2026-10-13T14:55:00"}
-        same_snapshot = {"source": "腾讯行情", "updatedAt": "2026-10-13T14:59:59"}
+        same_snapshot = {"source": "腾讯行情", "updatedAt": "2026-10-13T14:56:00"}
         different_time = {"source": "腾讯行情", "updatedAt": "2026-10-13T14:40:00"}
         different_source = {"source": "新浪行情", "updatedAt": "2026-10-13T14:55:00"}
         different_day = {"source": "腾讯行情", "updatedAt": "2026-10-12T14:55:00"}
@@ -760,9 +763,9 @@ class MarketVectorTests(unittest.TestCase):
                 {"date": "20261012", "return": 0.0},
             ],
         })
-        service._realtime = SimpleNamespace(fetch_many=lambda _codes: {
-            "000001.SZ": {"current": 106.19, "preClose": 100.0, "pctChg": 6.19, "updatedAt": "2026-10-13T16:14:30"},
-            "399107.SZ": {"current": 101.0, "preClose": 100.0, "pctChg": 1.0, "updatedAt": "2026-10-13T16:14:30"},
+        service._realtime = SimpleNamespace(fetch_many=lambda _codes, **_options: {
+            "000001.SZ": {"current": 106.19, "preClose": 100.0, "pctChg": 6.19, "source": "腾讯行情", "updatedAt": "2026-10-13T16:14:30"},
+            "399107.SZ": {"current": 101.0, "preClose": 100.0, "pctChg": 1.0, "source": "腾讯行情", "updatedAt": "2026-10-13T16:14:30"},
         })
         service._future_trade_dates = lambda *_args: []
         stock = {"ts_code": "000001.SZ", "symbol": "000001", "name": "测试股票", "market": "SZSE", "board": "主板", "isST": False}
@@ -790,7 +793,7 @@ class MarketVectorTests(unittest.TestCase):
             "index_code": "000002.SH", "latest_close": 10.0, "as_of_trade_date": dates[-1],
             "index_return_vector": index_vector,
         })
-        service._realtime = SimpleNamespace(fetch_many=lambda _codes: {})
+        service._realtime = SimpleNamespace(fetch_many=lambda _codes, **_options: {})
         service._clock = lambda: datetime(2026, 10, 15)
         service._future_trade_dates = lambda *_args: []
         service.set_monitor_provider(lambda: {"items": [{
@@ -881,7 +884,7 @@ class MarketVectorTests(unittest.TestCase):
             "index_code": "399107.SZ", "latest_close": 100.0, "as_of_trade_date": "20261012",
             "index_return_vector": [{"date": "20261011", "return": 0.0}, {"date": "20261012", "return": 0.0}],
         })
-        service._realtime = SimpleNamespace(fetch_many=lambda _codes: {
+        service._realtime = SimpleNamespace(fetch_many=lambda _codes, **_options: {
             "000001.SZ": {"current": 106.19, "preClose": 100.0, "pctChg": 6.19, "source": "腾讯行情", "updatedAt": "2026-10-13T16:14:30"},
             "399107.SZ": {"current": 101.0, "preClose": 100.0, "pctChg": 1.0, "source": "新浪行情", "updatedAt": "2026-10-13T16:14:30"},
         })
@@ -965,7 +968,7 @@ class MarketVectorTests(unittest.TestCase):
                 self.service._is_trade_day = lambda _day: True
                 self.service._latest_data_stage = lambda: "formal"
                 self.service._index_daily = lambda *_args: frame(rows)
-                self.service._rule_vectors_for_stock = lambda _stock, sv, iv: (sv, iv, {}, None)
+                self.service._rule_vectors_for_stock = lambda _stock, sv, iv: (sv, iv, {})
                 result = self.service.update_market_data()
                 self.assertTrue(result["updated"])
                 calc = next(item for item in saved[-1][1] if item["ts_code"] == "600825.SH")
@@ -1285,7 +1288,8 @@ class MarketVectorTests(unittest.TestCase):
         monitoring = service._active_monitor_for_stock(stock)
 
         self.assertIsNotNone(monitoring)
-        self.assertTrue(monitoring["active"])
+        self.assertFalse(monitoring["active"])
+        self.assertTrue(monitoring["confirmedPendingStart"])
         self.assertEqual(monitoring["riskTone"], "severe-10d")
         self.assertEqual(monitoring["monitorStartDate"], "20261026")
 
@@ -1457,7 +1461,7 @@ class MarketVectorTests(unittest.TestCase):
             "ts_code": "001216.SZ", "symbol": "001216", "name": "华瓷股份",
             "market": "SSE", "board": "主板", "isST": False,
         }]
-        service._realtime = SimpleNamespace(fetch_many=lambda _codes: {})
+        service._realtime = SimpleNamespace(fetch_many=lambda _codes, **_options: {})
         items = service._compute_prediction_from_repository("next_day")
         self.assertEqual({item["ruleKey"] for item in items}, {"severe_10d"})
         self.assertTrue(any(item["ruleKey"] == "severe_10d" for item in items))
@@ -1482,7 +1486,7 @@ class MarketVectorTests(unittest.TestCase):
             "ts_code": "000001.SZ", "symbol": "000001", "name": "测试股票",
             "market": "SZSE", "board": "主板", "isST": False,
         }]
-        service._realtime = SimpleNamespace(fetch_many=lambda _codes: {})
+        service._realtime = SimpleNamespace(fetch_many=lambda _codes, **_options: {})
         items = service._compute_prediction_from_repository("today")
         by_rule = {item["ruleKey"]: item for item in items}
         self.assertEqual(sorted(by_rule), ["severe_10d", "severe_30d"])
@@ -1516,7 +1520,7 @@ class MarketVectorTests(unittest.TestCase):
             "ts_code": "000001.SZ", "symbol": "000001", "name": "测试股票",
             "market": "SZSE", "board": "主板", "isST": False,
         }]
-        service._realtime = SimpleNamespace(fetch_many=lambda _codes: {})
+        service._realtime = SimpleNamespace(fetch_many=lambda _codes, **_options: {})
         items = service._compute_prediction_from_repository("today")
         by_rule = {item["ruleKey"]: item for item in items}
         self.assertIn("severe_10d", by_rule)
@@ -1533,7 +1537,7 @@ class MarketVectorTests(unittest.TestCase):
             all_indexes=lambda: {"399107.SZ": {"index_code": "399107.SZ", "latest_close": 10.0, "as_of_trade_date": "20260910", "index_return_vector": vector}},
         )
         service._stock_rows = lambda: [{"ts_code": "000001.SZ", "symbol": "000001", "name": "测试股票", "market": "SZSE", "board": "主板", "isST": False}]
-        service._realtime = SimpleNamespace(fetch_many=lambda _codes: {})
+        service._realtime = SimpleNamespace(fetch_many=lambda _codes, **_options: {})
         service._vector_metrics = lambda *_args, **_kwargs: {"deviations": {3: None, 10: 0.0, 30: None}, "window_lengths": {3: None, 10: 10, 30: None}, "up": 4, "down": 0}
         items = service._compute_prediction_from_repository("today")
         self.assertTrue(any(item["ruleKey"] == "same_direction_10d" and item["triggered"] for item in items))
@@ -1549,7 +1553,7 @@ class MarketVectorTests(unittest.TestCase):
             all_indexes=lambda: {"399107.SZ": {"index_code": "399107.SZ", "latest_close": 10.0, "as_of_trade_date": "20260810", "index_return_vector": index_vector}},
         )
         service._stock_rows = lambda: [{"ts_code": "000001.SZ", "symbol": "000001", "name": "测试股票", "market": "SZSE", "board": "主板", "isST": False}]
-        service._realtime = SimpleNamespace(fetch_many=lambda _codes: {})
+        service._realtime = SimpleNamespace(fetch_many=lambda _codes, **_options: {})
         service.set_monitor_provider(lambda: {"items": [{"symbol": "000001", "riskTone": "severe-10d"}]})
         keys = {item["ruleKey"] for item in service._compute_prediction_from_repository("today")}
         self.assertIn("ordinary_3d", keys)
@@ -1568,7 +1572,7 @@ class MarketVectorTests(unittest.TestCase):
             all_indexes=lambda: {"000002.SH": {"index_code": "000002.SH", "latest_close": 10.0, "as_of_trade_date": "20260810", "index_return_vector": index_vector}},
         )
         service._stock_rows = lambda: [{"ts_code": "600825.SH", "symbol": "600825", "name": "新华传媒", "market": "SSE", "board": "主板", "isST": False}]
-        service._realtime = SimpleNamespace(fetch_many=lambda _codes: {})
+        service._realtime = SimpleNamespace(fetch_many=lambda _codes, **_options: {})
         service.set_monitor_provider(lambda: {"items": [
             {"symbol": "600825", "riskTone": "severe-10d", "monitorDates": ["2026-10-19"], "monitorEndDate": "2026-10-23"},
             {"symbol": "600825", "riskTone": "ordinary", "sourceRelation": "ordinary-independent", "monitorDates": ["2026-10-19"], "monitorEndDate": "2026-10-29"},
@@ -1701,7 +1705,7 @@ class MarketVectorTests(unittest.TestCase):
             "ts_code": "600825.SH", "symbol": "600825", "name": "新华传媒",
             "market": "SSE", "board": "主板", "isST": False,
         }]
-        service._realtime = SimpleNamespace(fetch_many=lambda _codes: {})
+        service._realtime = SimpleNamespace(fetch_many=lambda _codes, **_options: {})
         items = service._compute_prediction_from_repository("today")
         severe = [item for item in items if item["ruleKey"] == "severe_10d"]
         self.assertEqual(len(severe), 1)
@@ -1741,12 +1745,12 @@ class MarketVectorTests(unittest.TestCase):
             {"date": "2026-10-10", "return": 20.0},
         ]
         index_vector = [{"date": item["date"], "return": 0.0} for item in stock_vector]
-        trimmed_stock, trimmed_index, meta, monitoring = service._rule_vectors_for_stock(
+        trimmed_stock, trimmed_index, meta = service._rule_vectors_for_stock(
             stock, stock_vector, index_vector
         )
         self.assertEqual(meta["ruleResetDate"], "20261010")
         self.assertEqual([item["date"] for item in trimmed_stock], ["2026-10-08", "2026-10-09", "2026-10-10"])
-        self.assertEqual(monitoring["riskTone"], "severe-30d")
+        self.assertEqual(service._active_monitor_for_stock(stock)["riskTone"], "severe-30d")
         self.assertEqual(meta["ruleResetScope"], "severe")
         metrics = service._vector_metrics(trimmed_stock, trimmed_index, BOARD_RULES[Board.CHINEXT], severe_reset_date=meta["severeResetDate"])
         self.assertEqual(metrics["window_lengths"][30], 0)
@@ -1769,7 +1773,7 @@ class MarketVectorTests(unittest.TestCase):
         stock_vector = [{"date": day, "return": 50.0 if day == dates[0] else 2.0} for day in dates]
         index_vector = [{"date": day, "return": 0.0} for day in dates]
 
-        trimmed_stock, trimmed_index, meta, _ = service._rule_vectors_for_stock(stock, stock_vector, index_vector)
+        trimmed_stock, trimmed_index, meta = service._rule_vectors_for_stock(stock, stock_vector, index_vector)
 
         self.assertEqual(meta["ruleResetDate"], "20261009")
         self.assertEqual([item["date"] for item in trimmed_stock], dates)
@@ -1791,14 +1795,14 @@ class MarketVectorTests(unittest.TestCase):
         stock_vector = [{"date": "20261008", "return": 30.0}, {"date": "20261009", "return": 1.0}]
         index_vector = [{"date": "20261008", "return": 0.0}, {"date": "20261009", "return": 0.0}]
 
-        _stock, _index, meta, monitoring = service._rule_vectors_for_stock(stock, stock_vector, index_vector)
+        _stock, _index, meta = service._rule_vectors_for_stock(stock, stock_vector, index_vector)
 
         self.assertEqual(meta["ruleResetDate"], "20261009")
         self.assertEqual(meta["ruleResetScope"], "ordinary")
         self.assertEqual(meta["ordinaryResetDates"], ["20261009"])
         self.assertEqual(meta["ordinaryEvents"][0]["endDate"], "20261008")
         self.assertEqual(meta["ordinaryEvents"][0]["direction"], "up")
-        self.assertIsNone(monitoring)
+        self.assertIsNone(service._active_monitor_for_stock(stock))
 
     def test_ambiguous_ordinary_notice_direction_is_resolved_from_event_window(self):
         service = self.service
@@ -1867,7 +1871,7 @@ class MarketVectorTests(unittest.TestCase):
         stock = {"ts_code": "600825.SH", "symbol": "600825"}
         vector = [{"date": day, "return": 1.0} for day in ("20261009", "20261012")]
 
-        _, _, meta, _ = service._rule_vectors_for_stock(
+        _, _, meta = service._rule_vectors_for_stock(
             stock, vector, [{"date": item["date"], "return": 0.0} for item in vector]
         )
 
@@ -1887,7 +1891,7 @@ class MarketVectorTests(unittest.TestCase):
         stock = {"ts_code": "600825.SH", "symbol": "600825"}
         vector = [{"date": "20261008", "return": 30.0}, {"date": "20261009", "return": 1.0}]
 
-        _, _, meta, _ = service._rule_vectors_for_stock(
+        _, _, meta = service._rule_vectors_for_stock(
             stock, vector, [{"date": item["date"], "return": 0.0} for item in vector]
         )
 
@@ -1926,18 +1930,18 @@ class MarketVectorTests(unittest.TestCase):
             {"date": "2026-10-16", "return": 5.0},
         ]
         index_vector = [{"date": day, "return": 0.0} for day in ("2026-10-12", "2026-10-13", "2026-10-14", "2026-10-15", "2026-10-16")]
-        trimmed_stock, trimmed_index, meta, monitoring = service._rule_vectors_for_stock(stock, stock_vector, index_vector)
+        trimmed_stock, trimmed_index, meta = service._rule_vectors_for_stock(stock, stock_vector, index_vector)
         self.assertEqual([item["date"] for item in trimmed_stock], ["2026-10-12", "2026-10-16"])
         self.assertEqual([item["date"] for item in trimmed_index], ["2026-10-12", "2026-10-13", "2026-10-14", "2026-10-15", "2026-10-16"])
         self.assertEqual(meta["resetDate"], "20261016")
         self.assertEqual(meta["ruleResetDate"], "20261013")
-        self.assertEqual(monitoring["monitorType"], "10日严重异动")
+        self.assertEqual(service._active_monitor_for_stock(stock)["monitorType"], "10日严重异动")
 
     def test_history_prefix_is_not_an_internal_suspension_gap(self):
         stock = [{"date": day, "return": 1.0} for day in ("20260922", "20260923")]
         index = [{"date": day, "return": 0.0} for day in ("20260918", "20260921", "20260922", "20260923")]
         self.service.client.suspend_d = lambda *_args: self.fail("prefix coverage must not query suspension")
-        _, _, meta, _ = self.service._rule_vectors_for_stock({"ts_code": "600825.SH"}, stock, index)
+        _, _, meta = self.service._rule_vectors_for_stock({"ts_code": "600825.SH"}, stock, index)
         self.assertEqual(meta["missingDates"], [])
         self.assertEqual(meta["priceResetDates"], [])
         self.assertFalse(meta.get("suspensionGapUnverified", False))
@@ -1955,7 +1959,7 @@ class MarketVectorTests(unittest.TestCase):
                 for day in ("20261013", "20261014", "20261015")
             ])
         self.service.client.suspend_d = suspend
-        _, _, meta, _ = self.service._rule_vectors_for_stock({"ts_code": "600825.SH"}, stock, index)
+        _, _, meta = self.service._rule_vectors_for_stock({"ts_code": "600825.SH"}, stock, index)
         self.assertEqual(calls, [("20261013", "20261015")])
         self.assertEqual(meta["priceResetDates"], ["20261016"])
         self.assertEqual(meta["lastStockDateBeforeGap"], "20261012")
@@ -1969,7 +1973,7 @@ class MarketVectorTests(unittest.TestCase):
         self.service.client.suspend_d = lambda *_args: self.fail("pre-reset gap must not require suspension lookup")
         stock = [{"date": day, "return": 1.0} for day in ("20261008", "20261012", "20261013")]
         index = [{"date": day, "return": 0.0} for day in ("20261008", "20261009", "20261012", "20261013")]
-        _, _, context, _ = self.service._rule_vectors_for_stock({"symbol": "000001", "ts_code": "000001.SZ"}, stock, index)
+        _, _, context = self.service._rule_vectors_for_stock({"symbol": "000001", "ts_code": "000001.SZ"}, stock, index)
         self.assertEqual(context["severeResetDate"], "20261012")
         self.assertFalse(context.get("suspensionGapUnverified", False))
 
@@ -1983,7 +1987,7 @@ class MarketVectorTests(unittest.TestCase):
                 self.service.client.suspend_d = lambda *_args: SimpleNamespace(to_dict=lambda *_a, **_k: [])
                 stock = [{"date": day, "return": 1.0} for day in ("20261008", "20261012", "20261013")]
                 index = [{"date": day, "return": 0.0} for day in ("20261008", "20261009", "20261012", "20261013")]
-                _, _, context, _ = self.service._rule_vectors_for_stock({"symbol": "000001", "ts_code": "000001.SZ"}, stock, index)
+                _, _, context = self.service._rule_vectors_for_stock({"symbol": "000001", "ts_code": "000001.SZ"}, stock, index)
                 self.assertTrue(context.get("suspensionGapUnverified", False))
 
     def test_gap_after_effective_severe_reset_remains_unverified(self):
@@ -1994,7 +1998,7 @@ class MarketVectorTests(unittest.TestCase):
         self.service.client.suspend_d = lambda *_args: SimpleNamespace(to_dict=lambda *_a, **_k: [])
         stock = [{"date": day, "return": 1.0} for day in ("20261008", "20261012", "20261014")]
         index = [{"date": day, "return": 0.0} for day in ("20261008", "20261012", "20261013", "20261014")]
-        _, _, context, _ = self.service._rule_vectors_for_stock({"symbol": "000001", "ts_code": "000001.SZ"}, stock, index)
+        _, _, context = self.service._rule_vectors_for_stock({"symbol": "000001", "ts_code": "000001.SZ"}, stock, index)
         self.assertTrue(context.get("suspensionGapUnverified", False))
 
     def test_latest_suspension_uses_its_own_preceding_stock_date(self):
@@ -2026,7 +2030,7 @@ class MarketVectorTests(unittest.TestCase):
             {"date": "20260925", "return": 5.0},
         ]
         index = [{"date": day, "return": 0.0} for day in ("20260921", "20260922", "20260923", "20260924", "20260925")]
-        _, _, context, _ = self.service._rule_vectors_for_stock(
+        _, _, context = self.service._rule_vectors_for_stock(
             {"symbol": "000001", "ts_code": "000001.SZ"}, stock, index,
         )
         self.assertEqual(context["priceResetDates"], ["20260925"])
@@ -2050,7 +2054,7 @@ class MarketVectorTests(unittest.TestCase):
             {"date": "20260925", "return": 5.0},
         ]
         index = [{"date": day, "return": 0.0} for day in ("20260921", "20260922", "20260923", "20260924", "20260925")]
-        _, _, context, _ = self.service._rule_vectors_for_stock(
+        _, _, context = self.service._rule_vectors_for_stock(
             {"symbol": "000001", "ts_code": "000001.SZ"}, stock, index,
         )
         self.assertTrue(context["suspensionGapUnverified"])
@@ -2068,7 +2072,7 @@ class MarketVectorTests(unittest.TestCase):
         }]})
         stock = {"ts_code": "688137.SH", "symbol": "688137"}
         values = [{"date": "2026-10-08", "return": 1.0}, {"date": "2026-10-09", "return": 2.0}]
-        _, _, meta, _ = service._rule_vectors_for_stock(stock, values, [{"date": x["date"], "return": 0.0} for x in values])
+        _, _, meta = service._rule_vectors_for_stock(stock, values, [{"date": x["date"], "return": 0.0} for x in values])
         self.assertEqual(meta["ruleResetDate"], "")
 
     def test_official_reset_restarts_all_windows_including_same_direction(self):
@@ -2115,7 +2119,7 @@ class MarketVectorTests(unittest.TestCase):
             "ts_code": "301190.SZ", "symbol": "301190", "name": "善水科技",
             "market": "SZSE", "board": "创业板", "isST": False,
         }]
-        service._realtime = SimpleNamespace(fetch_many=lambda _codes: {})
+        service._realtime = SimpleNamespace(fetch_many=lambda _codes, **_options: {})
         items = service._compute_prediction_from_repository("next_day")
         self.assertGreaterEqual(len(items), 1)
         self.assertEqual(items[0]["ts_code"], "301190.SZ")
@@ -2145,7 +2149,7 @@ class MarketVectorTests(unittest.TestCase):
             "ts_code": "301190.SZ", "symbol": "301190", "name": "善水科技",
             "market": "SZSE", "board": "创业板", "isST": False,
         }]
-        service._realtime = SimpleNamespace(fetch_many=lambda _codes: {})
+        service._realtime = SimpleNamespace(fetch_many=lambda _codes, **_options: {})
         items = service._compute_prediction_from_repository("today")
         self.assertGreaterEqual(len(items), 1)
         self.assertEqual(items[0]["ts_code"], "301190.SZ")
@@ -2191,7 +2195,7 @@ class MarketVectorTests(unittest.TestCase):
             "ts_code": "301190.SZ", "symbol": "301190", "name": "善水科技",
             "market": "SZSE", "board": "创业板", "isST": False,
         }]
-        service._realtime = SimpleNamespace(fetch_many=lambda _codes: {})
+        service._realtime = SimpleNamespace(fetch_many=lambda _codes, **_options: {})
         items = service._compute_prediction_from_repository("next_day")
         by_rule = {item["ruleKey"]: item for item in items}
         self.assertEqual(set(by_rule), {"severe_30d"})
@@ -2217,7 +2221,7 @@ class MarketVectorTests(unittest.TestCase):
             "ts_code": "301190.SZ", "symbol": "301190", "name": "善水科技",
             "market": "SZSE", "board": "创业板", "isST": False,
         }]
-        service._realtime = SimpleNamespace(fetch_many=lambda _codes: {})
+        service._realtime = SimpleNamespace(fetch_many=lambda _codes, **_options: {})
 
         items = service._compute_prediction_from_repository("next_day")
 
@@ -2245,7 +2249,7 @@ class MarketVectorTests(unittest.TestCase):
             "ts_code": "000001.SZ", "symbol": "000001", "name": "平安银行",
             "market": "SZSE", "board": "主板", "isST": False,
         }]
-        service._realtime = SimpleNamespace(fetch_many=lambda _codes: {})
+        service._realtime = SimpleNamespace(fetch_many=lambda _codes, **_options: {})
         service._required_up_percent = lambda *_args, **_kwargs: 5.0
         metrics = service._vector_metrics(stock_vector, index_vector, BOARD_RULES[Board.MAIN])
         self.assertEqual(metrics["up"], 1)
@@ -2372,7 +2376,7 @@ class MarketVectorTests(unittest.TestCase):
         meta = {"ordinaryResetDates": ["20261026"], "severeResetDate": "20261102",
                 "severeResetDates": ["20261102"], "ordinaryEvents": []}
         service._stock_rows = lambda: [stock]
-        service._rule_vectors_for_stock = lambda _stock, s, i: (s, i, meta, None)
+        service._rule_vectors_for_stock = lambda _stock, s, i: (s, i, meta)
         service._monitored_rule_codes = lambda *_: {"__severe_monitor__": {"002724"}}
         service._calc_repository = SimpleNamespace(available=True,
             all_calculations=lambda: {stock["ts_code"]: {"as_of_trade_date": "20261030", "latest_close": 10, "stock_return_vector": sv}},
@@ -2385,9 +2389,9 @@ class MarketVectorTests(unittest.TestCase):
         service._calc_repository.get_prediction = lambda *_: {"target_trade_date": "20261102", "items": [{
             **stock, "ruleKey": "ordinary_3d", "predictionWindow": 3, "deviationWindow": 3,
             "triggerValue": "+5.38%", "triggerCondition": "涨幅达 5.38%"}]}
-        service._realtime = SimpleNamespace(fetch_many=lambda _: {
-            "002724.SZ": {"current": 9, "pctChg": -10, "updatedAt": "2026-11-02T11:00:00"},
-            "399107.SZ": {"current": 100, "pctChg": 0, "updatedAt": "2026-11-02T11:00:00"}})
+        service._realtime = SimpleNamespace(fetch_many=lambda _, **_options: {
+            "002724.SZ": {"current": 9, "pctChg": -10, "source": "腾讯行情", "updatedAt": "2026-11-02T11:00:00"},
+            "399107.SZ": {"current": 100, "pctChg": 0, "source": "腾讯行情", "updatedAt": "2026-11-02T11:00:00"}})
         refreshed = service._refresh_existing_prediction_scope("next_day", "today")[0]
         self.assertEqual(refreshed["deviationWindow"], 0)
         self.assertEqual(refreshed["deviationPercent"], 0)
@@ -2406,7 +2410,7 @@ class MarketVectorTests(unittest.TestCase):
         service._stock_rows = lambda: [{"ts_code": "001216.SZ", "symbol": "001216", "name": "华瓷股份", "market": "SZSE", "board": "主板", "isST": False}]
         requested = []
         quote_state = {"current": 28.2}
-        service._realtime = SimpleNamespace(fetch_many=lambda codes: (requested.extend(list(codes)) or {
+        service._realtime = SimpleNamespace(fetch_many=lambda codes, **_options: (requested.extend(list(codes)) or {
             "001216.SZ": {"current": quote_state["current"], "pctChg": 0.71, "updatedAt": "2026-09-30T10:00:00", "source": "腾讯行情"},
             "399107.SZ": {"current": 10.1, "pctChg": 1.0, "updatedAt": "2026-09-30T10:00:00", "source": "腾讯行情"},
         }))

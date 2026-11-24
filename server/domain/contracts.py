@@ -39,23 +39,16 @@ class DataReason(str, Enum):
 
 @dataclass(frozen=True)
 class SourcePolicy:
-    """Versioned source/freshness policy shared by all realtime instances."""
+    """Versioned source identity. Quote timing uses realtime.validation only."""
 
     version: str
     content_hash: str
     market_phase: str
     source_name: str = ""
-    freshness_seconds: int = 5
-    stale_seconds: int = 30
-    max_quote_skew_seconds: int = 5
 
     def validate(self) -> None:
         if not self.version or not self.content_hash or not self.market_phase:
             raise ValueError("source_policy 未完整冻结")
-        if self.freshness_seconds < 0 or self.stale_seconds < self.freshness_seconds:
-            raise ValueError("source_policy freshness 边界无效")
-        if self.max_quote_skew_seconds < 0:
-            raise ValueError("source_policy skew 边界无效")
 
 
 def validate_trade_date(value: str) -> str:
@@ -71,9 +64,7 @@ def source_policy_from_dict(payload: dict) -> SourcePolicy:
         version=str(payload.get("version") or ""),
         content_hash=str(payload.get("content_hash") or payload.get("contentHash") or ""),
         market_phase=str(payload.get("market_phase") or payload.get("marketPhase") or ""),
-        freshness_seconds=int(payload.get("freshness_seconds", payload.get("freshnessSeconds", 5))),
-        stale_seconds=int(payload.get("stale_seconds", payload.get("staleSeconds", 30))),
-        max_quote_skew_seconds=int(payload.get("max_quote_skew_seconds", payload.get("maxQuoteSkewSeconds", 5))),
+        source_name=str(payload.get("source_name") or payload.get("sourceName") or ""),
     )
     policy.validate()
     return policy

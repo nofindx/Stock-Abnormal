@@ -63,6 +63,46 @@ async function run() {
   assert.strictEqual(stock.data.detail.monitoring, null, 'expired primary fact must also be removed')
   assert.strictEqual(stock.data.detail.monitoringStatus, 'none')
   assert.strictEqual(stock.data.detail.monitoringSummary, null)
+  clock = NativeDate.parse('2026-11-15T12:00:00+08:00')
+  const records = ['delisting-warning', 'severe-30d', 'severe-10d', 'ordinary'].map((riskTone, i) => ({
+    sourceId: 'fact' + i, riskTone, active: true, monitorStartDate: '20261113', monitorEndDate: '20261126'
+  }))
+  records.push({ sourceId: 'pending', riskTone: 'severe-10d', active: false, confirmedPendingStart: true,
+    monitorStartDate: '20261116', monitorEndDate: '20261127' })
+  records[2].recognitionBasis = [{ text: '公告认定：连续9个交易日内出现4次同向异常波动' }]
+  const { stockSaveSignature } = require('../utils/stock-save')
+  for (const [tradingState, label] of [['normal', null], ['suspended', '停牌'], ['terminated', '终止上市'], ['unknown', '交易状态未知']]) {
+    const state = { ...detail(a.ts_code), monitoring: records[0], monitoringRecords: records,
+      // The raw historical list includes duplicates. It must not be merged
+      // again into the backend's already selected and deduplicated list.
+      monitoringFacts: [records[0], records[0]], stockState: { marketDataState: 'complete',
+        tradingState, tradingStateReason: '状态证据' } }
+    stock.renderStockDetail(state, { items: [] }, a, stock.detailRequestId)
+    assert.strictEqual(stock.data.detail.monitoringSummaries.length, 5)
+    assert.strictEqual(stock.data.detail.monitoring.riskTone, 'delisting-warning')
+    assert.strictEqual(stock.data.detail.tradingBanner && stock.data.detail.tradingBanner.label, label)
+    assert.strictEqual(stock.data.detail.monitoringSummaries[4].badgeText, '将进入重点监控')
+    assert.strictEqual(stock.data.detail.monitoringSummaries[0].remainingText, '11')
+    assert.strictEqual(stock.data.detail.monitoringSummaries[2].ruleText, records[2].recognitionBasis[0].text)
+  }
+  const signature = stockSaveSignature(stock.data)
+  const changed = JSON.parse(JSON.stringify(stock.data))
+  changed.detail.monitoringSummaries[3].ruleText = '另一条普通风险提示'
+  assert.notStrictEqual(stockSaveSignature(changed), signature, 'saving must track changes to every stacked fact')
+  changed.detail = { ...stock.data.detail, tradingBanner: null }
+  assert.notStrictEqual(stockSaveSignature(changed), signature, 'saving must track trading state changes')
+  const markup = require('fs').readFileSync(require('path').join(__dirname, 'stock/index.wxml'), 'utf8')
+  assert(markup.includes('wx:for="{{detail.monitoringSummaries}}"'))
+  assert(markup.includes('data-export-text="{{monitorEntry.ruleText}}"'))
+  assert(markup.includes('data-export-text="{{detail.tradingBanner.label}}"'))
+  const stockBaseline = { ...detail(a.ts_code), calculationBasisId: 'same-day-before-reset' }
+  stock.renderStockDetail(stockBaseline, { items: [] }, a, stock.detailRequestId)
+  stock.data.inputRows[0].stock = '5'
+  stock.renderStockDetail(stockBaseline, { items: [] }, a, stock.detailRequestId)
+  assert.strictEqual(stock.data.inputRows[0].stock, '5', 'unchanged S1 baseline preserves simulation input')
+  stock.renderStockDetail({ ...stockBaseline, calculationBasisId: 'same-day-after-reset' }, { items: [] }, a, stock.detailRequestId)
+  assert.strictEqual(stock.data.inputRows[0].stock, '', 'same-day reset requires a new default simulation baseline')
+  assert.strictEqual(stock.data.visibleDays, 2)
   clock = NativeDate.parse('2026-11-13T00:00:01+08:00')
   stock.onUnload(); assert.strictEqual(stock._stockViews.size, 0)
 

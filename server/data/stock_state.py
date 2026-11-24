@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from typing import Any, Dict, Iterable
 
+from server.domain.contracts import TradeState
+
 
 def build_stock_state(
     calculation: Dict[str, Any] | None,
@@ -17,6 +19,8 @@ def build_stock_state(
     data_error: str = "",
     market_data_state: str = "complete",
     facts_data_state: str = "available",
+    trading_state: TradeState | None = None,
+    trading_reason: str = "",
 ) -> Dict[str, Any]:
     fact_list = list(facts)
     tones = {str(item.get("riskTone") or item.get("factType") or "") for item in fact_list}
@@ -75,13 +79,13 @@ def build_stock_state(
         regulatory_state = "ordinary-warning"
     else:
         regulatory_state = "none"
-    trading_state = "suspended" if "suspension" in tones else "normal"
+    trading_state = trading_state or (TradeState.SUSPENDED if "suspension" in tones else TradeState.UNKNOWN)
 
     # 仅为旧消费者/摘要提供一个汇总值，四个独立状态轴始终保留。
     if regulatory_state == "delisting":
         summary_status = "delisting-warning"
-    elif trading_state == "suspended":
-        summary_status = "suspended"
+    elif trading_state in {TradeState.SUSPENDED, TradeState.TERMINATED}:
+        summary_status = trading_state.value
     elif regulatory_state == "severe-monitoring":
         summary_status = "severe-monitoring"
     elif market_risk == "severe-risk":
@@ -99,7 +103,8 @@ def build_stock_state(
         "marketRiskState": market_risk,
         "ruleApplicability": applicability,
         "regulatoryState": regulatory_state,
-        "tradingState": trading_state,
+        "tradingState": trading_state.value,
+        "tradingStateReason": trading_reason,
         "dataState": data_state,
         "marketDataState": market_data_state,
         "factsDataState": facts_data_state,

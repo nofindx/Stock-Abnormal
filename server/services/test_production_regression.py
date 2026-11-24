@@ -26,7 +26,7 @@ class ProductionRegressionTests(unittest.TestCase):
         self.service._calc_repository = SimpleNamespace(available=True, all_calculations=lambda: self.calcs, all_indexes=lambda: self.indexes,
             get_calc=lambda code: self.calcs[code], get_index=lambda code: self.indexes[code])
         self.service.set_monitor_provider(lambda: self.fixture["monitor"])
-        self.service._fetch_realtime_many = lambda codes: {}
+        self.service._fetch_realtime_many = lambda codes, _earliest_days=None: {}
         xinhua_stock_dates = {item["date"].replace("-", "") for item in self.calcs["600825.SH"]["stock_return_vector"]}
         xinhua_index_dates = {
             item["date"].replace("-", "") for item in self.indexes["000002.SH"]["index_return_vector"]
@@ -176,3 +176,12 @@ class ProductionRegressionTests(unittest.TestCase):
             ordinary_events=events, severe_reset_dates=["20261102"])
         self.assertEqual(reset["up"], 0)
         self.assertEqual(reset["deviations"][10], 0.0)
+
+    def test_ordinary_risk_notice_does_not_exclude_a_severe_monitored_three_day_candidate(self):
+        snapshot = json.loads(json.dumps(self.fixture["monitor"]))
+        snapshot["items"].append({"symbol": "301313", "riskTone": "ordinary", "sourceId": "independent-risk",
+                                  "sourceRelation": "ordinary-independent", "monitorStartDate": "20261026",
+                                  "monitorEndDate": "20261106"})
+        self.service.set_monitor_provider(lambda: snapshot)
+        cards = self.service._compute_prediction_from_repository("today", target_trade_date="20261030")
+        self.assertIn(("301313.SZ", "ordinary_3d"), {(x["ts_code"], x["ruleKey"]) for x in cards})

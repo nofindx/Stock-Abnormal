@@ -42,7 +42,7 @@ class PredictionBoundaryTests(unittest.TestCase):
 
     def test_realtime_quotes_are_deduplicated_and_marked_non_persistent(self):
         requested = []
-        self.service._realtime.fetch_many = lambda codes: (
+        self.service._realtime.fetch_many = lambda codes, **_options: (
             requested.extend(codes) or {
                 "000001.SZ": {"current": 10.1, "updatedAt": "2026-10-12T10:00:00"}
             }

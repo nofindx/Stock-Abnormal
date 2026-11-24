@@ -26,7 +26,7 @@ class SameDirectionForecastBoundaryTests(unittest.TestCase):
             "ruleFactsQuality": {"status": "available"},
         }
         self.service._stock_rows = lambda: [self.stock]
-        self.service._rule_vectors_for_stock = lambda _stock, stock, index: (stock, index, deepcopy(self.meta), None)
+        self.service._rule_vectors_for_stock = lambda _stock, stock, index: (stock, index, deepcopy(self.meta))
         self.service._monitored_rule_codes = lambda *_: {}
         self.service._calc_repository = SimpleNamespace(
             available=True,
@@ -45,8 +45,8 @@ class SameDirectionForecastBoundaryTests(unittest.TestCase):
             self.fixture["index_code"]: {"current": 0.9748002497472418, "preClose": 1.0,
                 "pctChg": -2.5199750252758224, "source": "腾讯行情", "updatedAt": "2026-11-03T16:14:00"},
         }
-        self.service._realtime = SimpleNamespace(fetch_many=lambda _codes: deepcopy(self.quotes))
-        self.service._fetch_realtime_many = lambda _codes: deepcopy(self.quotes)
+        self.service._realtime = SimpleNamespace(fetch_many=lambda _codes, **_options: deepcopy(self.quotes))
+        self.service._fetch_realtime_many = lambda _codes, _earliest_days=None: deepcopy(self.quotes)
 
     def tearDown(self):
         self.service.close()

@@ -166,6 +166,12 @@ class TushareClient:
             ),
         )
 
+    def delisted_stock(self, ts_code: str):
+        """Confirm a security marked inactive by stock-pool synchronization."""
+        return self._cached(f"stock_basic:D:{ts_code}", 21600, lambda: self.call(
+            "stock_basic", ts_code=ts_code, list_status="D", fields="ts_code,list_status,delist_date",
+        ))
+
     def trade_cal(self, start_date: str, end_date: str):
         """读取交易日历。"""
 
@@ -196,14 +202,15 @@ class TushareClient:
         with self._cache_lock:
             self._cache.pop(key, None)
 
-    def suspend_d(self, start_date: str, end_date: str):
+    def suspend_d(self, start_date: str, end_date: str, *, ts_code: str = ""):
         """读取停复牌状态，用于解释计算向量中的市场日期缺口，不保存原始行情。"""
 
-        key = f"suspend_d:{start_date}:{end_date}"
+        key = f"suspend_d:{start_date}:{end_date}:{ts_code}"
         return self._cached(
             key,
-            3600,
-            lambda: self.call("suspend_d", start_date=start_date, end_date=end_date),
+            60,
+            lambda: self.call("suspend_d", start_date=start_date, end_date=end_date,
+                              **({"ts_code": ts_code} if ts_code else {})),
         )
 
     def index_daily(self, ts_code: Optional[str] = None, trade_date: Optional[str] = None, start_date: Optional[str] = None, end_date: Optional[str] = None):

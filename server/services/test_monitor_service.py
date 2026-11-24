@@ -875,7 +875,7 @@ class MonitorWindowTests(unittest.TestCase):
         self.assertEqual(OfficialMonitorService._severe_event_direction("严重异常波动，未披露方向"), "")
 
     def test_monitor_rule_version_requires_refresh_after_official_notice_identity_fix(self):
-        self.assertEqual("20261102-product-policy-v34", MONITOR_RULE_VERSION)
+        self.assertEqual("20261124-product-policy-v35", MONITOR_RULE_VERSION)
 
     def test_zts_risk_period_starts_on_announcement_date(self):
         dates = [
@@ -955,7 +955,7 @@ class MonitorWindowTests(unittest.TestCase):
             OfficialMonitorService._classify_monitor_text(
                 "股票交易异常波动暨严重异常波动公告", body, "600825"
             ),
-            ("10日严重异动", "severe-10d"),
+            ("同向严重异动", "severe-10d"),
         )
         self.assertEqual(OfficialMonitorService._severe_event_direction(body), "up")
         self.assertEqual(
@@ -968,7 +968,7 @@ class MonitorWindowTests(unittest.TestCase):
         body4 = "连续9个交易日内出现3次同向异常波动，属于股票交易严重异常波动情形。"
         self.assertEqual(
             OfficialMonitorService._classify_monitor_text("严重异常波动公告", body3, "301190"),
-            ("10日严重异动", "severe-10d"),
+            ("同向严重异动", "severe-10d"),
         )
         self.assertEqual(
             OfficialMonitorService._classify_monitor_text("严重异常波动公告", body4, "600825"),

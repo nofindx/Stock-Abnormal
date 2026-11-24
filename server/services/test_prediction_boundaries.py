@@ -39,10 +39,10 @@ class SignedPredictionBoundaryTests(unittest.TestCase):
             }},
         )
         self.service._rule_vectors_for_stock = lambda _stock, s, i: (
-            s, i, {"ordinaryEvents": [], "ruleFactsQuality": {"status": "available"}}, None)
+            s, i, {"ordinaryEvents": [], "ruleFactsQuality": {"status": "available"}})
         self.service._monitored_rule_codes = lambda *_: {}
-        self.service._realtime = SimpleNamespace(fetch_many=lambda _codes: deepcopy(self.quotes))
-        self.service._fetch_realtime_many = lambda _codes: deepcopy(self.quotes)
+        self.service._realtime = SimpleNamespace(fetch_many=lambda _codes, **_options: deepcopy(self.quotes))
+        self.service._fetch_realtime_many = lambda _codes, _earliest_days=None: deepcopy(self.quotes)
 
     def tearDown(self):
         self.service.close()

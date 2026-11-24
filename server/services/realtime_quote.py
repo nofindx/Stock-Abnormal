@@ -9,11 +9,13 @@ from __future__ import annotations
 import json
 import re
 import time
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 from threading import Lock
 from typing import Any, Dict, Iterable
 from urllib.parse import quote
 from urllib.request import Request, urlopen
+
+from .realtime.validation import SHANGHAI_TZ, usable_quote
 
 
 class RealtimeQuoteClient:
@@ -69,8 +71,10 @@ class RealtimeQuoteClient:
         prefix = {"SZ": "sz", "SH": "sh", "BJ": "bj"}.get(market, market.lower())
         return f"{prefix}{symbol}"
 
-    def fetch_many(self, ts_codes: Iterable[str]) -> Dict[str, Dict[str, Any]]:
-        codes = [str(code) for code in ts_codes if code]
+    def fetch_many(self, ts_codes: Iterable[str], *, earliest_days=None, now=None) -> Dict[str, Dict[str, Any]]:
+        codes = list(dict.fromkeys(str(code).upper() for code in ts_codes if code))
+        earliest_days = earliest_days or {}
+        clock = now if callable(now) else lambda: now or datetime.now(SHANGHAI_TZ)
         if not codes:
             return {}
         # 单次请求控制在 100 只，避免公开接口 URL 过长或被限流。
@@ -84,19 +88,33 @@ class RealtimeQuoteClient:
             ):
                 started = time.monotonic()
                 try:
-                    quotes = parser(batch)
+                    parsed = parser(batch)
+                    observed_at = clock()
+                    quotes = {code: value for code, value in parsed.items()
+                              if code in batch and usable_quote(value, now=observed_at, earliest_day=earliest_days.get(code, ""))
+                              and self._valid_provider_values(value)}
                     self._record_stat(source, bool(quotes), time.monotonic() - started, "" if quotes else "未返回有效行情")
                 except Exception:
                     quotes = {}
                     self._record_stat(source, False, time.monotonic() - started, "上游请求异常")
                 for code, quote_data in quotes.items():
                     result.setdefault(code, quote_data)
-                if all(code.upper() in result for code in batch):
+                batch = [code for code in batch if code not in result]
+                if not batch:
                     break
         return result
 
     @staticmethod
+    def _valid_provider_values(value):
+        # The shared validator checked values; provider results must also carry
+        # the fields required for calculating a return and identifying a source.
+        return ("preClose" in value and "pctChg" in value
+                and isinstance(value.get("source"), str) and bool(value["source"].strip()))
+
+    @staticmethod
     def _normalise_time(value: str) -> str:
+        if not re.fullmatch(r"[0-9]{14}", value):
+            return value
         try:
             return datetime.strptime(value, "%Y%m%d%H%M%S").isoformat()
         except ValueError:
@@ -165,18 +183,22 @@ class RealtimeQuoteClient:
             market_id = {"SH": "1", "SZ": "0", "BJ": "0"}.get(market, "0")
             url = self.eastmoney_endpoint + "?" + quote(f"secid={market_id}.{symbol}&fltt=2&fields=f43,f57,f58,f60,f86", safe="=&,")
             request = Request(url, headers={"User-Agent": "Stock-Abnormal/1.0", "Referer": "https://quote.eastmoney.com/"})
-            payload = json.loads(urlopen(request, timeout=4).read().decode("utf-8"))
-            data = payload.get("data") or {}
-            current, pre_close = float(data.get("f43") or 0), float(data.get("f60") or 0)
-            if current <= 0 or pre_close <= 0:
+            try:
+                payload = json.loads(urlopen(request, timeout=4).read().decode("utf-8"))
+                data = payload.get("data") or {}
+                current, pre_close = float(data.get("f43") or 0), float(data.get("f60") or 0)
+                epoch = float(data.get("f86") or 0)
+                if current <= 0 or pre_close <= 0 or epoch <= 0:
+                    continue
+                result[f"{symbol}.{market}"] = {
+                    "current": current,
+                    "preClose": pre_close,
+                    "pctChg": (current / pre_close - 1) * 100,
+                    "updatedAt": datetime.fromtimestamp(epoch, SHANGHAI_TZ).isoformat(),
+                    "source": "东方财富行情",
+                }
+            except (OSError, TypeError, ValueError, OverflowError, AttributeError):
                 continue
-            result[f"{symbol}.{market}"] = {
-                "current": current,
-                "preClose": pre_close,
-                "pctChg": (current / pre_close - 1) * 100,
-                "updatedAt": datetime.fromtimestamp(float(data.get("f86") or 0), timezone(timedelta(hours=8))).isoformat(),
-                "source": "东方财富行情",
-            }
         return result
 
     def fetch_one(self, ts_code: str) -> Dict[str, Any] | None:

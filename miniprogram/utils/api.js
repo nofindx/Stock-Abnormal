@@ -23,7 +23,11 @@ function withReadContext(page, role, code, action, readResult) {
   })
 }
 
-function refreshStockDetail(tsCode, readResult) {
+function refreshStockDetail(tsCode, readResult, options = {}) {
+  return refreshLatestRead(() => getStockDetail(tsCode), fresh => refreshStockQuote(tsCode, fresh), readResult, options)
+}
+
+function refreshStockQuote(tsCode, readResult) {
   return withReadContext('stock', 'current', tsCode, token => request({
     url: '/api/v2/realtime/refresh', method: 'POST',
     data: { page: 'stock', security_id: tsCode, read_token: token }, timeout: 15000, retry: 0
@@ -56,12 +60,31 @@ function getNextPredictionStatus() {
   return request({ url: '/api/predictions/next-status', timeout: 8000, retry: 0 }).then(response => response.data)
 }
 
-function refreshPredictions(scope, readResult) {
+function refreshPredictions(scope, readResult, options = {}) {
+  return refreshLatestRead(() => getPredictions(scope), fresh => refreshPredictionQuotes(scope, fresh), readResult, { ...options, role: scope === 'next_day' ? 'next' : 'current' })
+}
+
+function refreshPredictionQuotes(scope, readResult) {
   const role = scope === 'next_day' ? 'next' : 'current'
   return withReadContext('prediction', role, '', token => request({
     url: '/api/v2/realtime/refresh', method: 'POST',
     data: { scope, read_token: token }, timeout: 15000, retry: 0
   }).then(response => waitRealtimeJob(response, token)), readResult).then((response) => response.data || { items: [], quoteUpdatedAt: '' })
+}
+
+// First-open S2 reuses the S1 just rendered. Every explicit manual refresh
+// acquires current S1 even while the old token is still valid; quotes stay
+// limited to that newly published scope, never a user-triggered market scan.
+function refreshLatestRead(readLatest, refreshQuotes, previous, options) {
+  if (options.reuseContext) return refreshQuotes(previous)
+  return readLatest().then(fresh => {
+    if (!fresh) throw new Error('最新数据暂不可用')
+    if (fresh.realtimeRefreshAllowed === false || fresh.nextDayAvailable === false && options.role === 'next') return fresh
+    return refreshQuotes(fresh).catch(() => ({
+      ...fresh, refreshStatus: 'failed', refresh_state: 'failed', result_state: 'stale',
+      reasons: ['REALTIME_REFRESH_FAILED']
+    }))
+  })
 }
 
 // 仅供需要原始盘中行情的页面使用；后端不保存本次报价。

@@ -15,7 +15,7 @@ Module._load = originalLoad
 async function run() {
   const saved = { read_token: { value: 's1-token' } }
   handler = options => Promise.resolve({ data: { items: [], read_token: { value: options.data.read_token } } })
-  let result = await api.refreshPredictions('today', saved)
+  let result = await api.refreshPredictions('today', saved, { reuseContext: true })
   assert.strictEqual(calls.length, 1)
   assert.strictEqual(calls[0].data.read_token, 's1-token')
   assert.strictEqual(result.read_token.value, 's1-token')
@@ -26,20 +26,20 @@ async function run() {
     if (options.url === '/api/v2/context') return Promise.resolve({ data: { read_token: { value: 'new-token' } } })
     return Promise.resolve({ data: { ts_code: '600825.SH', read_token: { value: options.data.read_token } } })
   }
-  result = await api.refreshStockDetail('600825.SH', saved)
+  result = await api.refreshStockDetail('600825.SH', saved, { reuseContext: true })
   assert.strictEqual(calls.length, 3)
   assert.strictEqual(result.read_token.value, 'new-token')
   assert.strictEqual(calls[2].data.page, 'stock')
 
   calls = []
   handler = () => Promise.reject(Object.assign(new Error('scope forbidden'), { code: 40301 }))
-  await assert.rejects(api.refreshPredictions('today', saved), /scope forbidden/)
+  await assert.rejects(api.refreshPredictions('today', saved, { reuseContext: true }), /scope forbidden/)
   assert.strictEqual(calls.length, 1)
   calls = []
   handler = options => options.url === '/api/v2/realtime/refresh'
     ? Promise.resolve({ data: { refresh_state: 'queued', job_id: 'job-a', retry_after_ms: 250 } })
     : Promise.resolve({ data: { items: [{ ts_code: '002724.SZ' }], refresh_state: 'ready', read_token: { value: 's2-token' } } })
-  result = await api.refreshPredictions('today', saved)
+  result = await api.refreshPredictions('today', saved, { reuseContext: true })
   assert.strictEqual(calls.length, 2)
   assert.strictEqual(calls[1].url, '/api/v2/jobs/job-a')
   assert.strictEqual(calls[1].data.read_token, 's1-token')
@@ -49,7 +49,7 @@ async function run() {
   handler = options => options.url === '/api/v2/context'
     ? Promise.resolve({ data: { read_token: { value: 'replacement' } } })
     : Promise.reject(Object.assign(new Error('still expired'), { code: 40902 }))
-  await assert.rejects(api.refreshPredictions('today', saved), /still expired/)
+  await assert.rejects(api.refreshPredictions('today', saved, { reuseContext: true }), /still expired/)
   assert.strictEqual(calls.length, 3, 'only one context reacquisition is allowed')
 
   calls = []
@@ -57,7 +57,7 @@ async function run() {
     items: [{ ts_code: '002724.SZ' }], refresh_state: 'failed', result_state: 'stale',
     reasons: ['REALTIME_REFRESH_FAILED'], read_token: { value: 'fallback-token' }
   } })
-  result = await api.refreshPredictions('today', saved)
+  result = await api.refreshPredictions('today', saved, { reuseContext: true })
   assert.strictEqual(result.result_state, 'stale')
   assert.strictEqual(result.items[0].ts_code, '002724.SZ')
   assert.strictEqual(calls.length, 1, 'a failed terminal must not start another job')
@@ -67,7 +67,7 @@ async function run() {
   try {
     calls = []
     handler = () => Promise.resolve({ data: { refresh_state: 'queued', job_id: 'job-b' } })
-    await assert.rejects(api.refreshPredictions('today', saved), error => error.code === 20201)
+    await assert.rejects(api.refreshPredictions('today', saved, { reuseContext: true }), error => error.code === 20201)
     assert.strictEqual(calls.length, 25, 'queued polling has a fixed upper bound')
 
     calls = []
@@ -77,13 +77,54 @@ async function run() {
       if (options.url === '/api/v2/context') return Promise.resolve({ data: { read_token: { value: 'new-poll-context' } } })
       return Promise.resolve({ data: { items: [], refresh_state: 'ready', read_token: { value: 'new-view' } } })
     }
-    result = await api.refreshPredictions('today', saved)
+    result = await api.refreshPredictions('today', saved, { reuseContext: true })
     assert.strictEqual(calls.length, 4)
     assert.strictEqual(calls[3].data.read_token, 'new-poll-context')
     assert.strictEqual(result.read_token.value, 'new-view')
   } finally {
     global.setTimeout = realSetTimeout
   }
+  for (const page of ['stock', 'prediction']) {
+    calls = []
+    handler = options => {
+      if (options.url === '/api/v2/context') return Promise.resolve({ data: { read_token: { value: 'latest-s1' } } })
+      if (options.url === '/api/v2/realtime/refresh') {
+        assert.strictEqual(options.data.read_token, 'latest-s1')
+        return Promise.resolve({ data: { items: [{ ts_code: 'NEW', change: '+2%' }],
+          monitoringFacts: [{ sourceId: 'new-announcement' }], read_token: { value: 'latest-s2' } } })
+      }
+      assert.strictEqual(options.data.read_token, 'latest-s1')
+      return Promise.resolve({ data: { items: [{ ts_code: 'NEW' }], monitoringFacts: [{ sourceId: 'new-announcement' }],
+        read_token: { value: 'latest-s1' }, realtimeRefreshAllowed: true } })
+    }
+    result = page === 'stock' ? await api.refreshStockDetail('600825.SH', saved) : await api.refreshPredictions('today', saved)
+    assert.deepStrictEqual(calls.map(call => call.url), ['/api/v2/context',
+      page === 'stock' ? '/api/v2/stocks/detail' : '/api/v2/predictions', '/api/v2/realtime/refresh'])
+    assert.strictEqual(result.read_token.value, 'latest-s2')
+    assert.strictEqual(result.monitoringFacts[0].sourceId, 'new-announcement')
+    assert(!calls.some(call => call.data.read_token === 's1-token'), 'manual refresh ignores a still-valid old token')
+  }
+  calls = []
+  handler = options => {
+    if (options.url === '/api/v2/context') return Promise.resolve({ data: { read_token: { value: 'newer' } } })
+    if (options.url === '/api/v2/realtime/refresh') return Promise.reject(new Error('source unavailable'))
+    return Promise.resolve({ data: { items: [{ ts_code: 'NEW' }], read_token: { value: 'newer' }, realtimeRefreshAllowed: true } })
+  }
+  result = await api.refreshPredictions('today', saved)
+  assert.strictEqual(result.items[0].ts_code, 'NEW', 'failed S2 retains latest S1, not the old list')
+  assert.strictEqual(result.refresh_state, 'failed')
+  assert.strictEqual(result.read_token.value, 'newer')
+  calls = []
+  handler = () => Promise.reject(new Error('S1 unavailable'))
+  await assert.rejects(api.refreshStockDetail('600825.SH', saved), /S1 unavailable/)
+  assert.strictEqual(calls.length, 1, 'failed S1 must not request quotes with the old token')
+  calls = []
+  handler = options => options.url === '/api/v2/context'
+    ? Promise.resolve({ data: { read_token: { value: 'closed-next' } } })
+    : Promise.resolve({ data: { items: [], nextDayAvailable: false, read_token: { value: 'closed-next' } } })
+  result = await api.refreshPredictions('next_day', saved)
+  assert.strictEqual(calls.length, 2, 'closed next-day S1 must not start S2')
+  assert.strictEqual(result.nextDayAvailable, false)
   console.log('API context reuse and expiry recovery tests passed')
 }
 run().catch(error => { console.error(error); process.exitCode = 1 })

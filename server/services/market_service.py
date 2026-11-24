@@ -31,6 +31,8 @@ from server.core.abnormal_rules import (
     confirmed_same_direction_event_ledger,
 )
 from server.data.stock_state import build_stock_state
+from server.data.trading_state import resolve_trading_state
+from server.domain.contracts import TradeState
 from server.rules.listing import listing_applicability
 from server.resets.decisions import (
     ORDINARY_RESET_EVIDENCE_CODE,
@@ -43,6 +45,7 @@ from server.resets.decisions import (
     monitor_reset_date,
 )
 from server.services.realtime import RealtimeCoordinator, build_realtime_key, quote_bucket
+from .realtime.validation import comparable_quotes, quote_time, usable_quote
 from .realtime_quote import RealtimeQuoteClient
 from .market_calc_repository import MarketCalcRepository
 from .background_work import background_task
@@ -64,7 +67,7 @@ SHANGHAI_TZ = ZoneInfo("Asia/Shanghai") if ZoneInfo else timezone(timedelta(hour
 # 版本变化会触发服务启动时从已确认收盘行情重建计算基础数据与预测集。
 # Keep the persisted identifier compact: existing production schemas use a
 # 40-character rule-version column; the human-readable rationale lives in docs.
-PREDICTION_RULE_VERSION = "v75"
+PREDICTION_RULE_VERSION = "v76"
 _has_auditable_reset_evidence = has_auditable_reset_evidence
 
 
@@ -235,8 +238,7 @@ class MarketService:
 
         `__severe_monitor__` 是产品层资格标记：股票进入 10 日或 30 日
         严重异动监管期后，预测页才允许额外展示普通短窗口卡。
-        `__ordinary_monitor__` 标记独立的风险提示事实；这类股票已经
-        有独立监管记录，预测页不再重复生成普通 3 日卡。
+        独立普通风险提示事实不影响 3 日预测资格。
         """
         if not self._monitor_provider:
             return {}
@@ -461,7 +463,7 @@ class MarketService:
             calc, index = calculations.get(code), indexes.get(_index_code_for_stock(stock))
             if not calc or not index:
                 continue
-            sv, iv, context, _ = service._rule_vectors_for_stock(stock,
+            sv, iv, context = service._rule_vectors_for_stock(stock,
                 self._vector_entries(calc.get("stock_return_vector")),
                 self._vector_entries(index.get("index_return_vector")))
             metrics = self._vector_metrics(sv, iv, BOARD_RULES[BOARD_BY_MARKET.get(stock["board"], Board.MAIN)],
@@ -545,20 +547,21 @@ class MarketService:
         return {"quotes": quotes, "requestedCount": len(requested), "returnedCount": len(quotes),
                 "quoteUpdatedAt": max(updated, default=""), "persisted": False, "coordination": coordination}
 
-    def _fetch_realtime_many(self, ts_codes: Iterable[str]) -> Dict[str, Dict[str, Any]]:
-        return self._coordinated_realtime_quotes(ts_codes)[0]
+    def _fetch_realtime_many(self, ts_codes: Iterable[str], earliest_days=None) -> Dict[str, Dict[str, Any]]:
+        return self._coordinated_realtime_quotes(ts_codes, earliest_days)[0]
 
-    def _coordinated_realtime_quotes(self, ts_codes):
+    def _coordinated_realtime_quotes(self, ts_codes, earliest_days=None):
         codes = sorted({str(code).strip().upper() for code in ts_codes if str(code).strip()})
         if not codes:
             return {}, "leader"
+        earliest_days = {code: self._date_key(value) for code, value in (earliest_days or {}).items()}
         policy, bucket = os.getenv("SOURCE_POLICY_HASH", "unfrozen"), quote_bucket()
         coordinator = self._realtime_coordinator
         keys = {code: build_realtime_key("quote", code, policy, bucket) for code in codes}
 
         def cached():
             hits = coordinator.get_many(keys.values())
-            return {code: hits[key] for code, key in keys.items() if hits.get(key)}
+            return {code: hits[key] for code, key in keys.items() if self._usable_latest_quote(hits.get(key), earliest_days.get(code, ""))}
 
         quotes = cached()
         if len(quotes) == len(codes):
@@ -571,8 +574,9 @@ class MarketService:
             quotes.update(cached())
             missing = [code for code in missing_codes if lease_keys[code] in owned and code not in quotes]
             if missing:
-                fetched = self._realtime.fetch_many(missing)
-                new = {code: fetched[code] for code in missing if fetched.get(code)}
+                fetched = self._realtime.fetch_many(missing, earliest_days=earliest_days, now=self._now)
+                new = {code: fetched[code] for code in missing if self._usable_latest_quote(
+                    fetched.get(code), earliest_days.get(code, ""))}
                 coordinator.put_many({keys[code]: quote for code, quote in new.items()}, ttl_seconds=3)
                 quotes.update(new)
             quotes.update(cached())
@@ -616,7 +620,7 @@ class MarketService:
         return rows
 
     @staticmethod
-    def _normalise_stock_row(item: Dict[str, Any]) -> Dict[str, Any]:
+    def _normalise_stock_row(item: Dict[str, Any], *, default_list_status="L") -> Dict[str, Any]:
         name = str(item.get("name") or "")
         symbol = str(item.get("symbol") or "")
         exchange = str(item.get("exchange") or item.get("market") or "")
@@ -633,7 +637,7 @@ class MarketService:
             "isST": bool(item.get("isST", name.upper().startswith("ST") or name.startswith("*ST"))),
             "nameInitials": computed_initials or str(item.get("nameInitials") or item.get("name_initials") or ""),
             "list_date": item.get("list_date"),
-            "list_status": item.get("list_status", "L"),
+            "list_status": item.get("list_status", default_list_status),
             "delist_date": item.get("delist_date"),
             "priceLimitEnabled": None if price_limit is None else bool(price_limit),
         }
@@ -966,7 +970,7 @@ class MarketService:
             referenced_indexes.add(index_code)
             index = indexes.get(index_code)
             if index:
-                stock_vector, index_vector, reset_meta, _monitoring = self._rule_vectors_for_stock(
+                stock_vector, index_vector, reset_meta = self._rule_vectors_for_stock(
                     stock,
                     self._vector_entries(stock.get("stock_return_vector") or []),
                     self._vector_entries(index.get("index_return_vector") or []),
@@ -1178,26 +1182,21 @@ class MarketService:
 
     @staticmethod
     def _quote_date(quote: Optional[Dict[str, Any]]) -> Optional[date]:
-        value = str((quote or {}).get("updatedAt") or "")
-        if len(value) >= 10:
-            try:
-                return datetime.strptime(value[:10], "%Y-%m-%d").date()
-            except ValueError:
-                pass
-        return None
+        stamp = quote_time(quote)
+        return stamp.date() if stamp else None
 
     @classmethod
     def _merge_realtime_bars(cls, stock_bars: List[PriceBar], index_bars: List[PriceBar], stock_quote: Optional[Dict[str, Any]], index_quote: Optional[Dict[str, Any]]):
         """将同一行情时点的股票和板块指数报价并入收盘序列。"""
 
-        if not stock_quote or not index_quote:
+        if not comparable_quotes(stock_quote, index_quote):
             return stock_bars, index_bars
         try:
             stock_close = float(stock_quote.get("current"))
             index_close = float(index_quote.get("current"))
         except (TypeError, ValueError):
             return stock_bars, index_bars
-        if stock_close <= 0 or index_close <= 0:
+        if not all(math.isfinite(value) and value > 0 for value in (stock_close, index_close)):
             return stock_bars, index_bars
         quote_date = cls._quote_date(stock_quote) or cls._quote_date(index_quote)
         if not quote_date:
@@ -1408,86 +1407,55 @@ class MarketService:
         return "、".join(f"{reason}已触发" for reason in reasons)
 
     def _active_monitor_for_stock(self, stock: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        """返回当前仍在监管期内的公告事实，不把监管状态混入行情异动计算。"""
+        return next(iter(self._visible_monitors_for_stock(stock)), None)
 
+    def _visible_monitors_for_stock(self, stock: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Return effective facts and confirmed severe facts not yet started."""
         if not self._monitor_provider:
-            return None
+            return []
         symbol = str(stock.get("symbol") or stock.get("ts_code") or "").split(".")[0]
         today = self._now().strftime("%Y%m%d")
         try:
             snapshot = self._monitor_provider() or {}
-            matches = []
-            for item in snapshot.get("items", []):
-                item_symbol = str(item.get("symbol") or item.get("ts_code") or "").split(".")[0]
-                if item_symbol != symbol:
-                    continue
-                dates = {self._date_key(value) for value in (item.get("monitorDates") or [])}
-                start_date = self._date_key(item.get("monitorStartDate"))
-                end_date = self._date_key(item.get("monitorEndDate"))
-                # 监管事实按公告确认的起止日期持续有效；monitorDates 只描述
-                # 监管交易日，不能用它排除周末或节假日的详情状态。
-                if start_date:
-                    # A confirmed severe-abnormality notice is already a
-                    # monitoring fact when its announcement has been
-                    # published, even if the ten-session monitoring period
-                    # starts on the next trading day.  This keeps the Friday
-                    # close detail card aligned with the announced severe
-                    # event; the period dates remain unchanged for display.
-                    announced_severe = (
-                        str(item.get("riskTone") or "") in {"severe-10d", "severe-30d"}
-                        and self._date_key(item.get("announcementDate"))
-                        and self._date_key(item.get("announcementDate")) <= today
-                    )
-                    if (today < start_date and not announced_severe) or (end_date and today > end_date):
-                        continue
-                elif dates and today not in dates:
-                    # 没有完整日期范围的兼容记录仍只能按交易日列表判断。
-                    continue
-                elif end_date and today > end_date:
-                    continue
-                matches.append(item)
-            if not matches:
-                return None
-            # 一只股票可能同时存在普通风险提示和严重异动监管事实。
-            # 详情状态卡片必须优先表达严重异动，再按结束日期处理同级记录。
-            item = sorted(
-                matches,
-                key=lambda value: (
-                    self._monitor_priority(value),
-                    self._date_key(value.get("monitorEndDate")),
-                ),
-                reverse=True,
-            )[0]
-            return {
-                "active": True,
+        except Exception:
+            return []
+        matches = []
+        seen = set()
+        for item in snapshot.get("items", []):
+            item_symbol = str(item.get("symbol") or item.get("ts_code") or "").split(".")[0]
+            if item_symbol != symbol or item.get("active") is False:
+                continue
+            dates = sorted(filter(None, (self._date_key(value) for value in (item.get("monitorDates") or []))))
+            start = self._date_key(item.get("monitorStartDate")) or (dates[0] if dates else "")
+            end = self._date_key(item.get("monitorEndDate")) or (dates[-1] if dates else "")
+            if end and today > end:
+                continue
+            in_effect = not start or start <= today
+            announced = self._date_key(item.get("announcementDate"))
+            if end and start and end < start:
+                continue
+            if not in_effect and not (item.get("riskTone") in {"severe-10d", "severe-30d"} and announced and announced <= today):
+                continue
+            identity = item.get("monitorKey") or item.get("sourceId") or (
+                item.get("riskTone"), start, end, announced, item.get("title"), item.get("ruleText") or item.get("monitorReason"))
+            if identity in seen:
+                continue
+            seen.add(identity)
+            matches.append({
+                **{key: item[key] for key in ("sourceId", "monitorKey", "title", "announcementDate", "eventDirection",
+                   "sourceType", "sourceRole", "sourceRelation", "supportingFacts", "recognitionBasis", "days", "daysTotal") if key in item},
+                "active": in_effect, "confirmedPendingStart": not in_effect,
                 "monitorType": item.get("monitorType") or "重点监控",
                 "riskTone": item.get("riskTone") or "ordinary",
-                "title": item.get("title") or "",
-                "eventDirection": item.get("eventDirection") or "",
                 "ruleText": item.get("ruleText") or item.get("monitorReason") or "",
-                "monitorStartDate": self._date_key(item.get("monitorStartDate")),
-                "monitorEndDate": self._date_key(item.get("monitorEndDate")),
-                # 公告后的首个监管交易日是新的监管事实起点；规则累计从
-                # 该日起的下一个有效收益区间开始，不能把公告前涨幅跨周期带入。
-                "monitorDates": [self._date_key(value) for value in (item.get("monitorDates") or [])],
-                "sourceType": item.get("sourceType") or "",
-                "sourceRole": item.get("sourceRole") or "",
-                "sourceRelation": item.get("sourceRelation") or "",
-                "supportingFacts": list(item.get("supportingFacts") or []),
-                "days": item.get("days"),
-                "daysTotal": item.get("daysTotal"),
-            }
-        except Exception:
-            return None
+                "monitorStartDate": start, "monitorEndDate": end, "monitorDates": dates,
+            })
+        return sorted(matches, key=lambda item: (item["active"], self._monitor_priority(item),
+                      item["monitorEndDate"], str(item.get("sourceId") or item.get("title") or "")), reverse=True)
 
     @staticmethod
     def _monitor_priority(item: Dict[str, Any]) -> int:
-        return {
-            "severe-30d": 4,
-            "severe-10d": 3,
-            "delisting-warning": 2,
-            "ordinary": 1,
-        }.get(str(item.get("riskTone") or ""), 0)
+        return {"delisting-warning": 5, "severe-30d": 4, "severe-10d": 3, "ordinary": 1}.get(item.get("riskTone"), 0)
 
     @staticmethod
     def _monitor_rule_reset_date(monitoring: Optional[Dict[str, Any]]) -> str:
@@ -1637,12 +1605,11 @@ class MarketService:
         stock: Dict[str, Any],
         stock_vector: List[Dict[str, Any]],
         index_vector: List[Dict[str, Any]],
-    ) -> tuple[List[Dict[str, Any]], List[Dict[str, Any]], Dict[str, Any], Optional[Dict[str, Any]]]:
+    ) -> tuple[List[Dict[str, Any]], List[Dict[str, Any]], Dict[str, Any]]:
         """统一应用停牌重置和正式普通/严重异动公告后的规则重置。"""
 
         stock_vector, index_vector, listing = self._listing_vectors(stock, stock_vector, index_vector)
         stock_vector, index_vector, suspension = self._trim_vectors_after_suspension(stock_vector, index_vector)
-        monitoring = self._active_monitor_for_stock(stock)
         reset_facts = self._rule_reset_facts_for_stock(stock)
         reset_context = build_reset_context(reset_facts)
         ordinary_reset_dates = reset_context.ordinary_reset_dates
@@ -1706,7 +1673,7 @@ class MarketService:
             "resetEvidence": reset_context.reset_evidence,
             "ruleFactsQuality": dict(self._last_rule_facts_quality),
         }
-        return stock_vector, index_vector, {**suspension, **rule_reset}, monitoring
+        return stock_vector, index_vector, {**suspension, **rule_reset}
 
     @staticmethod
     def _vector_numbers(entries: List[Dict[str, Any]]) -> List[float]:
@@ -2390,49 +2357,13 @@ class MarketService:
 
     @staticmethod
     def _quote_date_string(quote: Optional[Dict[str, Any]]) -> str:
-        value = str((quote or {}).get("updatedAt") or "")
-        return value[:10] if len(value) >= 10 else ""
+        stamp = quote_time(quote)
+        return stamp.date().isoformat() if stamp else ""
 
     def _usable_latest_quote(self, quote: Optional[Dict[str, Any]], base_date: str = "") -> bool:
-        """Accept a dated price without regressing the published price basis.
+        return usable_quote(quote, now=self._now(), earliest_day=self._date_key(base_date))
 
-        A weekend/holiday quote keeps its actual trading date; never relabel
-        it as today's return. Missing timestamps and future quotes are invalid.
-        """
-        try:
-            price = float((quote or {}).get("current"))
-            stamp = datetime.fromisoformat(str((quote or {}).get("updatedAt") or "").replace("Z", "+00:00"))
-            stamp = stamp.replace(tzinfo=SHANGHAI_TZ) if stamp.tzinfo is None else stamp.astimezone(SHANGHAI_TZ)
-            day = stamp.strftime("%Y%m%d")
-            return math.isfinite(price) and price > 0 and self._date_key(base_date) <= day and stamp <= self._now()
-        except (TypeError, ValueError, OverflowError):
-            return False
-
-    @classmethod
-    def _quotes_share_snapshot(cls, stock_quote: Optional[Dict[str, Any]], index_quote: Optional[Dict[str, Any]]) -> bool:
-        """只允许同源、同交易日且时间相差不超过五分钟的行情共同参与计算。"""
-        if not stock_quote or not index_quote:
-            return False
-        stock_time = str(stock_quote.get("updatedAt") or "")
-        index_time = str(index_quote.get("updatedAt") or "")
-        if not stock_time or not index_time:
-            return False
-        if cls._quote_date_string(stock_quote) != cls._quote_date_string(index_quote):
-            return False
-        stock_source = str(stock_quote.get("source") or "")
-        index_source = str(index_quote.get("source") or "")
-        if stock_source and index_source and stock_source != index_source:
-            return False
-        try:
-            stock_dt = datetime.fromisoformat(stock_time.replace("Z", "+00:00"))
-            index_dt = datetime.fromisoformat(index_time.replace("Z", "+00:00"))
-        except ValueError:
-            return stock_time[:10] == index_time[:10] and len(stock_time) >= 19 and len(index_time) >= 19
-        if stock_dt.tzinfo is None:
-            stock_dt = stock_dt.replace(tzinfo=SHANGHAI_TZ)
-        if index_dt.tzinfo is None:
-            index_dt = index_dt.replace(tzinfo=SHANGHAI_TZ)
-        return abs((stock_dt - index_dt).total_seconds()) <= 300
+    _quotes_share_snapshot = staticmethod(comparable_quotes)
 
     @classmethod
     def _vector_latest_date(cls, vector: List[Dict[str, Any]]) -> str:
@@ -2448,7 +2379,7 @@ class MarketService:
             current = float(quote.get("current"))
         except (TypeError, ValueError):
             return list(entries)
-        if current <= 0:
+        if not math.isfinite(current) or current <= 0:
             return list(entries)
         quote_date_text = cls._quote_date_string(quote)
         quote_date = "".join(character for character in quote_date_text if character.isdigit())[:8]
@@ -2460,7 +2391,7 @@ class MarketService:
             previous_close = float(quote.get("preClose") or latest_close)
         except (TypeError, ValueError):
             return list(entries)
-        if previous_close <= 0:
+        if not math.isfinite(previous_close) or previous_close <= 0:
             return list(entries)
         if result and last_date == quote_date:
             if not quote.get("preClose") and len(result) >= 2:
@@ -2482,7 +2413,7 @@ class MarketService:
         self._generate_prediction_datasets("initial")
         return True
 
-    def _detail_from_repository(self, stock: Dict[str, Any], calc: Dict[str, Any], *, use_realtime: bool = True) -> Optional[Dict[str, Any]]:
+    def _detail_from_repository(self, stock: Dict[str, Any], calc: Dict[str, Any], *, use_realtime: bool = True, trading=None) -> Optional[Dict[str, Any]]:
         index_code = _index_code_for_stock(stock)
         try:
             index = self._calc_repository.get_index(index_code)
@@ -2496,6 +2427,9 @@ class MarketService:
         index_vector = self._vector_entries(index.get("index_return_vector"))
         stored_stock_date = self._date_key(calc.get("as_of_trade_date"))
         stored_index_date = self._date_key(index.get("as_of_trade_date"))
+        trading = trading or self._trading_state(stock, calc, stored_index_date)
+        if trading[0] == TradeState.TERMINATED:
+            return self._detail_without_basis(stock, calc, trading, "终止上市，当前规则计算不可用")
         stock_vector_date = self._vector_latest_date(stock_vector)
         index_vector_date = self._vector_latest_date(index_vector)
         if (
@@ -2507,14 +2441,16 @@ class MarketService:
             or (index_vector_date and index_vector_date != stored_index_date)
         ):
             return None
-        stock_vector, index_vector, suspension, monitoring = self._rule_vectors_for_stock(
-            stock, stock_vector, index_vector
-        )
+        stock_vector, index_vector, suspension = self._rule_vectors_for_stock(stock, stock_vector, index_vector)
+        monitoring_records = self._visible_monitors_for_stock(stock)
+        monitoring = next((item for item in monitoring_records if item["active"]), None)
         forecast_stock_vector = list(stock_vector)
         forecast_index_vector = list(index_vector)
         board = BOARD_BY_MARKET.get(stock["board"], Board.MAIN)
         rule = BOARD_RULES[board]
-        quotes = self._fetch_realtime_many([stock["ts_code"], index_code]) if use_realtime and self._detail_realtime_allowed() else {}
+        quotes = self._fetch_realtime_many(
+            [stock["ts_code"], index_code], {stock["ts_code"]: stored_stock_date, index_code: stored_index_date}
+        ) if use_realtime and self._detail_realtime_allowed() else {}
         quote = quotes.get(stock["ts_code"].upper())
         index_quote = quotes.get(index_code.upper())
         quote = quote if self._usable_latest_quote(quote, stored_stock_date) else None
@@ -2663,7 +2599,7 @@ class MarketService:
             market_status_display = applicability.get("message", "规则适用性暂不可用")
             display_status = "监管中" if monitoring else status
             display_status_class = "monitoring" if monitoring else "unknown"
-        projection_facts = [item for item in [monitoring, *suspension.get("ordinaryEvents", [])] if item]
+        projection_facts = [item for item in [*(item for item in monitoring_records if item["active"]), *suspension.get("ordinaryEvents", [])] if item]
         facts_status = str(rule_facts_quality.get("status") or "unknown")
         # 公告源的其他股票正文读取失败，不能把当前股票误投影成未知；
         # 当前股票已有官方监控/普通异动事实时，仍按事实展示，同时在
@@ -2685,8 +2621,9 @@ class MarketService:
                 ("股票与指数缺少共同有效行情" if not common_days else rule_facts_quality.get("message", ""))
             ),
             market_data_state="complete" if (common_days or applicability.get("applicable") is False) and not suspension.get("suspensionGapUnverified") else "unavailable",
-            facts_data_state=facts_status,
+            facts_data_state=facts_status, trading_state=trading[0], trading_reason=trading[1],
         )
+        stock_state["tradingEvidence"] = trading[2]
         return {
             **stock,
             "ruleApplicability": applicability,
@@ -2703,6 +2640,7 @@ class MarketService:
             "monitoringStatus": "active" if monitoring else "inactive",
             "monitoringStatusDisplay": "监管中" if monitoring else "未在监管期",
             "monitoring": monitoring,
+            "monitoringRecords": monitoring_records,
             "stockState": stock_state,
             "currentPrice": f"{float(current_price):.2f}" if current_price is not None else "--",
             "change": _pct(current_change),
@@ -2757,7 +2695,7 @@ class MarketService:
                 "ordinaryResetDates": suspension.get("ordinaryResetDates", []),
                 "severeResetDate": suspension.get("severeResetDate", ""),
                 "resetEvidence": suspension.get("resetEvidence"),
-                "suspended": suspension.get("suspended", False),
+                "suspended": trading[0] == TradeState.SUSPENDED,
                 "quoteUpdatedAt": display_quote.get("updatedAt", "") if display_quote else "",
                 "message": applicability.get("message") or (
                     f"历史数据覆盖 {common_days} 个共同交易日，按现有数据计算"
@@ -3081,7 +3019,7 @@ class MarketService:
                     if not index_item:
                         continue
                     board = BOARD_BY_MARKET.get(stock["board"], Board.MAIN)
-                    stock_vector, index_vector, reset_meta, _monitoring = self._rule_vectors_for_stock(
+                    stock_vector, index_vector, reset_meta = self._rule_vectors_for_stock(
                         stock,
                         self._vector_entries(item.get("stock_return_vector")),
                         self._vector_entries(index_item.get("index_return_vector")),
@@ -3156,18 +3094,17 @@ class MarketService:
             existing = self._calc_repository.all_calculations() or {}
             indexes_existing = self._calc_repository.all_indexes() or {}
             index_codes = sorted(set(INDEX_BY_MARKET.values()) | set(INDEX_BY_BOARD.values()))
-            quotes = self._realtime.fetch_many([item["ts_code"] for item in stocks] + index_codes)
+            codes = [item["ts_code"] for item in stocks] + index_codes
+            quotes = self._realtime.fetch_many(codes, earliest_days=dict.fromkeys(codes, today))
             indexes: List[Dict[str, Any]] = []
+            observed_at = datetime.now(SHANGHAI_TZ)
             for code in index_codes:
                 item = dict(indexes_existing.get(code) or {"index_code": code, "index_name": INDEX_NAMES.get(code, code), "index_return_vector": []})
                 quote = quotes.get(code.upper())
-                if not quote or float(quote.get("current") or 0) <= 0:
-                    continue
-                quote = dict(quote)
-                if self._date_key(self._quote_date_string(quote)) != today:
+                if not usable_quote(quote, now=observed_at, earliest_day=today) or self._date_key(self._quote_date_string(quote)) != today:
                     continue
                 vector = self._apply_quote_to_vector(self._vector_entries(item.get("index_return_vector")), item.get("latest_close"), quote)
-                item.update({"index_code": code, "index_name": INDEX_NAMES.get(code, item.get("index_name") or code), "latest_close": float(quote["current"]), "as_of_trade_date": today, "index_return_vector": vector[-30:], "data_stage": "initial", "quote_updated_at": str(quote.get("updatedAt") or "").replace("T", " ")[:19]})
+                item.update({"index_code": code, "index_name": INDEX_NAMES.get(code, item.get("index_name") or code), "latest_close": float(quote["current"]), "as_of_trade_date": today, "index_return_vector": vector[-30:], "data_stage": "initial", "quote_updated_at": quote_time(quote).strftime("%Y-%m-%d %H:%M:%S")})
                 indexes.append(item)
             index_map = {item["index_code"]: item for item in indexes}
             calculations: List[Dict[str, Any]] = []
@@ -3179,6 +3116,7 @@ class MarketService:
                 if (
                     not item
                     or not index_item
+                    or not usable_quote(quote, now=observed_at, earliest_day=today)
                     or self._date_key(self._quote_date_string(quote)) != today
                     or not self._quotes_share_snapshot(quote, index_quote)
                 ):
@@ -3186,8 +3124,8 @@ class MarketService:
                 quote = dict(quote)
                 vector = self._apply_quote_to_vector(self._vector_entries(item.get("stock_return_vector")), item.get("latest_close"), quote)
                 item = dict(item)
-                item.update({"ts_code": stock["ts_code"], "latest_close": float(quote["current"]), "as_of_trade_date": today, "stock_return_vector": vector[-30:], "data_stage": "initial", "quote_updated_at": str(quote.get("updatedAt") or "").replace("T", " ")[:19]})
-                stock_vector, reset_index_vector, reset_meta, _monitoring = self._rule_vectors_for_stock(
+                item.update({"ts_code": stock["ts_code"], "latest_close": float(quote["current"]), "as_of_trade_date": today, "stock_return_vector": vector[-30:], "data_stage": "initial", "quote_updated_at": quote_time(quote).strftime("%Y-%m-%d %H:%M:%S")})
+                stock_vector, reset_index_vector, reset_meta = self._rule_vectors_for_stock(
                     stock,
                     vector,
                     self._vector_entries(index_item.get("index_return_vector")),
@@ -3401,6 +3339,73 @@ class MarketService:
                     # published dataset with an empty or partial snapshot.
                     self._calc_repository.fail_prediction(scope, str(exc))
 
+    def _trading_state(self, stock, calc, index_day="", *, evidence=None):
+        now = self._now()
+        today = now.strftime("%Y%m%d")
+        if evidence is not None:
+            state, reason = resolve_trading_state(evidence["listStatus"], evidence["delistDate"],
+                today, now.strftime("%H:%M"), evidence["events"], known_recent_trade=evidence["knownTrade"])
+            return state, reason, evidence
+        code = str(stock.get("ts_code") or "").upper()
+        status = str(stock.get("list_status") or "").upper()
+        def confirmed_date(value):
+            day = self._date_key(value)
+            if len(day) != 8:
+                return ""
+            try:
+                datetime.strptime(day, "%Y%m%d")
+                return day
+            except (TypeError, ValueError):
+                return ""
+        delisted = confirmed_date(stock.get("delist_date"))
+        if status == "D" and not delisted:
+            try:
+                frame = self.client.delisted_stock(code)
+                rows = frame.to_dict("records") if hasattr(frame, "to_dict") else list(frame or [])
+                delisted = next((confirmed_date(row.get("delist_date")) for row in rows
+                                if str(row.get("ts_code") or "").upper() == code and row.get("list_status") == "D"), "")
+            except Exception:
+                pass
+        close_day = self._date_key(calc.get("as_of_trade_date"))
+        trading_day = close_day if calc.get("latest_close") and close_day <= today else ""
+        week = (now - timedelta(days=7)).strftime("%Y%m%d")
+        floor = (now - timedelta(days=45)).strftime("%Y%m%d")
+        # Common starts reuse Tushare's process cache across symbols. For a stale
+        # security close, inspect a bounded wider interval; no event is not proof.
+        start = week if trading_day >= week and trading_day >= index_day else floor
+        recent_trade = trading_day if trading_day >= start else ""
+        rows = None
+        if status == "L":
+            try:
+                frame = (self.client.suspend_d(start, today)
+                         if start == week else self.client.suspend_d(start, today, ts_code=code))
+                rows = frame.to_dict("records") if hasattr(frame, "to_dict") else list(frame) if frame is not None else None
+                if rows is not None:
+                    rows = [(day, str(row.get("suspend_type") or "").upper(), str(row.get("suspend_timing") or ""))
+                            for row in rows if str(row.get("ts_code") or "").upper() == code
+                            and (day := confirmed_date(row.get("trade_date"))) >= max(start, trading_day) and day <= today]
+            except Exception:
+                rows = None
+        evidence = {"listStatus": status, "delistDate": delisted, "events": rows, "knownTrade": recent_trade}
+        state, reason = resolve_trading_state(status, delisted, today, now.strftime("%H:%M"), rows,
+                                              known_recent_trade=recent_trade)
+        return state, reason, evidence
+
+    def _detail_without_basis(self, stock, calc, trading, reason):
+        records = self._visible_monitors_for_stock(stock)
+        effective = [item for item in records if item["active"]]
+        warnings = [{"title": title, "availability": "unavailable", "className": "unknown"}
+                    for title in ("3 日偏离", "10 日同向", "10 日偏离", "30 日偏离")]
+        state = build_stock_state({"warnings": warnings}, effective, data_available=False,
+                                  data_error=reason, market_data_state="unavailable", facts_data_state="unknown",
+                                  trading_state=trading[0], trading_reason=trading[1])
+        state["tradingEvidence"] = trading[2]
+        return {**stock, "monitoring": next(iter(effective), None), "monitoringRecords": records,
+                "stockState": state, "currentPrice": f"{float(calc['latest_close']):.2f}" if calc.get("latest_close") else "--",
+                "change": "--", "tradeDate": self._date_key(calc.get("as_of_trade_date")), "warnings": warnings,
+                "futureTradeDates": [], "nextDayForecast": {"available": False, "unavailableReason": reason},
+                "realtimeRefreshAllowed": False, "dataQuality": {"isComplete": False, "message": reason}}
+
     def detail(self, ts_code: str, *, use_realtime: bool = True) -> Dict[str, Any]:
         """返回单股当前状态、四项预警和模拟计算基础数据。"""
 
@@ -3413,18 +3418,18 @@ class MarketService:
             raise CalculationDataUnavailable("MySQL 计算数据读取失败，单股计算已停止") from exc
         if not stored:
             raise CalculationDataUnavailable("数据库中缺少该股票的基础资料或历史计算基线，单股计算已停止")
-        stock = self._normalise_stock_row(stored)
+        stock = self._normalise_stock_row(stored, default_list_status="")
         if "stock_return_vector" not in stored or (
             not stored.get("stock_return_vector") and not stored.get("as_of_trade_date")
         ):
-            raise CalculationDataUnavailable("数据库中缺少该股票的历史收益向量，单股计算已停止")
+            return self._detail_without_basis(stock, stored, self._trading_state(stock, stored), "数据库中缺少该股票的历史收益向量")
         try:
             result = self._detail_from_repository(stock, stored, use_realtime=use_realtime)
         except Exception as exc:  # noqa: BLE001 - 不允许静默切换到另一套历史数据
             self._market_update_error = f"MySQL 读取失败：{exc}"
             raise CalculationDataUnavailable("MySQL 计算数据读取失败，单股计算已停止") from exc
         if not result:
-            raise CalculationDataUnavailable("数据库中的股票或指数基线缺失/日期不一致，单股计算已停止")
+            return self._detail_without_basis(stock, stored, self._trading_state(stock, stored), "股票或指数基线缺失或不一致")
         return result
 
     def latest_stock_returns(self, ts_codes):
@@ -3510,7 +3515,7 @@ class MarketService:
                 stats["excludedByDataQuality"] += 1
                 continue
             board_rule = BOARD_RULES[BOARD_BY_MARKET.get(stock["board"], Board.MAIN)]
-            stock_vector, index_vector, suspension, monitoring = self._rule_vectors_for_stock(
+            stock_vector, index_vector, suspension = self._rule_vectors_for_stock(
                 stock,
                 self._vector_entries(calc.get("stock_return_vector")),
                 self._vector_entries(index.get("index_return_vector")),
@@ -3692,16 +3697,16 @@ class MarketService:
             codes = []
             for item in candidates:
                 codes.extend((item["ts_code"], item["_indexCode"]))
-            quotes = self._realtime.fetch_many(codes)
+            earliest_days = {key: self._vector_latest_date(vector) for item in candidates for key, vector in (
+                (item["ts_code"], item["_stockVector"]), (item["_indexCode"], item["_indexVector"]))}
+            quotes = self._fetch_realtime_many(codes, earliest_days)
             updated: List[Dict[str, Any]] = []
             for item in candidates:
                 quote = quotes.get(item["ts_code"].upper())
                 index_quote = quotes.get(item["_indexCode"].upper())
-                stock_vector = self._apply_quote_to_vector(item["_stockVector"], item.get("currentPrice"), quote)
-                index_vector = self._apply_quote_to_vector(item["_indexVector"], item.get("_indexLatestClose"), index_quote)
-                # 指数没有把 latest_close 放入预测对象时，只有在同时具备两边报价
-                # 才修正；缺一边就沿用同一收盘口径，不能混合时点数据。
                 if self._quotes_share_snapshot(quote, index_quote):
+                    stock_vector = self._apply_quote_to_vector(item["_stockVector"], item.get("currentPrice"), quote)
+                    index_vector = self._apply_quote_to_vector(item["_indexVector"], item.get("_indexLatestClose"), index_quote)
                     threshold = float(item["_threshold"])
                     rule_window = int(item.get("_rule_window", item["_window"]))
                     reset_date = str(item.get("ruleResetDate") or "")
@@ -3740,7 +3745,7 @@ class MarketService:
                     if deviation is not None:
                         item["alertText"] = "已触发" if item["triggered"] else ""
                         item["cardTone"] = "triggered" if item["triggered"] else ""
-                    item["currentPrice"] = f"{float(quote.get('current')):.2f}"
+                if quote:
                     item["change"] = _pct(quote.get("pctChg"))
                     item["changeSource"] = "realtime"
                     item["quoteUpdatedAt"] = quote.get("updatedAt", "")
@@ -3834,7 +3839,8 @@ class MarketService:
                 "cardTone": "triggered" if deviation >= target_up else "",
             })
         if self._prediction_state()["phase"] == "intraday":
-            quotes = self._realtime.fetch_many(item["ts_code"] for item in result)
+            quotes = self._fetch_realtime_many((item["ts_code"] for item in result),
+                                               {item["ts_code"]: latest for item in result})
             for item in result:
                 quote = quotes.get(item["ts_code"])
                 if quote:
@@ -4271,7 +4277,9 @@ class MarketService:
             stock = stocks.get(item.get("ts_code"))
             if stock:
                 codes.extend((item["ts_code"], _index_code_for_stock(stock)))
-        quotes = self._fetch_realtime_many(codes)
+        earliest_days = {code: row.get("as_of_trade_date") for code in codes
+                         if (row := (calculations or {}).get(code) or (indexes or {}).get(code))}
+        quotes = self._fetch_realtime_many(codes, earliest_days)
         output: List[Dict[str, Any]] = []
         for original in base_items:
             item = dict(original)
@@ -4300,7 +4308,7 @@ class MarketService:
             if paired_quote and quote_matches_target and forecast_scope == "today" and calc and index:
                 stock_vector = self._apply_quote_to_vector(self._vector_entries(calc.get("stock_return_vector")), calc.get("latest_close"), quote)
                 index_vector = self._apply_quote_to_vector(self._vector_entries(index.get("index_return_vector")), index.get("latest_close"), index_quote)
-                stock_vector, index_vector, suspension, _monitoring = self._rule_vectors_for_stock(
+                stock_vector, index_vector, suspension = self._rule_vectors_for_stock(
                     stock, stock_vector, index_vector
                 )
                 if suspension.get("suspended") or suspension.get("suspensionGapUnverified"):

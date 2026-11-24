@@ -196,7 +196,7 @@ class ReadApiTests(unittest.TestCase):
                 quotes = {code: {"current": price, "preClose": price, "pctChg": 0,
                                   "source": "腾讯行情", "updatedAt": "2026-10-30T11:30:00"}
                           for code, price in (("600825.SH", 12.34), ("000002.SH", 100))}
-                self.service._fetch_realtime_many = lambda codes: (requested.extend(codes) or quotes)
+                self.service._fetch_realtime_many = lambda codes, _earliest_days=None: (requested.extend(codes) or quotes)
                 context = self.context("stock", "600825.SH", entry=moment)
                 token = context["read_token"]["value"]
                 status, result = self.call("/api/v2/realtime/refresh", {
@@ -216,7 +216,7 @@ class ReadApiTests(unittest.TestCase):
     def test_next_prediction_refreshes_prices_without_recomputing_future_thresholds(self):
         self.body["targetTradeDate"] = "20261102"
         self.body["items"][0].update(triggerValue="+8.12%", deviationLabel="10日 +90.00%", change="+0.00%", triggered=False)
-        self.service._fetch_realtime_many = lambda codes: {
+        self.service._fetch_realtime_many = lambda codes, _earliest_days=None: {
             code: {"current": 12.34, "preClose": 12, "pctChg": 2.83,
                    "source": "腾讯行情", "updatedAt": "2026-10-30T15:00:00"} for code in codes}
         context = self.context(role="next")
@@ -236,7 +236,7 @@ class ReadApiTests(unittest.TestCase):
         requested = []
         quote = {"current": 12.34, "preClose": 12, "pctChg": 2.83,
                  "source": "腾讯行情", "updatedAt": "2026-10-30T11:30:00"}
-        self.service._fetch_realtime_many = lambda codes: (requested.extend(codes) or {code: quote for code in codes})
+        self.service._fetch_realtime_many = lambda codes, _earliest_days=None: (requested.extend(codes) or {code: quote for code in codes})
         context = self.context()
         token = context["read_token"]["value"]
         _, response = self.call("/api/v2/realtime/refresh", {"scope": "today", "read_token": token}, "POST")
@@ -247,7 +247,7 @@ class ReadApiTests(unittest.TestCase):
         for iteration, quotes in enumerate(({"002724.SZ": quote}, {}), start=1):
             with self.subTest(quotes=bool(quotes)):
                 self.store.clock = lambda iteration=iteration: time.time() + iteration * 10
-                self.service._fetch_realtime_many = lambda codes, quotes=quotes: quotes
+                self.service._fetch_realtime_many = lambda codes, _earliest_days=None, quotes=quotes: quotes
                 _, response = self.call("/api/v2/realtime/refresh", {"scope": "today", "read_token": token}, "POST")
                 data = response["data"]
                 self.assertEqual(data["result_state"], "stale")
@@ -266,7 +266,7 @@ class ReadApiTests(unittest.TestCase):
             self.assertEqual(response["data"]["reasons"], ["SOURCE_POLICY_OR_REDIS_NOT_READY"])
 
     def test_stock_price_updates_without_index_and_failed_quotes_preserve_s1(self):
-        self.service._fetch_realtime_many = lambda codes: {"600825.SH": {
+        self.service._fetch_realtime_many = lambda codes, _earliest_days=None: {"600825.SH": {
             "current": 12.34, "preClose": 12, "pctChg": 2.83,
             "source": "腾讯行情", "updatedAt": "2026-10-30T15:00:00"}}
         context = self.context("stock", "600825.SH")
@@ -282,7 +282,7 @@ class ReadApiTests(unittest.TestCase):
         last_view_token = data["read_token"]["value"]
 
         self.store.clock = lambda: time.time() + 10
-        self.service._fetch_realtime_many = lambda codes: {}
+        self.service._fetch_realtime_many = lambda codes, _earliest_days=None: {}
         _, response = self.call("/api/v2/realtime/refresh", {
             "page": "stock", "security_id": "600825.SH", "read_token": token}, "POST")
         self.assertEqual(response["data"]["currentPrice"], before["data"]["currentPrice"])
@@ -350,3 +350,125 @@ class ReadApiTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(result["data"]["refresh_state"], "failed")
         self.assertEqual([x["ts_code"] for x in result["data"]["items"]], ["002724.SZ"])
+
+    def test_v204_four_statuses_and_regulatory_overlay_survive_authorized_http_read(self):
+        from types import SimpleNamespace
+        from unittest.mock import Mock
+        code = "600825.SH"
+        self.service.set_clock(lambda: datetime(2026, 11, 20, 12))
+        self.fixture.calcs[code].update(
+            list_status="L", delist_date="", latest_close=10, as_of_trade_date="20261119",
+            stock_return_vector=[{"date": "20261119", "return": 1}])
+        self.fixture.indexes["000002.SH"].update(
+            as_of_trade_date="20261119", index_return_vector=[{"date": "20261119", "return": 0}])
+        facts = [{"symbol": "600825", "riskTone": tone, "sourceId": tone,
+                  "monitorStartDate": "20261116", "monitorEndDate": "20261127"}
+                 for tone in ("ordinary", "severe-10d", "delisting-warning", "severe-30d")]
+        self.service.set_monitor_provider(lambda: {"items": facts, "resetFacts": [],
+            "unresolvedFacts": [], "dataQuality": {"status": "complete"}})
+        for i, (list_status, delist_date, events, expected) in enumerate((
+                ("L", "", [], "normal"),
+                ("L", "", [{"ts_code": code, "trade_date": "20261120", "suspend_type": "S"}], "suspended"),
+                ("D", "20261120", [], "terminated"), ("", "", [], "unknown"))):
+            with self.subTest(expected=expected):
+                self.fixture.calcs[code].update(list_status=list_status, delist_date=delist_date)
+                self.service.client.suspend_d = Mock(return_value=SimpleNamespace(to_dict=lambda *_: events))
+                context = self.context("stock", code, entry="v204-" + str(i))
+                status, result = self.call("/api/v2/stocks/detail", {
+                    "read_token": context["read_token"]["value"], "security_id": code})
+                self.assertEqual(status, 200)
+                data = result["data"]
+                self.assertEqual(data["stockState"]["tradingState"], expected)
+                self.assertEqual([x["riskTone"] for x in data["monitoringRecords"]],
+                                 ["delisting-warning", "severe-30d", "severe-10d", "ordinary"])
+                self.assertEqual(len(data["warnings"]), 4)
+
+    def test_v204_s2_reevaluates_temporary_halt_without_reading_new_facts(self):
+        from types import SimpleNamespace
+        from unittest.mock import Mock
+        code = "600825.SH"
+        self.service.set_clock(lambda: datetime(2026, 11, 20, 12, 59))
+        self.fixture.calcs[code].update(list_status="L", delist_date="", as_of_trade_date="20261119",
+                                       stock_return_vector=[{"date": "20261119", "return": 1}])
+        self.fixture.indexes["000002.SH"].update(as_of_trade_date="20261119",
+                                                index_return_vector=[{"date": "20261119", "return": 0}])
+        events = [{"ts_code": code, "trade_date": "20261120", "suspend_type": "S", "suspend_timing": "11:00-13:00"}]
+        self.service.client.suspend_d = Mock(return_value=SimpleNamespace(to_dict=lambda *_: events))
+        self.service.set_monitor_provider(lambda: {"items": [], "resetFacts": [], "unresolvedFacts": []})
+        context = self.context("stock", code, entry="v204-intraday")
+        self.service.set_clock(lambda: datetime(2026, 11, 20, 13))
+        self.service.client.suspend_d = Mock(side_effect=AssertionError("S2 must use captured evidence"))
+        self.service._fetch_realtime_many = lambda *_: {
+            code: {"current": 10, "pctChg": 0, "source": "腾讯行情", "updatedAt": "2026-11-20T11:30:00"},
+            "000002.SH": {"current": 100, "preClose": 100, "pctChg": 0, "source": "腾讯行情", "updatedAt": "2026-11-20T11:30:00"}}
+        status, result = self.call("/api/v2/realtime/refresh", {
+            "read_token": context["read_token"]["value"], "page": "stock", "security_id": code}, "POST")
+        self.assertEqual(status, 200)
+        self.assertEqual(result["data"]["stockState"]["tradingState"], "normal")
+        self.service.client.suspend_d.assert_not_called()
+
+
+    def test_v204_new_s1_sees_published_prediction_pool_while_old_valid_token_stays_pinned(self):
+        first = self.context(entry="before-manual")
+        old = first["read_token"]["value"]
+        self.body["items"] = [{"ts_code": "600825.SH", "ruleKey": "severe_30d", "triggered": False}]
+        second = self.context(entry="manual-new-s1")
+        status, latest = self.call("/api/v2/predictions", {
+            "read_token": second["read_token"]["value"], "role": "current"})
+        self.assertEqual(status, 200)
+        self.assertEqual(latest["data"]["items"][0]["ts_code"], "600825.SH")
+        self.assertNotEqual(first["pool_hash"], second["pool_hash"])
+        status, previous = self.call("/api/v2/predictions", {"read_token": old, "role": "current"})
+        self.assertEqual(status, 200, 'old context has not expired in this scenario')
+        self.assertEqual(previous["data"]["items"][0]["ts_code"], "002724.SZ")
+        # Latest S1 authorizes only the current published pool; S2 may not
+        # continue refreshing the old pool or scan outside the new list.
+        scope_seen = []
+        def refresh(service, *_):
+            items = service._calc_repository.get_prediction("today")["items"]
+            scope_seen.extend(x["ts_code"] for x in items)
+            return [dict(x, quoteAvailable=True, calculationQuoteAvailable=True, change="+2%") for x in items]
+        with patch.object(type(self.service), "_refresh_existing_prediction_scope", refresh):
+            status, result = self.call("/api/v2/realtime/refresh", {"read_token": second["read_token"]["value"]}, "POST")
+        self.assertEqual(status, 200)
+        self.assertEqual(scope_seen, ["600825.SH"])
+        self.assertEqual(result["data"]["items"][0]["change"], "+2%")
+
+    def test_v204_new_s1_carries_latest_announcement_reset_basis_and_s2_preserves_its_identity(self):
+        from types import SimpleNamespace
+        from unittest.mock import Mock
+        from server.services.test_market_service import reset_evidence
+        code = "600825.SH"
+        self.service.set_clock(lambda: datetime(2026, 11, 20, 12))
+        self.fixture.calcs[code].update(list_status="L", delist_date="", latest_close=10, as_of_trade_date="20261119",
+            stock_return_vector=[{"date": "20261118", "return": 5}, {"date": "20261119", "return": 5}])
+        self.fixture.indexes["000002.SH"].update(latest_close=100, as_of_trade_date="20261119",
+            index_return_vector=[{"date": "20261118", "return": 0}, {"date": "20261119", "return": 0}])
+        self.service.client.suspend_d = Mock(return_value=SimpleNamespace(to_dict=lambda *_: []))
+        snapshot = {"items": [], "resetFacts": [], "unresolvedFacts": [], "dataQuality": {"status": "complete"}}
+        self.service.set_monitor_provider(lambda: snapshot)
+        first = self.context("stock", code, entry="old-stock-s1")
+        _, old = self.call("/api/v2/stocks/detail", {"read_token": first["read_token"]["value"], "security_id": code})
+        fact = {"sourceId": "new-count-severe", "symbol": "600825", "riskTone": "severe-10d",
+            "monitorType": "同向严重异动", "announcementDate": "20261118", "monitorStartDate": "20261119",
+            "monitorEndDate": "20261202", "ruleResetDate": "20261119", "ruleResetConfirmed": True,
+            "resetEvidence": reset_evidence(), "recognitionBasis": [{"kind": "same_direction", "count": 4,
+                "windowDays": 9, "text": "公告认定：连续9个交易日内出现4次同向异常波动"}],
+            "ruleText": "公告认定：连续9个交易日内出现4次同向异常波动"}
+        snapshot["items"] = [fact]
+        snapshot["resetFacts"] = [fact]
+        second = self.context("stock", code, entry="manual-stock-s1")
+        status, current = self.call("/api/v2/stocks/detail", {"read_token": second["read_token"]["value"], "security_id": code})
+        self.assertEqual(status, 200)
+        self.assertNotEqual(current["data"]["calculationBasisId"], old["data"]["calculationBasisId"])
+        self.assertEqual(current["data"]["monitoringRecords"][0]["recognitionBasis"][0]["count"], 4)
+        self.assertEqual(current["data"]["calculationInput"]["severeResetDate"], "20261119")
+        _, immutable = self.call("/api/v2/stocks/detail", {"read_token": first["read_token"]["value"], "security_id": code})
+        self.assertEqual(immutable["data"]["monitoringRecords"], [])
+        self.service._fetch_realtime_many = lambda *_: {code: {"current": 10, "pctChg": 0,
+            "source": "腾讯行情", "updatedAt": "2026-11-20T11:30:00"}}
+        status, updated = self.call("/api/v2/realtime/refresh", {"read_token": second["read_token"]["value"],
+                                   "page": "stock", "security_id": code}, "POST")
+        self.assertEqual(status, 200)
+        self.assertEqual(updated["data"]["calculationBasisId"], current["data"]["calculationBasisId"])
+        self.assertEqual(updated["data"]["monitoringRecords"], current["data"]["monitoringRecords"])

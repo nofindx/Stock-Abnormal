@@ -35,7 +35,7 @@ class ReadPublications:
             calculations = {code: repo.get_calc(code) for code in codes}
             indexes = {code: repo.get_index(code) for code in {
                 _index_code_for_stock(row) for row in calculations.values() if row}}
-        rows = {code: service._normalise_stock_row(row) for code, row in calculations.items() if row}
+        rows = {code: service._normalise_stock_row(row, default_list_status="") for code, row in calculations.items() if row}
         if page == "stock":
             # Render S1 from the exact inputs retained for S2, rather than
             # reading the stock/index again after producing the visible body.
@@ -43,13 +43,19 @@ class ReadPublications:
                 get_calc=lambda code: deepcopy(calculations.get(code)),
                 get_index=lambda code: deepcopy(indexes.get(code)))
             data = service.detail(scope["security_id"], use_realtime=False)
-            data["realtimeRefreshAllowed"] = service._detail_realtime_allowed()
+            data.setdefault("realtimeRefreshAllowed", service._detail_realtime_allowed())
+            # Identifies simulation inputs before live quotes. An announcement
+            # reset can change the baseline without changing its trading date.
+            data["calculationBasisId"] = hashlib.sha256(canonical({
+                "simulationBase": data.get("simulationBase"), "thresholds": data.get("simulationThresholds"),
+                "applicability": data.get("simulationApplicability"), "futureDates": data.get("futureTradeDates"),
+            }).encode()).hexdigest()
         symbols = {x.split(".")[0] for x in codes}
         scoped_snapshot = deepcopy({key: value for key, value in snapshot.items()
                                     if key not in {"items", "resetFacts", "unresolvedFacts"}})
         for key in ("items", "resetFacts", "unresolvedFacts"):
             scoped_snapshot[key] = deepcopy([x for x in snapshot.get(key, [])
-                if str(x.get("symbol") or "").split(".")[0] in symbols])
+                if str(x.get("symbol") or x.get("ts_code") or "").split(".")[0] in symbols])
         snapshot = scoped_snapshot
         if page == "stock":
             data["monitoringFacts"] = deepcopy(snapshot["items"])
@@ -109,7 +115,14 @@ class ReadPublications:
         elif scope["page"] == "stock":
             code = scope["security_id"]
             previous = saved
-            saved = service._detail_from_repository(basis["stocks"][code], basis["calculations"][code])
+            if previous.get("realtimeRefreshAllowed") is False:
+                saved.update(refresh_state="ready", result_state="stale", refreshStatus="fallback",
+                             reasons=["STOCK_BASIS_NOT_REFRESHABLE"])
+                return saved, self.store.freeze_read({"scope": scope, "data": saved, "basis": basis}, scope)
+            status = previous.get("stockState") or {}
+            trading = service._trading_state(basis["stocks"][code], basis["calculations"][code],
+                                              evidence=status.get("tradingEvidence"))
+            saved = service._detail_from_repository(basis["stocks"][code], basis["calculations"][code], trading=trading)
             if saved is None:
                 raise PublicationUnavailable("pinned calculation basis unavailable")
             if not (saved.get("dataQuality") or {}).get("quoteAvailable") and (previous.get("dataQuality") or {}).get("quoteUpdatedAt"):
@@ -118,6 +131,7 @@ class ReadPublications:
                 saved = previous
                 saved["dataQuality"] = dict(saved.get("dataQuality") or {},
                     quoteAvailable=False, realtime=False, fallback=True, message="最新行情暂不可用，保留上次数据")
+            saved["calculationBasisId"] = previous.get("calculationBasisId", "")
             saved["monitoringFacts"] = deepcopy(basis["monitor"].get("items") or [])
             saved["realtimeRefreshAllowed"] = True
             price_available = bool((saved.get("dataQuality") or {}).get("quoteAvailable"))

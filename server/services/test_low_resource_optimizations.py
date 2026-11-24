@@ -94,7 +94,7 @@ class QuoteReuseTests(unittest.TestCase):
         self.addCleanup(self.service.close)
         self.service._realtime_coordinator = RealtimeCoordinator(backend=_MemoryBackend())
         self.service._realtime_coordinator._redis = None
-        self.source = Mock(side_effect=lambda codes: {
+        self.source = Mock(side_effect=lambda codes, **_options: {
             code: {'current': 10, 'updatedAt': '2026-11-13 11:30:00', 'source': 'fixture'} for code in codes})
         self.service._realtime = SimpleNamespace(fetch_many=self.source)
         self.bucket = patch.object(market_module, 'quote_bucket', return_value='bucket-1')
@@ -130,10 +130,10 @@ class QuoteReuseTests(unittest.TestCase):
                 self.service._realtime_coordinator = RealtimeCoordinator(backend=_MemoryBackend())
                 self.service._realtime_coordinator._redis = None
                 entered, release = threading.Event(), threading.Event()
-                def fetch(codes):
+                def fetch(codes, **_options):
                     entered.set()
                     if not release.wait(3): raise AssertionError('test source timed out')
-                    return {code: {'current': 10} for code in codes}
+                    return {code: {'current': 10, 'updatedAt': '2026-11-13 11:30:00'} for code in codes}
                 self.source.side_effect = fetch
                 self.source.reset_mock()
                 with ThreadPoolExecutor(max_workers=count) as pool:
@@ -148,11 +148,11 @@ class QuoteReuseTests(unittest.TestCase):
 
     def test_concurrent_different_pools_share_intersection(self):
         entered, release = threading.Event(), threading.Event()
-        def fetch(codes):
+        def fetch(codes, **_options):
             if 'A' in codes:
                 entered.set()
                 self.assertTrue(release.wait(2))
-            return {code: {'current': 10} for code in codes}
+            return {code: {'current': 10, 'updatedAt': '2026-11-13 11:30:00'} for code in codes}
         self.source.side_effect = fetch
         with ThreadPoolExecutor(max_workers=2) as pool:
             first = pool.submit(self.service.realtime_quotes, ['A', 'B'])
@@ -169,9 +169,9 @@ class QuoteReuseTests(unittest.TestCase):
         self.source.side_effect = RuntimeError('upstream failed')
         with self.assertRaisesRegex(RuntimeError, 'upstream failed'):
             self.service._fetch_realtime_many(['A'])
-        self.source.side_effect = lambda _: {}
+        self.source.side_effect = lambda _, **_options: {}
         self.assertEqual(self.service._fetch_realtime_many(['A']), {})
-        self.source.side_effect = lambda codes: {code: {'current': 11} for code in codes}
+        self.source.side_effect = lambda codes, **_options: {code: {'current': 11, 'updatedAt': '2026-11-13 11:30:00'} for code in codes}
         self.assertEqual(self.service._fetch_realtime_many(['A'])['A']['current'], 11)
         self.service._realtime_coordinator.get_many = Mock(side_effect=RuntimeError('cache unavailable'))
         with self.assertRaisesRegex(RuntimeError, 'cache unavailable'):

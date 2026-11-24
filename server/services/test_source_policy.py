@@ -84,6 +84,28 @@ class SourcePolicyTests(unittest.TestCase):
         self.assertEqual([item.source_name for item in policies], ["tencent", "sina", "eastmoney"])
         self.assertEqual(source_policy_gate(policies)["status"], "pass")
 
+    def test_retired_thresholds_cannot_create_a_second_pairing_policy(self):
+        from .realtime.validation import comparable_quotes
+        for skew in (5, 300):
+            payload = {"version": "legacy", "source_name": "tencent", "market_phase": "continuous",
+                       "freshness_seconds": 5, "stale_seconds": 30, "max_quote_skew_seconds": skew}
+            entry = {**payload, "content_hash": policy_hash(payload)}
+            with patch.dict(os.environ, {"SOURCE_POLICY_JSON": json.dumps(entry),
+                                        "SOURCE_POLICY_HASH": entry["content_hash"]}, clear=True):
+                policies = load_source_policies()
+                gate = source_policy_gate(policies)
+                self.assertEqual(gate["quotePairing"]["maxSkewSeconds"], 60)
+                self.assertIsNone(gate["quotePairing"]["maxQuoteAgeSeconds"])
+                self.assertFalse(hasattr(policies[0], "max_quote_skew_seconds"))
+                left = {"source": "腾讯行情", "updatedAt": "2026-11-20T11:30:00"}
+                self.assertTrue(comparable_quotes(left, dict(left, updatedAt="2026-11-20T11:31:00")))
+                self.assertFalse(comparable_quotes(left, dict(left, updatedAt="2026-11-20T11:31:01")))
+        payload = {"version": "v2", "source_name": "tencent", "market_phase": "continuous"}
+        entry = {**payload, "content_hash": policy_hash(payload)}
+        with patch.dict(os.environ, {"SOURCE_POLICY_JSON": json.dumps(entry),
+                                    "SOURCE_POLICY_HASH": entry["content_hash"]}, clear=True):
+            self.assertEqual(source_policy_gate(load_source_policies())["status"], "pass")
+
 
 if __name__ == "__main__":
     unittest.main()

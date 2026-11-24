@@ -107,18 +107,10 @@ function monitoringRuleLabel(monitoring = {}) {
   const explicit = String(monitoring.ruleText || monitoring.monitorReason || '').trim()
   if (explicit) return explicit
   const tone = String(monitoring.riskTone || '').trim()
-  const code = String(monitoring.ts_code || monitoring.symbol || '').match(/\d{6}/)
-  const symbol = code ? code[0] : ''
-  const isBse = /^(4|8|9)/.test(symbol)
-  const direction = String(monitoring.eventDirection || '').toLowerCase() === 'down' ? '跌幅' : '涨幅'
-  if (tone === 'severe-10d') {
-    const threshold = direction === '涨幅' ? (isBse ? 150 : 100) : (isBse ? 60 : 50)
-    return `连续10个交易日内收盘价${direction}偏离值累计达到 ${direction === '涨幅' ? '+' : '-'}${threshold}%`
-  }
-  if (tone === 'severe-30d') {
-    const threshold = direction === '涨幅' ? (isBse ? 300 : 200) : (isBse ? 75 : 70)
-    return `连续30个交易日内收盘价${direction}偏离值累计达到 ${direction === '涨幅' ? '+' : '-'}${threshold}%`
-  }
+  const bases = (Array.isArray(monitoring.recognitionBasis) ? monitoring.recognitionBasis : []).map(item => String(item.text || '').trim()).filter(Boolean)
+  if (bases.length) return bases.join('；')
+  if (tone === 'severe-10d') return String(monitoring.monitorType || '').includes('同向') ? '同向严重异动，以公告为准' : '10日严重异动，以公告为准'
+  if (tone === 'severe-30d') return '30日严重异动，以公告为准'
   if (tone === 'delisting-warning') return '股票进入退市整理期'
   if (tone === 'ordinary') return '交易所将对该证券的异常交易行为进行进一步从严认定'
   const type = String(monitoring.monitorType || '').trim()
@@ -168,12 +160,14 @@ function remainingMonitoringDays(monitoring = {}, today = localTodayKey()) {
 }
 
 function formatMonitoringSummary(monitoring, today = localTodayKey()) {
-  if (!monitoring || monitoring.active === false) return null
+  if (!monitoring || (monitoring.active === false && !monitoring.confirmedPendingStart)) return null
   const start = monitoring.monitorStartDate || monitoring.monitorStart
   const end = monitoring.monitorEndDate || monitoring.monitorEnd
   return {
+    key: monitoring.monitorKey || monitoring.sourceId || [monitoring.riskTone, start, end, monitoring.title, monitoring.ruleText].join('|'),
+    pendingStart: Boolean(monitoring.confirmedPendingStart),
     dateText: `${formatMonthDay(start)}-${formatMonthDay(end)}`,
-    badgeText: isDelistingMonitoring(monitoring) ? '退市整理期' : '已被重点监管',
+    badgeText: monitoring.confirmedPendingStart ? '将进入重点监控' : isDelistingMonitoring(monitoring) ? '退市整理期' : monitoring.riskTone === 'ordinary' ? '风险提示' : '已被重点监管',
     ruleText: monitoringRuleLabel(monitoring),
     remainingText: remainingMonitoringDays(monitoring, today)
   }
@@ -348,6 +342,11 @@ function buildNextDayForecast(forecast = {}, monitoringActive = false, currentSe
     summaryStatus: assessment.text,
     summaryTone: assessment.tone
   }
+}
+
+function tradingBanner(state = {}) {
+  const label = { suspended: '停牌', terminated: '终止上市', unknown: '交易状态未知' }[state.tradingState]
+  return label ? { label, reason: state.tradingStateReason || '' } : null
 }
 
 function resolveStatusBanner(forecast = {}, monitoringSummary = null) {
@@ -784,7 +783,7 @@ Page({
     }
     return getStockDetail(stock.ts_code).then(render).then(detail => {
       if (requestId !== this.detailRequestId || initialBoundary !== businessBoundaryKey() || !detail.realtimeRefreshAllowed) return
-      return refreshStockDetail(stock.ts_code, detail).then(render)
+      return refreshStockDetail(stock.ts_code, detail, { reuseContext: true }).then(render)
         .catch(() => {
           if (requestId === this.detailRequestId) {
             this.setData({ detailError: '实时行情刷新失败，当前保留上次数据（可能已过期），请下拉刷新重试' })
@@ -854,25 +853,20 @@ Page({
   renderStockDetail(detail, monitorSnapshot, stock, requestId) {
       if (requestId !== this.detailRequestId) return
       const stockCode = detail.ts_code || stock.ts_code
-      // The endpoint may choose a severe event as its primary monitoring fact;
-      // keep all current facts available for the display label so delisting
-      // management is not mislabeled as severe monitoring on retired stocks.
-      // Regulatory validity follows today's Shanghai date, independently of
-      // the last available quote date. Historical facts remain in S1 for
-      // reset/audit, but must not override a current fact in the status card.
       const monitoringDate = stockBusinessDateKey()
-      const monitoring = selectStockMonitoring(
-        detail.monitoring,
-        Array.isArray(detail.monitoringFacts) ? detail.monitoringFacts : monitorSnapshot.items,
-        stockCode,
-        detail.symbol || stock.symbol,
-        monitoringDate
-      )
+      const records = Array.isArray(detail.monitoringRecords) ? detail.monitoringRecords : [selectStockMonitoring(
+        detail.monitoring, Array.isArray(detail.monitoringFacts) ? detail.monitoringFacts : monitorSnapshot.items,
+        stockCode, detail.symbol || stock.symbol, monitoringDate
+      )].filter(Boolean)
+      const monitoring = records.find(item => item.active !== false) || null
+      const monitoringSummaries = records.map(item => formatMonitoringSummary({
+        ...item, ts_code: item.ts_code || stockCode, symbol: item.symbol || detail.symbol || stock.symbol
+      }, monitoringDate)).filter(Boolean)
       const detailWithMonitoring = { ...detail, monitoring,
         monitoringStatus: monitoring ? 'active' : 'none',
         monitoringStatusDisplay: monitoring ? '监管中' : '' }
       const futureTradeDates = detailWithMonitoring.futureTradeDates || []
-      const baseKey = JSON.stringify([stockCode, detailWithMonitoring.tradeDate || '', futureTradeDates[0] || ''])
+      const baseKey = JSON.stringify([stockCode, detailWithMonitoring.calculationBasisId || '', detailWithMonitoring.tradeDate || '', futureTradeDates[0] || ''])
       const sameBaseline = this._simulationBaseline === baseKey
       if (!sameBaseline) this.invalidateSimulationAccess()
       this._simulationBaseline = baseKey
@@ -899,11 +893,9 @@ Page({
           forceUnknown: !marketDataAvailable
         }),
         alerts: presentAlerts(detailWithMonitoring.alerts),
-        monitoringSummary: formatMonitoringSummary(monitoring && {
-          ...monitoring,
-          ts_code: monitoring.ts_code || detailWithMonitoring.ts_code || stock.ts_code,
-          symbol: monitoring.symbol || detailWithMonitoring.symbol || stock.symbol
-        }, monitoringDate)
+        monitoringSummaries,
+        monitoringSummary: monitoringSummaries.find(item => !item.pendingStart) || null,
+        tradingBanner: tradingBanner(detailWithMonitoring.stockState)
       }
       const currentSevereRules = currentSevereRuleTexts(detailWithMonitoring.warnings || [])
       // Monitoring facts describe regulatory status, not a current-session
@@ -912,7 +904,7 @@ Page({
       // next trading day is incorrectly shown as "当日已触发".
       const forecast = buildNextDayForecast(
         detailWithMonitoring.nextDayForecast || {},
-        Boolean(displayDetail.monitoringSummary),
+        Boolean(monitoring),
         currentSevereRules,
         detailWithMonitoring.tradeDate,
         ruleFactsStatus,
@@ -927,11 +919,11 @@ Page({
       displayDetail.currentTriggered = forecast.currentTriggered
       displayDetail.futureForecastLine = forecast.futureLine || ''
       displayDetail.futureForecastText = forecast.futureText || ''
-      Object.assign(displayDetail, resolveStatusBanner({ ...forecast, summaryStatus: statusSummary.text, summaryTone: statusSummary.tone }, displayDetail.monitoringSummary))
+      Object.assign(displayDetail, resolveStatusBanner({ ...forecast, summaryStatus: statusSummary.text, summaryTone: statusSummary.tone }, monitoring ? monitoringSummaries[0] : null))
       const dataUpdatedAt = formatUpdatedAt((detailWithMonitoring.dataQuality || {}).quoteUpdatedAt || detailWithMonitoring.tradeDate)
       const recentStocks = [{ ts_code: detailWithMonitoring.ts_code || stock.ts_code, symbol: detailWithMonitoring.symbol || stock.symbol || stock.ts_code.split('.')[0], name: detailWithMonitoring.name || stock.name || stock.ts_code }, ...(this.data.recentStocks || []).filter(item => item.ts_code !== (detailWithMonitoring.ts_code || stock.ts_code))].slice(0, 8)
       wx.setStorageSync(STOCK_HISTORY_KEY, recentStocks)
-      this.setData({ selected: { ...stock, ...detailWithMonitoring }, detail: displayDetail, detailLoading: false, detailError: '', dataUpdatedAt, recentStocks, futureTradeDates, visibleDays, simulationExpanded: visibleDays === 10, inputRows: rows, matrixGroups: buildMatrixGroups(rows), simulationReady: true, query: `${detailWithMonitoring.name} ${detailWithMonitoring.symbol}`, nextDayForecastLine: forecast.line, nextDayForecastText: forecast.text, nextDayForecastNotice: forecast.notice || '' })
+      this.setData({ selected: { ...stock, ...detailWithMonitoring }, detail: displayDetail, detailLoading: false, detailError: '', dataUpdatedAt, recentStocks, futureTradeDates, visibleDays, simulationExpanded: visibleDays === 10, inputRows: rows, matrixGroups: buildMatrixGroups(rows), simulationReady: marketDataAvailable, query: `${detailWithMonitoring.name} ${detailWithMonitoring.symbol}`, nextDayForecastLine: forecast.line, nextDayForecastText: forecast.text, nextDayForecastNotice: forecast.notice || '' })
       this.prepareStockShareCover()
   },
   invalidateSimulationAccess() {
@@ -1079,4 +1071,4 @@ Page({
 })
 
 // 纯计算函数导出给前端回归测试；小程序运行时不影响 Page 注册。
-if (typeof module !== 'undefined') module.exports = { additionalRiseToThreshold, bestDeviation, buildMatrixGroups, buildNextDayForecast, calculateSimulationRows, createInputRows, nearestUpwardThreshold, presentWarnings, summaryStatus, formatMonthDay, monitoringRuleLabel, formatMonitoringSummary, remainingMonitoringDays, findStockMonitoring, selectStockMonitoring, currentSevereRuleTexts, resolveStatusBanner }
+if (typeof module !== 'undefined') module.exports = { additionalRiseToThreshold, bestDeviation, buildMatrixGroups, buildNextDayForecast, calculateSimulationRows, createInputRows, nearestUpwardThreshold, presentWarnings, summaryStatus, formatMonthDay, monitoringRuleLabel, formatMonitoringSummary, remainingMonitoringDays, findStockMonitoring, selectStockMonitoring, currentSevereRuleTexts, resolveStatusBanner, tradingBanner }

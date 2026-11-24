@@ -9,11 +9,27 @@ import os
 from typing import Any, Dict, Iterable, List
 
 from server.domain.contracts import SourcePolicy
+from .realtime.validation import MAX_QUOTE_SKEW_SECONDS
 
 
 def policy_hash(payload: Dict[str, Any]) -> str:
     canonical = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+# These keys remain accepted in signed legacy deployment JSON. They are retired,
+# excluded from the runtime contract, and cannot impose a second quote policy.
+RETIRED_TIMING_KEYS = ("freshness_seconds", "stale_seconds", "max_quote_skew_seconds")
+
+
+def _policy_from_payload(payload, content_hash):
+    values = {key: value for key, value in payload.items() if key not in RETIRED_TIMING_KEYS}
+    try:
+        policy = SourcePolicy(content_hash=content_hash, **values)
+        policy.validate()
+    except (TypeError, ValueError) as exc:
+        raise ValueError("source_policy 字段无效") from exc
+    return policy
 
 
 def load_source_policy(market_phase: str = "continuous") -> SourcePolicy:
@@ -30,16 +46,15 @@ def load_source_policy(market_phase: str = "continuous") -> SourcePolicy:
         raise ValueError("SOURCE_POLICY_JSON 必须是单个来源策略对象")
     if str(values.get("market_phase") or "") != market_phase:
         raise ValueError("source_policy 不适用于当前交易阶段")
-    required = ("version", "freshness_seconds", "stale_seconds", "max_quote_skew_seconds", "content_hash")
+    required = ("version", "content_hash")
     if any(key not in values for key in required):
-        raise ValueError("source_policy 缺少版本、阈值或内容哈希")
+        raise ValueError("source_policy 缺少版本或内容哈希")
     content_hash = str(values.pop("content_hash"))
     expected_hash = policy_hash(values)
     configured_hash = os.getenv("SOURCE_POLICY_HASH", "")
     if content_hash != expected_hash or configured_hash != content_hash:
         raise ValueError("source_policy 内容哈希与实例配置不一致")
-    policy = SourcePolicy(content_hash=content_hash, **values)
-    policy.validate()
+    policy = _policy_from_payload(values, content_hash)
     return policy
 
 
@@ -69,13 +84,12 @@ def load_source_policies(market_phase: str = "continuous") -> List[SourcePolicy]
         content_hash = str(payload.pop("content_hash", ""))
         if not content_hash or policy_hash(payload) != content_hash:
             raise ValueError("source_policy 内容哈希不匹配")
-        policy = SourcePolicy(content_hash=content_hash, **payload)
-        policy.validate()
+        policy = _policy_from_payload(payload, content_hash)
         if not policy.source_name:
             raise ValueError("source_policy 缺少 source_name")
         policies.append(policy)
     configured_hash = os.getenv("SOURCE_POLICY_HASH", "")
-    aggregate = policy_hash({"policies": [asdict(item) for item in policies]})
+    aggregate = policy_hash({"policies": entries})
     if configured_hash and configured_hash not in {aggregate, *(item.content_hash for item in policies)}:
         raise ValueError("source_policy 集合哈希与实例配置不一致")
     return policies
@@ -94,7 +108,10 @@ def source_policy_gate(policies: Iterable[SourcePolicy]) -> Dict[str, Any]:
         "status": "pass" if checked and not errors else "block",
         "count": len(checked),
         "errors": errors,
-        "reason": "每个启用来源/交易阶段必须有证据支持的冻结版本和匹配配置哈希",
+        "reason": "启用来源/交易阶段的版本与配置哈希须匹配",
+        "quotePairing": {"maxSkewSeconds": MAX_QUOTE_SKEW_SECONDS, "timezone": "Asia/Shanghai",
+                         "requireSameSource": True, "maxQuoteAgeSeconds": None},
+        "retiredTimingKeys": list(RETIRED_TIMING_KEYS),
     }
 
 

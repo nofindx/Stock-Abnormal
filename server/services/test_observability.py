@@ -47,6 +47,7 @@ class RealtimeHealthTests(unittest.TestCase):
         client._fetch_tencent = Mock(side_effect=RuntimeError("timeout"))
         client._fetch_sina = Mock(return_value={"000001.SZ": {
             "current": 10.0, "preClose": 9.0, "pctChg": 11.11,
+            "updatedAt": "2026-11-09T11:30:00", "source": "新浪行情",
         }})
         client._fetch_eastmoney = Mock(return_value={})
         result = client.fetch_many(["000001.SZ"])
@@ -201,14 +202,14 @@ class DetailDataQualityTests(unittest.TestCase):
                 "index_return_vector": vector,
             },
         )
-        service._realtime = SimpleNamespace(fetch_many=lambda _codes: quotes)
+        service._realtime = SimpleNamespace(fetch_many=lambda _codes, **_options: quotes)
         service._future_trade_dates = lambda _latest, _count: []
         return service
 
     def test_mysql_base_and_both_realtime_quotes_are_reported_as_realtime(self):
         service = self._service({
-            "000001.SZ": {"current": 11.0, "pctChg": 10.0, "updatedAt": "2026-09-30T10:00:00"},
-            "399107.SZ": {"current": 101.0, "pctChg": 1.0, "updatedAt": "2026-09-30T10:00:00"},
+            "000001.SZ": {"current": 11.0, "pctChg": 10.0, "source": "腾讯行情", "updatedAt": "2026-09-30T10:00:00"},
+            "399107.SZ": {"current": 101.0, "pctChg": 1.0, "source": "腾讯行情", "updatedAt": "2026-09-30T10:00:00"},
         })
         service._detail_realtime_allowed = lambda: True
         try:

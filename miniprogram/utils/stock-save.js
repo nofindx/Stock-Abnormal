@@ -14,7 +14,8 @@ const shown = node => node && node.width > 0 && node.height > 0 && node.visibili
 
 function stockSaveSignature(data) {
   const { generatedAt, ...display } = captureStockShare(data)
-  return JSON.stringify({ display, visibleDays: data.visibleDays,
+  return JSON.stringify({ display, monitoring: (data.detail || {}).monitoringSummaries || [],
+    trading: (data.detail || {}).tradingBanner || null, visibleDays: data.visibleDays,
     rows: (data.inputRows || []).map(row => ({ day: row.day, date: row.date, stock: row.stock, index: row.index,
       deviation10: row.deviation10, deviation30: row.deviation30, space: row.space })) })
 }

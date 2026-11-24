@@ -4,7 +4,7 @@
 
 ## 当前版本
 
-微信正式版为 **2.0.3**，发布标识 `20261115.2`，预测规则 `v75`。已完成备案、微信认证和隐私指引。广告关闭，10 日模拟和次日预测免费。
+微信正式版基线为 **2.0.3 / 20261115.2 / v75**。**2.0.4 / 20261124.1 / v76** 已开始执行编译和发布，各环节结果见[2.0.4 候选记录](releases/2.0.4/README.md)，未完成前不视作公众版已更新。已完成备案、微信认证和隐私指引。广告关闭，10 日模拟和次日预测免费。
 
 日常从[文档目录](docs/README.md)进入。正式版源码和验收见[2.0.3 发布归档](releases/2.0.3/README.md)。线上状态和待办见[正式上线清单](docs/05-正式上线清单.md)。
 
@@ -25,16 +25,16 @@
 ## 启动后端
 
 ```bash
-TUSHARE_TOKEN=你的token \\
-MYSQL_HOST=127.0.0.1 \\
-MYSQL_PORT=3306 \\
-MYSQL_USER=... \\
-MYSQL_PASSWORD=... \\
-MYSQL_DATABASE=stock_abnormal \\
+TUSHARE_TOKEN=你的token \
+MYSQL_HOST=127.0.0.1 \
+MYSQL_PORT=3306 \
+MYSQL_USER=... \
+MYSQL_PASSWORD=... \
+MYSQL_DATABASE=stock_abnormal \
 python3 -m server.app
 ```
 
-默认监听 `http://127.0.0.1:8787`。Token 和数据库凭证只能通过环境变量注入，不进入小程序包、接口响应或日志。
+默认监听 `http://127.0.0.1:8787`。此示例仅启动服务；S1/S2 还需要签名密钥、已初始化的共享发布表、Redis 及匹配的来源配置，按[生产操作手册](docs/04-生产操作手册.md#11-本地联调与来源配置)准备。环境字段见 `server/.env.example`；凭据通过环境注入。
 
 ## 微信开发者工具
 
@@ -94,5 +94,5 @@ POST /api/quotes/realtime
 - 端口：`80`
 
 根目录 `Dockerfile` 负责安装 `server/requirements.txt` 并启动
-`python -m server.app`；`server/Dockerfile` 可在把 `server` 设为独立构建上下文时使用。
+`python -m server.release`，幂等应用选定的共享发布迁移后启动 `server.app`。旧的 `server/Dockerfile` 已移除；根镜像同时安装公告 OCR 依赖。
 当前云托管沿用腾讯云 Redis 进行短时报价缓存与跨实例请求协调；已发布数据集、公告事实与授权视图由共享 MySQL 管理，盘中结果不覆盖正式收盘数据集。发布后先检查 `/health`，再按测试文档执行 API 和小程序验收。生产发布使用微信云托管控制台，不使用 CloudBase CLI。

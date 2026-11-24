@@ -53,11 +53,16 @@
               <text class="next-day-forecast-result stock-export-node" data-export-section="status" data-export-text="{{detail.futureForecastText}}" data-export-kind="text">{{detail.futureForecastText}}</text>
             </view>
           </view>
-          <view wx:if="{{detail.monitoringSummary}}" class="monitoring-summary stock-export-node" data-export-section="status" data-export-kind="box">
+          <view wx:if="{{detail.tradingBanner}}" class="trading-status stock-export-node" data-export-section="status" data-export-kind="box">
+            <text class="trading-status-label stock-export-node" data-export-section="status" data-export-text="{{detail.tradingBanner.label}}" data-export-kind="text">{{detail.tradingBanner.label}}</text>
+            <text wx:if="{{detail.tradingBanner.reason}}" class="stock-export-node" data-export-section="status" data-export-text="{{detail.tradingBanner.reason}}" data-export-kind="text">{{detail.tradingBanner.reason}}</text>
+          </view>
+          <view wx:for="{{detail.monitoringSummaries}}" wx:for-item="monitorEntry" wx:key="key" class="monitoring-summary stock-export-node" data-export-section="status" data-export-kind="box">
             <view class="monitoring-divider stock-export-node" data-export-section="status" data-export-kind="box"></view>
-            <text class="monitoring-badge stock-export-node" data-export-section="status" data-export-text="{{detail.monitoringSummary.badgeText}}" data-export-kind="text">{{detail.monitoringSummary.badgeText}}</text>
-            <view class="monitoring-meta stock-export-node" data-export-section="status" data-export-kind="box"><text class="stock-export-node" data-export-section="status" data-export-text="监管日期：{{detail.monitoringSummary.dateText}} · 剩余" data-export-kind="text">监管日期：{{detail.monitoringSummary.dateText}} · 剩余 </text><text class="monitoring-emphasis stock-export-node" data-export-section="status" data-export-text="{{detail.monitoringSummary.remainingText}}" data-export-kind="text">{{detail.monitoringSummary.remainingText}}</text><text class="stock-export-node" data-export-section="status" data-export-text="天" data-export-kind="text"> 天</text></view>
-            <view class="monitoring-reason stock-export-node" data-export-section="status" data-export-kind="box"><text class="stock-export-node" data-export-section="status" data-export-text="监管原因：" data-export-kind="text">监管原因：</text><text class="stock-export-node" data-export-section="status" data-export-text="{{detail.monitoringSummary.ruleText}}" data-export-kind="text">{{detail.monitoringSummary.ruleText}}</text></view>
+            <text class="monitoring-badge stock-export-node" data-export-section="status" data-export-text="{{monitorEntry.badgeText}}" data-export-kind="text">{{monitorEntry.badgeText}}</text>
+            <view wx:if="{{monitorEntry.pendingStart}}" class="monitoring-meta stock-export-node" data-export-section="status" data-export-text="监管日期：{{monitorEntry.dateText}}" data-export-kind="text">监管日期：{{monitorEntry.dateText}}</view>
+            <view wx:else class="monitoring-meta stock-export-node" data-export-section="status" data-export-kind="box"><text class="stock-export-node" data-export-section="status" data-export-text="监管日期：{{monitorEntry.dateText}} · 剩余" data-export-kind="text">监管日期：{{monitorEntry.dateText}} · 剩余 </text><text class="monitoring-emphasis stock-export-node" data-export-section="status" data-export-text="{{monitorEntry.remainingText}}" data-export-kind="text">{{monitorEntry.remainingText}}</text><text class="stock-export-node" data-export-section="status" data-export-text="天" data-export-kind="text"> 天</text></view>
+            <view class="monitoring-reason stock-export-node" data-export-section="status" data-export-kind="box"><text class="stock-export-node" data-export-section="status" data-export-text="监管原因：" data-export-kind="text">监管原因：</text><text class="stock-export-node" data-export-section="status" data-export-text="{{monitorEntry.ruleText}}" data-export-kind="text">{{monitorEntry.ruleText}}</text></view>
           </view>
         </view>
 

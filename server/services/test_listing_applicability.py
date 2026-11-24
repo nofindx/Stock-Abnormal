@@ -64,7 +64,7 @@ class ListingApplicabilityTests(unittest.TestCase):
 
     def test_only_post_ipo_returns_and_matching_index_are_used(self):
         stocks, indexes = self.vectors(7)
-        filtered, paired, meta, _ = self.service._rule_vectors_for_stock(self.stock, stocks, indexes)
+        filtered, paired, meta = self.service._rule_vectors_for_stock(self.stock, stocks, indexes)
         self.assertEqual([row["date"] for row in filtered], DAYS[5:])
         self.assertEqual([row["date"] for row in paired], DAYS[5:])
         self.assertEqual(len(stocks), 7)  # original source is unchanged

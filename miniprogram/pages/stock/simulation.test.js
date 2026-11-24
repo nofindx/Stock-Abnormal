@@ -183,16 +183,17 @@ assert.deepStrictEqual(buildNextDayForecast(
   summaryTone: 'safe'
 })
 assert.strictEqual(formatMonthDay('2026-10-19'), '20261019')
-assert.strictEqual(monitoringRuleLabel({ riskTone: 'severe-30d', monitorType: '30日严重异动', symbol: '600825' }), '连续30个交易日内收盘价涨幅偏离值累计达到 +200%')
-assert.strictEqual(monitoringRuleLabel({ riskTone: 'severe-10d', monitorType: '10日严重异动', symbol: '920229' }), '连续10个交易日内收盘价涨幅偏离值累计达到 +150%')
-assert.strictEqual(monitoringRuleLabel({ riskTone: 'severe-10d', eventDirection: 'down', symbol: '600825' }), '连续10个交易日内收盘价跌幅偏离值累计达到 -50%')
+assert.strictEqual(monitoringRuleLabel({ riskTone: 'severe-30d', monitorType: '30日严重异动', symbol: '600825' }), '30日严重异动，以公告为准')
+assert.strictEqual(monitoringRuleLabel({ riskTone: 'severe-10d', monitorType: '10日严重异动', symbol: '920229' }), '10日严重异动，以公告为准')
+assert.strictEqual(monitoringRuleLabel({ riskTone: 'severe-10d', eventDirection: 'down', symbol: '600825' }), '10日严重异动，以公告为准')
 assert.strictEqual(monitoringRuleLabel({ riskTone: 'ordinary' }), '交易所将对该证券的异常交易行为进行进一步从严认定')
 assert.strictEqual(monitoringRuleLabel({ riskTone: 'delisting-warning' }), '股票进入退市整理期')
 assert.strictEqual(formatMonitoringSummary({ active: true, riskTone: 'delisting-warning', monitorStartDate: '2026-09-30', monitorEndDate: '2026-10-27' }, '20261026').badgeText, '退市整理期')
 assert.strictEqual(formatMonitoringSummary({ active: true, monitorType: '退市倒计时', monitorStartDate: '2026-09-30', monitorEndDate: '2026-10-27' }, '20261026').badgeText, '退市整理期')
 assert.strictEqual(formatMonitoringSummary({ active: true, riskTone: 'severe-10d', monitorStartDate: '2026-10-23', monitorEndDate: '2026-11-05' }, '20261026').badgeText, '已被重点监管')
 assert.deepStrictEqual(formatMonitoringSummary({ active: true, monitorStartDate: '2026-10-15', monitorEndDate: '2026-10-22', monitorDates: ['2026-10-16', '2026-10-19', '2026-10-20', '2026-10-21', '2026-10-22'], riskTone: 'severe-10d', days: 4 }, '20261018'), {
-  dateText: '20261015-20261022', badgeText: '已被重点监管', ruleText: '连续10个交易日内收盘价涨幅偏离值累计达到 +100%', remainingText: '4'
+  key: 'severe-10d|2026-10-15|2026-10-22||', pendingStart: false,
+  dateText: '20261015-20261022', badgeText: '已被重点监管', ruleText: '10日严重异动，以公告为准', remainingText: '4'
 })
 assert.strictEqual(remainingMonitoringDays({ monitorDates: ['2026-10-18', '2026-10-19', '2026-10-20'] }, '20261018'), '2')
 assert.strictEqual(remainingMonitoringDays({ monitorDates: ['2026-10-20', '2026-10-21'], monitorEndDate: '2026-10-21' }, '20261017'), '4')
@@ -618,3 +619,11 @@ for (const days of [2, 10]) {
 }
 
 console.log('stock simulation tests passed')
+
+const sameDirectionBasis = { kind: 'same_direction', ruleKey: 'same_direction_10d', windowDays: 9,
+  count: 4, text: '公告认定：连续9个交易日内出现4次同向异常波动' }
+assert.strictEqual(monitoringRuleLabel({ riskTone: 'severe-10d', recognitionBasis: [sameDirectionBasis] }), sameDirectionBasis.text)
+assert.strictEqual(monitoringRuleLabel({ riskTone: 'severe-10d', ruleText: sameDirectionBasis.text }), sameDirectionBasis.text)
+assert(!monitoringRuleLabel({ riskTone: 'severe-10d' }).includes('100%'), 'old facts must not invent a price recognition basis')
+const mixedBases = [sameDirectionBasis, { kind: 'price_deviation', text: '公告认定：连续8个交易日收盘价涨幅偏离值达到+117.06%' }]
+assert.strictEqual(monitoringRuleLabel({ riskTone: 'severe-10d', recognitionBasis: mixedBases }), mixedBases.map(x => x.text).join('；'))

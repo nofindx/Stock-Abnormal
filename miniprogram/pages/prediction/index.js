@@ -61,7 +61,7 @@ Page({
     this._predictionBoundaryKey = predictionBoundaryKey()
     const initialBoundary = this._predictionBoundaryKey
     this.initialLoad = this.loadData().then((result) => {
-      if (result && initialBoundary === this._predictionBoundaryKey && initialBoundary === predictionBoundaryKey() && result.realtimeRefreshAllowed && this.data.scope === 'today') return this.refresh()
+      if (result && initialBoundary === this._predictionBoundaryKey && initialBoundary === predictionBoundaryKey() && result.realtimeRefreshAllowed && this.data.scope === 'today') return this.refresh({ reuseContext: true })
       return result
     })
     return this.initialLoad
@@ -217,16 +217,16 @@ Page({
       this.setData({ loading: false, error: '预测数据暂时不可用，请稍后重试' })
     })
   },
-  refresh() {
+  refresh(options = {}) {
     if (this._predictionBoundaryKey && this._predictionBoundaryKey !== predictionBoundaryKey()) {
-      return Promise.resolve(this.checkTimeBoundary()).then(() => this.refresh())
+      return Promise.resolve(this.checkTimeBoundary()).then(() => this.refresh(options))
     }
     if (this.data.refreshing || this.data.loading) return Promise.resolve()
     this.setData({ refreshing: true, error: '' })
     const scope = this.data.scope
     const boundary = predictionBoundaryKey()
     const requestId = this.readRequestId
-    return refreshPredictions(scope, this.readResult).then((result) => {
+    return refreshPredictions(scope, this.readResult, { reuseContext: options.reuseContext === true }).then((result) => {
       if (requestId !== this.readRequestId || scope !== this.data.scope || boundary !== predictionBoundaryKey()) return null
       if (result.nextDayAvailable === false && this._scopeViews) delete this._scopeViews.next_day
       if (this.returnToTodayIfClosed(result, scope)) return this.loadData()
@@ -250,7 +250,7 @@ Page({
     })
   },
   onPullDownRefresh() {
-    // 手动刷新取最新行情；已加载标签切回只恢复本页内存视图。
+    // 手动先取最新已发布名单/事实，再取报价；已加载标签切回只恢复本页内存视图。
     return this.refresh().finally(() => wx.stopPullDownRefresh())
   },
   openStock(event) {
