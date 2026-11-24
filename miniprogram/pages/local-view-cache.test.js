@@ -100,6 +100,13 @@ async function run() {
   stock.data.inputRows[0].stock = '5'
   stock.renderStockDetail(stockBaseline, { items: [] }, a, stock.detailRequestId)
   assert.strictEqual(stock.data.inputRows[0].stock, '5', 'unchanged S1 baseline preserves simulation input')
+  stock.resetSimulationInputs()
+  stock.editRow({ currentTarget: { dataset: { row: 0, field: 'stock' } }, detail: { value: '6' } })
+  await stock.expandSimulation()
+  assert.strictEqual(stock.data.visibleDays, 10)
+  stock.renderStockDetail(stockBaseline, { items: [] }, a, stock.detailRequestId)
+  assert.strictEqual(stock.data.inputRows[0].stock, '6', 'same-stock reentry and subsequent unchanged S1 retain newly entered input')
+  assert.strictEqual(stock.data.visibleDays, 10, 'same-stock reentry must use the complete baseline identity when resetting the session')
   stock.renderStockDetail({ ...stockBaseline, calculationBasisId: 'same-day-after-reset' }, { items: [] }, a, stock.detailRequestId)
   assert.strictEqual(stock.data.inputRows[0].stock, '', 'same-day reset requires a new default simulation baseline')
   assert.strictEqual(stock.data.visibleDays, 2)

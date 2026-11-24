@@ -26,6 +26,10 @@ function createInputRows(days, dates = []) {
   }))
 }
 
+function simulationBaselineKey(code, detail, dates = []) {
+  return JSON.stringify([code, detail.calculationBasisId || '', detail.tradeDate || '', dates[0] || ''])
+}
+
 function buildMatrixGroups(rows) {
   const fields = [
     { key: 'stock', label: '股票涨幅', editable: true },
@@ -866,7 +870,7 @@ Page({
         monitoringStatus: monitoring ? 'active' : 'none',
         monitoringStatusDisplay: monitoring ? '监管中' : '' }
       const futureTradeDates = detailWithMonitoring.futureTradeDates || []
-      const baseKey = JSON.stringify([stockCode, detailWithMonitoring.calculationBasisId || '', detailWithMonitoring.tradeDate || '', futureTradeDates[0] || ''])
+      const baseKey = simulationBaselineKey(stockCode, detailWithMonitoring, futureTradeDates)
       const sameBaseline = this._simulationBaseline === baseKey
       if (!sameBaseline) this.invalidateSimulationAccess()
       this._simulationBaseline = baseKey
@@ -933,10 +937,10 @@ Page({
   },
   resetSimulationInputs() {
     this.invalidateSimulationAccess()
-    if (this.data.detail) this._simulationBaseline = JSON.stringify([
+    if (this.data.detail) this._simulationBaseline = simulationBaselineKey(
       (this.data.selected || {}).ts_code || this.data.detail.ts_code,
-      this.data.detail.tradeDate || '', this.data.futureTradeDates[0] || ''
-    ])
+      this.data.detail, this.data.futureTradeDates
+    )
     const inputRows = calculateSimulationRows(createInputRows(2, this.data.futureTradeDates), this.data.detail)
     this.setData({ simulationExpanded: false, visibleDays: 2, inputRows, matrixGroups: buildMatrixGroups(inputRows), simulationReady: Boolean(this.data.detail) })
   },
