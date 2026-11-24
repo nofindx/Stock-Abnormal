@@ -1,0 +1,69 @@
+{
+  "recordedAt": "2026-11-24T09:51:37.686211-05:00",
+  "reportedCloudVersion": "flask-9a5y-328",
+  "status": "awaiting_rebuild_after_production_branch_sync",
+  "expectedRelease": {
+    "releaseId": "20261124.1",
+    "miniProgramVersion": "2.0.4",
+    "quoteRefreshPolicy": "latest-available-all-hours"
+  },
+  "expectedPredictionVersion": "v76",
+  "samples": [
+    {
+      "release": {
+        "releaseId": "20261115.2",
+        "miniProgramVersion": "2.0.3",
+        "quoteRefreshPolicy": "latest-available-all-hours"
+      },
+      "predictionVersions": {
+        "today": "v75",
+        "next_day": "v75"
+      },
+      "redisPing": true,
+      "sourcePolicyGate": "pass"
+    },
+    {
+      "release": {
+        "releaseId": "20261115.2",
+        "miniProgramVersion": "2.0.3",
+        "quoteRefreshPolicy": "latest-available-all-hours"
+      },
+      "predictionVersions": {
+        "today": "v75",
+        "next_day": "v75"
+      },
+      "redisPing": true,
+      "sourcePolicyGate": "pass"
+    },
+    {
+      "release": {
+        "releaseId": "20261115.2",
+        "miniProgramVersion": "2.0.3",
+        "quoteRefreshPolicy": "latest-available-all-hours"
+      },
+      "predictionVersions": {
+        "today": "v75",
+        "next_day": "v75"
+      },
+      "redisPing": true,
+      "sourcePolicyGate": "pass"
+    }
+  ],
+  "responseCacheControl": "no-store, no-cache, must-revalidate, max-age=0",
+  "buildCommit": "not_yet_confirmed",
+  "trafficCutover": "not_yet_confirmed",
+  "requiredFollowup": "沿既有流水线重新构建发布已同步的Stock-Abnormal；实际接口变为2.0.4/20261124.1后再验收v76、v35和S1/S2。328原镜像不会因Git更新自动变化。",
+  "confirmedRepositoryGap": {
+    "productionBranch": "Stock-Abnormal",
+    "before": "3d82dd04c90d0eef99058b2724977da793289257",
+    "releaseAtOldBranch": "2.0.3 / 20261115.2",
+    "candidateBranch": "codex/ads-v2-design-20261112"
+  },
+  "remediation": {
+    "productionBranch": "Stock-Abnormal",
+    "verifiedSynchronizedCommit": "6d97f4fcca3786d190e5813a288ba1e539093fd1",
+    "method": "fast-forward, no force push",
+    "developmentAndProductionHeadsMatch": true,
+    "frozenTagPreserved": "freeze/v2.0.3-20261121"
+  }
+}

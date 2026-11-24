@@ -1,5 +1,5 @@
 {
-  "recordedAt": "2026-11-24T08:50:41.186064-05:00",
+  "recordedAt": "2026-11-24T09:51:37.686211-05:00",
   "codeCommit": "1ce2fcaabbb7525905a234c66e82f2b464bb0460",
   "gitPush": "passed",
   "baselineBeforeDeployment": {
@@ -37,7 +37,7 @@
     }
   },
   "wechatCompile": "passed_official_devtools_preview",
-  "backendDeployment": "awaiting_user_console_publish",
+  "backendDeployment": "production_branch_synced_awaiting_user_rebuild",
   "miniUpload": "passed_official_devtools_2.0.4",
   "trueDevice": "pending",
   "publicRelease": "pending",
@@ -81,5 +81,9 @@
       "outboxPending": 0
     }
   },
-  "newBackendAcceptance": "pending_deployment"
+  "newBackendAcceptance": "pending_new_runtime_after_rebuild",
+  "reportedCloudVersion": "flask-9a5y-328",
+  "latestRuntimeCheck": "cloud-328-verification.json",
+  "productionBranch": "Stock-Abnormal",
+  "productionBranchSync": "passed_fast_forward_to_6d97f4f"
 }
