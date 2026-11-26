@@ -6,11 +6,27 @@ function searchStocks(query) {
 }
 
 function getStockDetail(tsCode) {
-  return withReadContext('stock', 'current', tsCode, (token) => request({
+  return readLatestS1('stock', 'current', tsCode, (token) => request({
     url: '/api/v2/stocks/detail',
     data: { security_id: tsCode, read_token: token },
     timeout: 30000
-  })).then((response) => response.data || null)
+  }).then(response => response.data || null))
+}
+
+function readLatestS1(page, role, code, readLegacy) {
+  const acquire = () => getVNextContext(page, role, code, { includeS1: true }).then(context => {
+    if (!context || !context.read_token || !context.read_token.value) throw new Error('读取上下文不可用')
+    if (!Object.prototype.hasOwnProperty.call(context, 's1')) return readLegacy(context.read_token.value)
+    const s1 = context.s1
+    if (!s1 || !s1.read_token || s1.read_token.value !== context.read_token.value ||
+        ['dataset_id', 'dataset_version', 'pool_hash', 'pool_version', 'rule_version', 'time_context_id'].some(key => s1[key] !== context[key]) ||
+        page === 'stock' && s1.ts_code !== code) throw new Error('读取数据与授权范围不一致')
+    return s1
+  })
+  return acquire().catch(error => {
+    if (error.code !== 40902) throw error
+    return acquire()
+  })
 }
 
 function withReadContext(page, role, code, action, readResult) {
@@ -53,7 +69,7 @@ function getMonitor(options = {}) {
 
 function getPredictions(scope) {
   const role = scope === 'next_day' ? 'next' : 'current'
-  return withReadContext('prediction', role, '', token => getVNextPredictions(token, role))
+  return readLatestS1('prediction', role, '', token => getVNextPredictions(token, role))
 }
 
 function getNextPredictionStatus() {
@@ -80,6 +96,7 @@ function refreshLatestRead(readLatest, refreshQuotes, previous, options) {
   return readLatest().then(fresh => {
     if (!fresh) throw new Error('最新数据暂不可用')
     if (fresh.realtimeRefreshAllowed === false || fresh.nextDayAvailable === false && options.role === 'next') return fresh
+    if (typeof options.onS1 === 'function') options.onS1(fresh)
     return refreshQuotes(fresh).catch(() => ({
       ...fresh, refreshStatus: 'failed', refresh_state: 'failed', result_state: 'stale',
       reasons: ['REALTIME_REFRESH_FAILED']
@@ -93,9 +110,11 @@ function getRealtimeQuotes(tsCodes) {
 }
 
 // S1 pins the published pool; S2 updates only that authorized pool's quotes.
-function getVNextContext(page, role = 'current', securityId = '') {
+function getVNextContext(page, role = 'current', securityId = '', options = {}) {
   const entryId = `${Date.now()}-${Math.random().toString(36).slice(2)}`
-  return request({ url: '/api/v2/context', data: { page, role, security_id: securityId, entry_id: entryId }, timeout: 8000 }).then((response) => response.data || null)
+  const data = { page, role, security_id: securityId, entry_id: entryId }
+  if (options.includeS1) data.include_s1 = '1'
+  return request({ url: '/api/v2/context', data, timeout: 8000 }).then((response) => response.data || null)
 }
 
 function getVNextPredictions(readToken, role = 'current') {

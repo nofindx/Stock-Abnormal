@@ -27,6 +27,10 @@ function createInputRows(days, dates = []) {
 }
 
 function simulationBaselineKey(code, detail, dates = []) {
+  // The server hashes the published simulation inputs, thresholds and dates.
+  // S1's close date and S2's live quote date can differ without a new basis.
+  // Reusing those display dates would reset inputs during every S1 -> S2.
+  if (detail.calculationBasisId) return JSON.stringify([code, detail.calculationBasisId])
   return JSON.stringify([code, detail.calculationBasisId || '', detail.tradeDate || '', dates[0] || ''])
 }
 
@@ -812,13 +816,14 @@ Page({
     }
     const requestId = this.detailRequestId
     const boundary = businessBoundaryKey()
-    const request = refreshStockDetail(stock.ts_code, this.stockReadResult).then(detail => {
+    const render = detail => {
       if (requestId !== this.detailRequestId || boundary !== businessBoundaryKey()) return
       this.stockReadResult = detail
       this.renderStockDetail(detail, { items: detail.monitoringFacts || [] }, stock, requestId)
       this.showQuoteRefreshState(detail, requestId)
       this.saveStockView(detail)
-    }).catch(() => {
+    }
+    const request = refreshStockDetail(stock.ts_code, this.stockReadResult, { onS1: render }).then(render).catch(() => {
       if (requestId === this.detailRequestId) wx.showToast({ title: '刷新失败，请稍后重试', icon: 'none' })
     })
     this.detailRefreshPromise = request.finally(() => {

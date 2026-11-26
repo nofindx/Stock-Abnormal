@@ -3,9 +3,10 @@ from copy import copy, deepcopy
 from datetime import timedelta
 import hashlib
 from types import SimpleNamespace
-from server.data.publication_store import canonical, PublicationUnavailable
+from server.data.publication_store import canonical, PublicationUnavailable, PublicationStore
 from server.services.market_service import PREDICTION_RULE_VERSION, _index_code_for_stock
 from server.services.context_service import ContextService
+from server.services.read_performance import READ_PERFORMANCE
 
 
 class ReadPublications:
@@ -15,12 +16,19 @@ class ReadPublications:
     def capture(self, scope):
         # Pin announcement facts once per request; never let each stock read a
         # different worker's latest snapshot during the same calculation.
-        snapshot = (self.service._monitor_provider() or {}) if self.service._monitor_provider else {}
+        provider = self.service._monitor_provider
+        owner = getattr(provider, "__self__", None)
+        with READ_PERFORMANCE.measure("s1.monitor"):
+            if scope["page"] == "stock" and isinstance(owner, PublicationStore):
+                snapshot = owner.active_snapshot_for([scope["security_id"]]) or {}
+            else:
+                snapshot = (provider() or {}) if provider else {}
         service = copy(self.service)
         service._monitor_provider = lambda: snapshot
         page, role = scope["page"], scope["role"]
         if page == "prediction":
-            data = service.predictions("today" if role == "current" else "next_day")
+            with READ_PERFORMANCE.measure("s1.prediction"):
+                data = service.predictions("today" if role == "current" else "next_day")
             codes = sorted({x.get("ts_code") for x in data.get("items", []) if x.get("ts_code")})
         elif page == "stock":
             codes = [scope["security_id"]]
@@ -30,7 +38,8 @@ class ReadPublications:
             codes = []
         repo = self.service._calc_repository
         if hasattr(repo, "read_inputs"):
-            calculations, indexes = repo.read_inputs(codes, _index_code_for_stock)
+            with READ_PERFORMANCE.measure("s1.inputs"):
+                calculations, indexes = repo.read_inputs(codes, _index_code_for_stock)
         else:  # injected/local repository adapters retain the same contract
             calculations = {code: repo.get_calc(code) for code in codes}
             indexes = {code: repo.get_index(code) for code in {
@@ -42,7 +51,8 @@ class ReadPublications:
             service._calc_repository = SimpleNamespace(available=True,
                 get_calc=lambda code: deepcopy(calculations.get(code)),
                 get_index=lambda code: deepcopy(indexes.get(code)))
-            data = service.detail(scope["security_id"], use_realtime=False)
+            with READ_PERFORMANCE.measure("s1.render"):
+                data = service.detail(scope["security_id"], use_realtime=False)
             data.setdefault("realtimeRefreshAllowed", service._detail_realtime_allowed())
             # Identifies simulation inputs before live quotes. An announcement
             # reset can change the baseline without changing its trading date.
@@ -61,7 +71,8 @@ class ReadPublications:
             data["monitoringFacts"] = deepcopy(snapshot["items"])
         basis = {"stocks": rows, "calculations": calculations, "indexes": indexes, "monitor": snapshot}
         payload = {"scope": scope, "data": data, "basis": basis}
-        identity = self.store.freeze_read(payload, scope)
+        with READ_PERFORMANCE.measure("s1.freeze"):
+            identity = self.store.freeze_read(payload, scope)
         members = sorted((str(x.get("ts_code") or ""), str(x.get("ruleKey") or "")) for x in data.get("items", [])) if page == "prediction" else codes
         pool_hash = hashlib.sha256(canonical(members).encode()).hexdigest()
         return identity, payload, pool_hash, len(codes)

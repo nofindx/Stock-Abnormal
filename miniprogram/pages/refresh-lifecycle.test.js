@@ -28,6 +28,19 @@ async function run() {
   assert.deepStrictEqual([reads, quotes], [1, 1], 'returning to the tab must retain the current view')
   await prediction.onPullDownRefresh()
   assert.deepStrictEqual([reads, quotes], [1, 2], 'manual refresh remains enabled')
+  let finishPrediction
+  api.refreshPredictions = (_scope, _previous, options) => {
+    options.onS1({ items: [{ ts_code: 'NEW', predictionKey: 'new-key', name: '新名单' }], monitoringFacts: [], realtimeRefreshAllowed: true })
+    return new Promise(resolve => { finishPrediction = resolve })
+  }
+  const progressingPrediction = page('./prediction/index')
+  const updatingPrediction = progressingPrediction.onPullDownRefresh()
+  assert.strictEqual(progressingPrediction.data.items[0].ts_code, 'NEW', 'new S1 list displays while quotes are pending')
+  assert.strictEqual(progressingPrediction.data.refreshing, true, 'showing S1 must not end the S2 loading indicator')
+  finishPrediction({ items: [{ ts_code: 'NEW', predictionKey: 'new-key', name: '新名单', change: '+1.00%' }] })
+  await updatingPrediction
+  assert.strictEqual(progressingPrediction.data.refreshing, false)
+  api.refreshPredictions = async () => { quotes++; return { items: [] } }
   prediction.switchScope({ currentTarget: { dataset: { scope: 'next_day' } } })
   await Promise.resolve()
   prediction.switchScope({ currentTarget: { dataset: { scope: 'today' } } })
@@ -63,6 +76,23 @@ async function run() {
   assert.strictEqual(stock.data.simulationReady, true, 'the existing detail baseline is recalculated before the page is shown')
   await stock.onPullDownRefresh()
   assert.deepStrictEqual([stockReads, stockQuotes], [1, 2])
+  let finishStock
+  api.refreshStockDetail = (code, _previous, options) => {
+    options.onS1({ ...result(code), currentPrice: '12.34', monitoringFacts: [{ sourceId: 'new-fact' }] })
+    return new Promise(resolve => { finishStock = resolve })
+  }
+  const progressingStock = page('./stock/index')
+  progressingStock.data.selected = { ts_code: '002724.SZ', name: '海洋王' }
+  progressingStock.detailRequestId = 1
+  progressingStock.renderStockDetail = stock.renderStockDetail
+  const updatingStock = progressingStock.onPullDownRefresh()
+  assert.strictEqual(progressingStock.data.detail.currentPrice, '12.34', 'new S1 renders while the quote refresh is pending')
+  assert.strictEqual(progressingStock.data.detail.monitoringFacts[0].sourceId, 'new-fact')
+  const activeStock = progressingStock.data.selected.ts_code
+  finishStock({ ...result(activeStock), currentPrice: '12.56' })
+  await updatingStock
+  assert.strictEqual(progressingStock.data.detail.currentPrice, '12.56')
+  api.refreshStockDetail = async code => { stockQuotes++; return result(code) }
   await stock.chooseStock({ ts_code: '603278.SH', name: '大业股份' })
   assert.deepStrictEqual([stockReads, stockQuotes], [2, 3], 'opening a different security initializes its quotes once')
   stock.showQuoteRefreshState({ result_state: 'stale', reasons: ['INDEX_QUOTE_UNAVAILABLE'] }, stock.detailRequestId)

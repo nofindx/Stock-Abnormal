@@ -1,0 +1,45 @@
+{
+  "release": {
+    "releaseId": "20261125.1",
+    "miniProgramVersion": "2.0.5",
+    "quoteRefreshPolicy": "latest-available-all-hours"
+  },
+  "calculationVersion": "v76",
+  "contains204Changes": true,
+  "localImplementation": "complete",
+  "backendTests": {
+    "testsRun": 501,
+    "passed": 500,
+    "skipped": 1,
+    "reason": "existing isolated MySQL recovery drill not configured"
+  },
+  "frontendTests": {
+    "files": 17,
+    "allPassed": true
+  },
+  "officialDevtoolsPreview": {
+    "status": "passed",
+    "bytes": 371637,
+    "version": "2.0.5"
+  },
+  "officialDevtoolsFixturePages": {
+    "status": "passed",
+    "firstOpenAndManualRequests": 2,
+    "sameStockReentryRequests": 0,
+    "stockWarnings": 4,
+    "inputAndTenDayPreserved": true,
+    "trueDevice": false
+  },
+  "code007": "new manual entry reads latest S1 before S2; idempotent retry pins original; old S1 and scoped S2 remain immutable; expanded combined-response role and old-client compatibility checks passed",
+  "simulationRegression": "same published calculationBasisId preserves user input and 10-day layout across differing S1 close/S2 quote display dates; changed basis resets; absent ID retains legacy date fallback",
+  "gitCommitPush": "pending",
+  "backendDeployment": "pending",
+  "miniProgramVersionUpload": "passed_official_devtools_2.0.5",
+  "trueDevice": "pending",
+  "performanceTarget": "normal agreed true-device samples <=3000ms, target <=2000ms; not certified by fixtures",
+  "productionBaseline": "backend 2.0.4; public mini program 2.0.3 as last confirmed",
+  "externalAnnouncementCoverage": "previous CNINFO partial remains a separate operational item",
+  "sourcePerformancePolicy": "no provider priority, timeout, quote TTL, pairing, S2 worker or cloud resource changes; follow measured cloud stages after deployment",
+  "uploadBytes": 372227,
+  "deliveryDate": "2026-11-26"
+}

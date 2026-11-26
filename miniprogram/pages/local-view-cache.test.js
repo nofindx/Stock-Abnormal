@@ -107,9 +107,23 @@ async function run() {
   stock.renderStockDetail(stockBaseline, { items: [] }, a, stock.detailRequestId)
   assert.strictEqual(stock.data.inputRows[0].stock, '6', 'same-stock reentry and subsequent unchanged S1 retain newly entered input')
   assert.strictEqual(stock.data.visibleDays, 10, 'same-stock reentry must use the complete baseline identity when resetting the session')
+  const liveView = { ...stockBaseline, tradeDate: '20261113', futureTradeDates: ['20261116', '20261117'] }
+  stock.renderStockDetail(liveView, { items: [] }, a, stock.detailRequestId)
+  assert.strictEqual(stock.data.inputRows[0].stock, '6', 'a live quote date must not replace the published calculation basis identity')
+  stock.renderStockDetail(stockBaseline, { items: [] }, a, stock.detailRequestId)
+  assert.strictEqual(stock.data.visibleDays, 10, 'manual intermediate S1 must not collapse an existing live 10-day simulation')
+  assert.strictEqual(stock.data.inputRows[0].stock, '6')
+  stock.renderStockDetail(liveView, { items: [] }, a, stock.detailRequestId)
+  assert.strictEqual(stock.data.visibleDays, 10, 'final S2 preserves layout across the S1/S2 display-date change')
+  assert.strictEqual(stock.data.inputRows[0].stock, '6')
   stock.renderStockDetail({ ...stockBaseline, calculationBasisId: 'same-day-after-reset' }, { items: [] }, a, stock.detailRequestId)
   assert.strictEqual(stock.data.inputRows[0].stock, '', 'same-day reset requires a new default simulation baseline')
   assert.strictEqual(stock.data.visibleDays, 2)
+  const legacy = detail(a.ts_code)
+  stock.renderStockDetail(legacy, { items: [] }, a, stock.detailRequestId)
+  stock.data.inputRows[0].stock = '9'
+  stock.renderStockDetail({ ...legacy, tradeDate: '20261113' }, { items: [] }, a, stock.detailRequestId)
+  assert.strictEqual(stock.data.inputRows[0].stock, '', 'older backends without a basis ID retain the date-based invalidation fallback')
   clock = NativeDate.parse('2026-11-13T00:00:01+08:00')
   stock.onUnload(); assert.strictEqual(stock._stockViews.size, 0)
 

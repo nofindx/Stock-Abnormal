@@ -1,0 +1,9 @@
+{
+  "environment": "isolated synthetic probe; no source or production database access",
+  "beforeAlreadyCachedReadMs": 354.4,
+  "beforeConcurrentLoaderSleepMs": 350,
+  "afterAlreadyCachedReadMs": 0.002,
+  "afterUnrelatedLoaderStillRunningWhenReadStarted": true,
+  "cacheValueCorrect": true,
+  "limits": "Only demonstrates removal of cross-key cache-lock blocking; not device or production latency acceptance."
+}

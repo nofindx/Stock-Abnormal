@@ -18,7 +18,16 @@ function request(options) {
     }
   }
   return new Promise((resolve, reject) => {
+    const startedAt = Date.now()
     let attempts = 0
+    const recordTiming = statusCode => {
+      // Volatile diagnostic ring: no query, token, security, inputs or user IDs.
+      const rows = globalData.requestPerformance || (globalData.requestPerformance = [])
+      rows.push({ path: url.split('?')[0].replace(/\/jobs\/[^/]+$/, '/jobs/{id}'), method,
+        transport: baseUrl ? 'https' : 'callContainer', durationMs: Date.now() - startedAt,
+        statusCode: statusCode || 0, attempts })
+      if (rows.length > 30) rows.splice(0, rows.length - 30)
+    }
     const send = () => {
       attempts += 1
       const query = method === 'GET' && data && Object.keys(data).length
@@ -26,6 +35,7 @@ function request(options) {
         : ''
       const requestPath = `${url}${query}`
       const handleSuccess = (response) => {
+        recordTiming(response.statusCode)
         if (response.statusCode >= 200 && response.statusCode < 300 && response.data && response.data.code === 0) {
           resolve(response.data)
           return
@@ -41,6 +51,7 @@ function request(options) {
           send()
           return
         }
+        recordTiming(0)
         reject(error)
       }
 

@@ -1,0 +1,13 @@
+{
+  "environment": "local isolated regression environment; no production mutation",
+  "testsRun": 501,
+  "failures": 0,
+  "errors": 0,
+  "skipped": [
+    {
+      "test": "test_real_ddl_disconnect_reconnect_retry_and_publication_transaction (server.migrations.test_mysql_recovery.MySQLRecoveryDrill.test_real_ddl_disconnect_reconnect_retry_and_publication_transaction)",
+      "reason": "real isolated MySQL not configured"
+    }
+  ],
+  "passed": true
+}

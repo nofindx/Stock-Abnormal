@@ -125,6 +125,60 @@ async function run() {
   result = await api.refreshPredictions('next_day', saved)
   assert.strictEqual(calls.length, 2, 'closed next-day S1 must not start S2')
   assert.strictEqual(result.nextDayAvailable, false)
+  for (const page of ['prediction', 'stock']) {
+    calls = []
+    const fresh = { dataset_id: 'dataset-new', rule_version: 'v76', time_context_id: 'time-new',
+      ts_code: '600825.SH', items: [{ ts_code: 'NEW' }], monitoringFacts: [{ sourceId: 'new-notice' }],
+      realtimeRefreshAllowed: true, read_token: { value: 'embedded-new' } }
+    handler = options => {
+      if (options.url === '/api/v2/context') {
+        assert.strictEqual(options.data.include_s1, '1')
+        return Promise.resolve({ data: { ...fresh, s1: fresh } })
+      }
+      assert.strictEqual(options.url, '/api/v2/realtime/refresh')
+      assert.strictEqual(options.data.read_token, 'embedded-new')
+      return Promise.resolve({ data: { ...fresh, refresh_state: 'ready' } })
+    }
+    result = page === 'stock' ? await api.refreshStockDetail('600825.SH', saved) : await api.refreshPredictions('today', saved)
+    assert.deepStrictEqual(calls.map(call => call.url), ['/api/v2/context', '/api/v2/realtime/refresh'])
+    assert.strictEqual(result.monitoringFacts[0].sourceId, 'new-notice')
+    calls = []
+    handler = options => options.url === '/api/v2/context'
+      ? Promise.resolve({ data: { ...fresh, s1: fresh } })
+      : Promise.reject(new Error('S2 failed'))
+    result = page === 'stock' ? await api.refreshStockDetail('600825.SH', saved) : await api.refreshPredictions('today', saved)
+    assert.strictEqual(result.read_token.value, 'embedded-new', 'failed S2 keeps the embedded latest S1')
+    assert.strictEqual(result.result_state, 'stale')
+    calls = []
+    handler = () => Promise.resolve({ data: { ...fresh, s1: { ...fresh, dataset_id: 'wrong' } } })
+    await assert.rejects(page === 'stock' ? api.getStockDetail('600825.SH') : api.getPredictions('today'), /授权范围不一致/)
+    assert.strictEqual(calls.length, 1, 'mismatched embedded S1 must not proceed to S2')
+  }
+  calls = []
+  handler = () => Promise.resolve({ data: { dataset_id: 'closed', read_token: { value: 'closed' },
+    s1: { dataset_id: 'closed', read_token: { value: 'closed' }, items: [], nextDayAvailable: false } } })
+  result = await api.refreshPredictions('next_day', saved)
+  assert.strictEqual(result.nextDayAvailable, false)
+  assert.strictEqual(calls.length, 1, 'embedded closed-next S1 never starts S2')
+  for (const page of ['stock', 'prediction']) {
+    calls = []
+    const fresh = { ts_code: '600825.SH', dataset_id: 'new-list-and-facts',
+      read_token: { value: 'progress-s1' }, realtimeRefreshAllowed: true,
+      items: [{ ts_code: 'NEW' }], monitoringFacts: [{ sourceId: 'new-fact-before-quotes' }] }
+    let finishQuotes
+    let shownS1 = null
+    handler = options => options.url === '/api/v2/context'
+      ? Promise.resolve({ data: { ...fresh, s1: fresh } })
+      : new Promise(resolve => { finishQuotes = resolve })
+    const options = { onS1: value => { shownS1 = value } }
+    const pending = page === 'stock' ? api.refreshStockDetail('600825.SH', saved, options) : api.refreshPredictions('today', saved, options)
+    for (let i = 0; i < 10 && !finishQuotes; i++) await Promise.resolve()
+    assert(finishQuotes, 'S2 has started after S1 acquisition')
+    assert.strictEqual(shownS1.monitoringFacts[0].sourceId, 'new-fact-before-quotes', 'latest facts can render before a slow S2 completes')
+    assert.strictEqual(shownS1.read_token.value, 'progress-s1')
+    finishQuotes({ data: { ...fresh, refresh_state: 'ready', refreshStatus: 'applied' } })
+    await pending
+  }
   console.log('API context reuse and expiry recovery tests passed')
 }
 run().catch(error => { console.error(error); process.exitCode = 1 })

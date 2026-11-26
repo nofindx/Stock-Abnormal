@@ -226,7 +226,19 @@ Page({
     const scope = this.data.scope
     const boundary = predictionBoundaryKey()
     const requestId = this.readRequestId
-    return refreshPredictions(scope, this.readResult, { reuseContext: options.reuseContext === true }).then((result) => {
+    const onS1 = result => {
+      if (requestId !== this.readRequestId || scope !== this.data.scope || boundary !== predictionBoundaryKey()) return
+      if (scope === 'next_day' && (result.nextDayAvailable === false ||
+          this.data.nextRewarded && result.targetTradeDate !== this._nextTarget)) return
+      this.readResult = result
+      this.setData({ items: preserveItemOrder(this.data.items, normalizeItems(result.items, scope)),
+        quoteUpdatedAt: formatUpdatedAt(result.quoteUpdatedAt), dataQuality: result.dataQuality || {},
+        dataUnavailable: Boolean(result.dataUnavailable), error: refreshFailureMessage(result),
+        nextDayAvailable: result.nextDayAvailable !== false, nextDayReason: result.nextDayReason || '' })
+      getApp().globalData.lastPredictionRefresh = result.quoteUpdatedAt || null
+      this.saveScopeView(scope)
+    }
+    return refreshPredictions(scope, this.readResult, { reuseContext: options.reuseContext === true, onS1 }).then((result) => {
       if (requestId !== this.readRequestId || scope !== this.data.scope || boundary !== predictionBoundaryKey()) return null
       if (result.nextDayAvailable === false && this._scopeViews) delete this._scopeViews.next_day
       if (this.returnToTodayIfClosed(result, scope)) return this.loadData()

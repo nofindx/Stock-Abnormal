@@ -5,12 +5,14 @@ transaction. Read payloads are content-addressed: a token cannot relabel latest
 data as an older version. No DDL is executed on production request paths.
 """
 from contextlib import contextmanager
+from copy import deepcopy
 from datetime import datetime
 import hashlib
 import json
 import sqlite3
 import time
 import uuid
+from threading import Lock
 from typing import Optional
 from server.services.market_calc_repository import MarketCalcRepository
 
@@ -32,6 +34,8 @@ class PublicationStore:
         self.repository = repository or MarketCalcRepository()
         self.sqlite_path = sqlite_path
         self.clock = clock
+        self._monitor_cache = None
+        self._monitor_cache_lock = Lock()
         if sqlite_path:
             # Test-only DDL. Production always uses the explicit SQL migration.
             with self.connection() as db:
@@ -145,7 +149,9 @@ class PublicationStore:
     def entry_context(self, entry_id, fingerprint, context, ttl):
         identity = hashlib.sha256(("entry:" + entry_id).encode()).hexdigest()
         value = {"fingerprint": fingerprint, "context": context}
-        with self.locked("stock-abnormal:read:entries") as db:
+        # Only retries of this entry compete. A global lock serialized every
+        # user's otherwise independent context creation on small instances.
+        with self.locked("sa:entry:" + identity[:48]) as db:
             row = self.execute(db, "SELECT payload,expires_at FROM publication_record WHERE publication_id=%s", (identity,)).fetchone()
             if row and row[1] > self.clock():
                 db.rollback()
@@ -199,8 +205,40 @@ class PublicationStore:
         return bool(updated)
 
     def active_snapshot(self):
-        identity = self.states().get("active_snapshot_id")
-        return self.get(identity, "monitor") if identity else None
+        snapshot = self._active_monitor_content()
+        return deepcopy(snapshot) if snapshot is not None else None
+
+    def active_snapshot_for(self, securities):
+        snapshot = self._active_monitor_content()
+        if snapshot is None:
+            return None
+        symbols = {str(code).split(".")[0] for code in securities}
+        scoped = {key: value for key, value in snapshot.items()
+                  if key not in {"items", "resetFacts", "unresolvedFacts"}}
+        for key in ("items", "resetFacts", "unresolvedFacts"):
+            scoped[key] = [row for row in snapshot.get(key, [])
+                           if str(row.get("symbol") or row.get("ts_code") or "").split(".")[0] in symbols]
+        return deepcopy(scoped)
+
+    def _active_monitor_content(self):
+        # Read the authoritative pointer every time; cache only immutable
+        # content by publication ID. No TTL can hide a newer publication.
+        with self.connection() as db:
+            row = self.execute(db, "SELECT state_value FROM publication_state WHERE state_key=%s",
+                               ("active_snapshot_id",)).fetchone()
+            if not row:
+                return None
+            identity = row[0]
+            with self._monitor_cache_lock:
+                if self._monitor_cache and self._monitor_cache[0] == identity:
+                    return self._monitor_cache[1]
+                record = self.execute(db, "SELECT publication_kind,payload,expires_at FROM publication_record WHERE publication_id=%s",
+                                      (identity,)).fetchone()
+                if not record or record[0] != "monitor" or record[2] is not None and record[2] <= self.clock():
+                    raise PublicationUnavailable("active monitor publication unavailable")
+                payload = json.loads(record[1]) if isinstance(record[1], str) else record[1]
+                self._monitor_cache = (identity, payload)
+                return payload
 
     def publish(self, snapshot, announcements, run_id):
         from server.services.background_work import check_owner

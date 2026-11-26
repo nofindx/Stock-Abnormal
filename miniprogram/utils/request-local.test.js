@@ -32,6 +32,11 @@ async function run(){
   const cloudResult=await request({url:'/api/monitor',retry:0})
   assert.strictEqual(cloudResult.data.cloud,true)
   assert.strictEqual(containers,1,'trial retains the original cloud route')
+  for(let i=0;i<35;i++) await request({url:'/api/v2/jobs/private-job-id',data:{read_token:'secret-token',security_id:'600825.SH'},retry:0})
+  const timings=app.globalData.requestPerformance
+  assert.strictEqual(timings.length,30)
+  assert(timings.every(row=>row.path==='/api/v2/jobs/{id}'&&row.transport==='callContainer'))
+  assert(!JSON.stringify(timings).includes('secret-token')&&!JSON.stringify(timings).includes('600825'))
   console.log('request route tests passed: explicit loopback isolation; actual App defaults use cloud HTTPS in develop and callContainer in trial')
 }
 run().catch(e=>{console.error(e);process.exitCode=1})

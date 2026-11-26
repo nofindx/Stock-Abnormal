@@ -33,6 +33,40 @@ class SharedPublicationTests(unittest.TestCase):
         self.a.publish(self.snapshot("20261031010000"), [dict(fact, eventDirection="down")], "old")
         self.assertEqual(self.b.rebuild_facts()[0]["eventDirection"], "up")
 
+    def test_monitor_cache_checks_pointer_on_every_read_and_scopes_before_copy(self):
+        first = {"snapshotId": "1", "items": [{"symbol": "600825", "label": "old"}, {"ts_code": "301313.SZ"}],
+                 "resetFacts": [{"symbol": "600825", "effective_date": "20261102"}],
+                 "unresolvedFacts": [{"symbol": "301313"}], "dataQuality": {"status": "partial"}}
+        self.a.publish(first, [], "one")
+        with patch.object(self.b, "execute", wraps=self.b.execute) as execute:
+            viewed = self.b.active_snapshot_for(["600825.SH"])
+            viewed["items"][0]["label"] = "client mutation"
+            again = self.b.active_snapshot_for(["600825.SH"])
+            self.assertEqual(again["items"], [first["items"][0]])
+            self.assertEqual(again["resetFacts"], first["resetFacts"])
+            self.assertFalse(again["unresolvedFacts"])
+            self.assertEqual(again["dataQuality"], first["dataQuality"])
+            queries = [call.args[1] for call in execute.call_args_list]
+            self.assertEqual(sum("FROM publication_state" in query for query in queries), 2)
+            self.assertEqual(sum("FROM publication_record" in query for query in queries), 1)
+        newer = dict(first, snapshotId="2", items=[{"symbol": "600825", "label": "new"}])
+        self.a.publish(newer, [], "two")
+        self.assertEqual(self.b.active_snapshot_for(["600825.SH"])["items"], newer["items"])
+        self.b.set_state("active_snapshot_id", "missing")
+        with self.assertRaises(PublicationUnavailable):
+            self.b.active_snapshot()
+
+    def test_context_entries_lock_independently_but_retries_share_lock(self):
+        with patch.object(self.a, "locked", wraps=self.a.locked) as lock:
+            first = self.a.entry_context("entry-one", "fingerprint", {"dataset": "old"}, 600)
+            self.a.entry_context("entry-two", "fingerprint", {"dataset": "other"}, 600)
+            retry = self.a.entry_context("entry-one", "fingerprint", {"dataset": "new"}, 600)
+        names = [call.args[0] for call in lock.call_args_list]
+        self.assertNotEqual(names[0], names[1])
+        self.assertEqual(names[0], names[2])
+        self.assertLessEqual(len(names[0]), 64)
+        self.assertEqual(first, retry)
+
     def test_failed_publication_rolls_back_facts_pointer_and_outbox(self):
         good = self.snapshot("1")
         self.a.publish(good, [], "one")

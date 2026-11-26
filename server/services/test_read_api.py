@@ -111,6 +111,51 @@ class ReadApiTests(unittest.TestCase):
         second = self.context(entry="entry-b")
         self.assertNotEqual(second["dataset_id"], context["dataset_id"])
 
+    def test_context_embeds_exact_authorized_s1_and_old_clients_remain_compatible(self):
+        for page, code, role in (("prediction", "", "current"), ("prediction", "", "next"), ("stock", "600825.SH", "current")):
+            with self.subTest(page=page, role=role):
+                query = {"page": page, "role": role, "security_id": code,
+                         "entry_id": "embedded-" + page + role, "include_s1": "1"}
+                status, response = self.call("/api/v2/context", query)
+                self.assertEqual(status, 200)
+                context = response["data"]
+                path = "/api/v2/predictions" if page == "prediction" else "/api/v2/stocks/detail"
+                args = {"read_token": context["read_token"]["value"], "role": role, "security_id": code}
+                _, fetched = self.call(path, args)
+                self.assertEqual(context["s1"], fetched["data"])
+                self.assertNotIn("basis", context["s1"])
+                old = self.context(page, code, entry="legacy-" + page + role, role=role)
+                self.assertNotIn("s1", old)
+                self.assertEqual(self.call(path, dict(args, read_token=old["read_token"]["value"]))[0], 200)
+        status, monitor = self.call("/api/v2/context", {"page": "monitor", "role": "current", "entry_id": "no-monitor-body", "include_s1": "1"})
+        self.assertEqual(status, 200)
+        self.assertNotIn("s1", monitor["data"], "combined stock/prediction reads must not introduce a new internal monitor body endpoint")
+
+    def test_embedded_retry_pins_original_s1_and_new_entry_observes_latest_publication(self):
+        query = {"page": "prediction", "role": "current", "entry_id": "embedded-retry", "include_s1": "1"}
+        _, response = self.call("/api/v2/context", query)
+        first = response["data"]
+        self.body["items"] = [{"ts_code": "600825.SH", "ruleKey": "severe_30d"}]
+        _, response = self.call("/api/v2/context", query)
+        self.assertEqual(response["data"], first, "idempotent old token must never label a newly captured body")
+        _, latest = self.call("/api/v2/context", dict(query, entry_id="embedded-new"))
+        self.assertEqual(latest["data"]["s1"]["items"], self.body["items"])
+        self.assertNotEqual(latest["data"]["dataset_id"], first["dataset_id"])
+        self.assertEqual(self.call("/api/v2/predictions", {
+            "read_token": latest["data"]["read_token"]["value"], "role": "next"})[0], 403)
+        status, failure = self.call("/api/v2/context", dict(query, role="next"))
+        self.assertEqual((status, failure["code"]), (409, 40901))
+
+    def test_embedded_context_never_returns_latest_after_old_pinned_view_expires(self):
+        query = {"page": "prediction", "entry_id": "expire-embedded", "include_s1": "1"}
+        self.call("/api/v2/context", query)
+        self.body["items"] = []
+        # A missing original view must fail; an idempotent entry must not
+        # silently return the newly captured dataset instead.
+        with patch.object(self.reads, "get", side_effect=app.PublicationUnavailable("missing pinned read")):
+            status, response = self.call("/api/v2/context", query)
+        self.assertEqual((status, response["code"]), (409, 40902))
+
     def test_token_cannot_change_role_or_stock_scope(self):
         context = self.context()
         token = context["read_token"]["value"]

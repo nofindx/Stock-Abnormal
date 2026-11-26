@@ -1,0 +1,124 @@
+{
+  "environment": "official DevTools and isolated fixture API; no production quotes or database",
+  "trueDevice": false,
+  "checks": [
+    {
+      "page": "prediction",
+      "action": "first",
+      "totalMs": 26,
+      "requests": [
+        {
+          "path": "/api/v2/context",
+          "method": "GET",
+          "transport": "https",
+          "durationMs": 11,
+          "statusCode": 200,
+          "attempts": 1
+        },
+        {
+          "path": "/api/v2/realtime/refresh",
+          "method": "POST",
+          "transport": "https",
+          "durationMs": 10,
+          "statusCode": 200,
+          "attempts": 1
+        }
+      ],
+      "error": ""
+    },
+    {
+      "page": "prediction",
+      "action": "manual",
+      "totalMs": 13,
+      "requests": [
+        {
+          "path": "/api/v2/context",
+          "method": "GET",
+          "transport": "https",
+          "durationMs": 6,
+          "statusCode": 200,
+          "attempts": 1
+        },
+        {
+          "path": "/api/v2/realtime/refresh",
+          "method": "POST",
+          "transport": "https",
+          "durationMs": 4,
+          "statusCode": 200,
+          "attempts": 1
+        }
+      ],
+      "error": ""
+    },
+    {
+      "page": "stock",
+      "action": "first",
+      "totalMs": 65,
+      "requests": [
+        {
+          "path": "/api/v2/context",
+          "method": "GET",
+          "transport": "https",
+          "durationMs": 14,
+          "statusCode": 200,
+          "attempts": 1
+        },
+        {
+          "path": "/api/v2/realtime/refresh",
+          "method": "POST",
+          "transport": "https",
+          "durationMs": 11,
+          "statusCode": 200,
+          "attempts": 1
+        }
+      ],
+      "error": "",
+      "warnings": 4,
+      "input": "",
+      "visibleDays": 2
+    },
+    {
+      "page": "stock",
+      "action": "manual",
+      "totalMs": 47,
+      "requests": [
+        {
+          "path": "/api/v2/context",
+          "method": "GET",
+          "transport": "https",
+          "durationMs": 10,
+          "statusCode": 200,
+          "attempts": 1
+        },
+        {
+          "path": "/api/v2/realtime/refresh",
+          "method": "POST",
+          "transport": "https",
+          "durationMs": 4,
+          "statusCode": 200,
+          "attempts": 1
+        }
+      ],
+      "error": "",
+      "warnings": 4,
+      "input": "2.5",
+      "visibleDays": 10
+    },
+    {
+      "page": "stock",
+      "action": "cached",
+      "totalMs": 22,
+      "requests": [],
+      "error": "",
+      "warnings": 4,
+      "input": "",
+      "visibleDays": 2
+    }
+  ],
+  "release": {
+    "releaseId": "20261125.1",
+    "miniProgramVersion": "2.0.5",
+    "quoteRefreshPolicy": "latest-available-all-hours"
+  },
+  "passed": true
+}

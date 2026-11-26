@@ -1,0 +1,571 @@
+{
+  "recordedAt": "2026-11-25T08:05:24.850503+08:00",
+  "release": {
+    "miniProgramVersion": "2.0.4",
+    "releaseId": "20261124.1",
+    "predictionRuleVersion": "v76",
+    "runtimeCodeCommit": "1ce2fca"
+  },
+  "scope": "prediction and stock detail first open, manual refresh and cached revisit",
+  "clientVersionScope": {
+    "userConfirmedPhoneVersion": "2.0.3 public release",
+    "pageInstrumentationClient": "2.0.4 workspace in official DevTools",
+    "backendObservedByAllLiveRequests": "2.0.4 / 20261124.1 / v76",
+    "frozen203SourceComparison": {
+      "coldOpenSequence": "The 2.0.3 frozen frontend also serially requests context, authorized S1, then S2 on first open for both pages.",
+      "manualRefreshDifference": "2.0.3 reuses its existing read context for S2; 2.0.4 first refreshes context/S1 and then S2.",
+      "deviceTiming": "No physical-phone timing for 2.0.3 was captured; 2.0.4 DevTools timings must not be presented as the user's phone timing."
+    }
+  },
+  "productionMutations": "normal-user temporary read contexts and quote views only; no settings, facts, schema, secrets or deployment changes",
+  "publicHttps": {
+    "observedAt": "2026-11-25T07:59:09.269691+08:00",
+    "transport": "public HTTPS from local host; not phone callContainer",
+    "samples": [
+      {
+        "round": 1,
+        "page": "prediction",
+        "security": "",
+        "stages": [
+          {
+            "path": "/api/v2/context",
+            "ms": 1017.1,
+            "http": 200,
+            "bytes": 1595,
+            "code": 0
+          },
+          {
+            "path": "/api/v2/predictions",
+            "ms": 320.9,
+            "http": 200,
+            "bytes": 8842,
+            "code": 0
+          },
+          {
+            "path": "/api/v2/realtime/refresh",
+            "ms": 580.1,
+            "http": 200,
+            "bytes": 9363,
+            "code": 0
+          }
+        ],
+        "firstDataMs": 1338.5,
+        "cards": 3,
+        "basis": "20261123",
+        "quoteAt": "2026-11-24 16:01",
+        "result": {
+          "refresh_state": "ready",
+          "result_state": "fresh",
+          "refreshStatus": "applied",
+          "reasons": [],
+          "quoteUpdatedAt": "2026-11-24T16:15:00"
+        },
+        "totalMs": 1918.7
+      },
+      {
+        "round": 1,
+        "page": "stock",
+        "security": "600825.SH",
+        "stages": [
+          {
+            "path": "/api/v2/context",
+            "ms": 555.8,
+            "http": 200,
+            "bytes": 1595,
+            "code": 0
+          },
+          {
+            "path": "/api/v2/stocks/detail",
+            "ms": 254.4,
+            "http": 200,
+            "bytes": 23622,
+            "code": 0
+          },
+          {
+            "path": "/api/v2/realtime/refresh",
+            "ms": 674.9,
+            "http": 200,
+            "bytes": 24110,
+            "code": 0
+          }
+        ],
+        "firstDataMs": 810.6,
+        "cards": 0,
+        "basis": "20261124",
+        "quoteAt": null,
+        "result": {
+          "refresh_state": "ready",
+          "result_state": "fresh",
+          "refreshStatus": "applied",
+          "reasons": [],
+          "quoteUpdatedAt": null
+        },
+        "totalMs": 1485.6
+      },
+      {
+        "round": 1,
+        "page": "stock",
+        "security": "301313.SZ",
+        "stages": [
+          {
+            "path": "/api/v2/context",
+            "ms": 459.9,
+            "http": 200,
+            "bytes": 1595,
+            "code": 0
+          },
+          {
+            "path": "/api/v2/stocks/detail",
+            "ms": 257.4,
+            "http": 200,
+            "bytes": 22300,
+            "code": 0
+          },
+          {
+            "path": "/api/v2/realtime/refresh",
+            "ms": 629.8,
+            "http": 200,
+            "bytes": 22788,
+            "code": 0
+          }
+        ],
+        "firstDataMs": 717.8,
+        "cards": 0,
+        "basis": "20261124",
+        "quoteAt": null,
+        "result": {
+          "refresh_state": "ready",
+          "result_state": "fresh",
+          "refreshStatus": "applied",
+          "reasons": [],
+          "quoteUpdatedAt": null
+        },
+        "totalMs": 1347.7
+      },
+      {
+        "round": 2,
+        "page": "prediction",
+        "security": "",
+        "stages": [
+          {
+            "path": "/api/v2/context",
+            "ms": 537.1,
+            "http": 200,
+            "bytes": 1595,
+            "code": 0
+          },
+          {
+            "path": "/api/v2/predictions",
+            "ms": 255.3,
+            "http": 200,
+            "bytes": 8842,
+            "code": 0
+          },
+          {
+            "path": "/api/v2/realtime/refresh",
+            "ms": 563.4,
+            "http": 200,
+            "bytes": 9363,
+            "code": 0
+          }
+        ],
+        "firstDataMs": 792.8,
+        "cards": 3,
+        "basis": "20261123",
+        "quoteAt": "2026-11-24 16:01",
+        "result": {
+          "refresh_state": "ready",
+          "result_state": "fresh",
+          "refreshStatus": "applied",
+          "reasons": [],
+          "quoteUpdatedAt": "2026-11-24T16:15:00"
+        },
+        "totalMs": 1356.5
+      },
+      {
+        "round": 2,
+        "page": "stock",
+        "security": "600825.SH",
+        "stages": [
+          {
+            "path": "/api/v2/context",
+            "ms": 425.1,
+            "http": 200,
+            "bytes": 1595,
+            "code": 0
+          },
+          {
+            "path": "/api/v2/stocks/detail",
+            "ms": 230.1,
+            "http": 200,
+            "bytes": 23622,
+            "code": 0
+          },
+          {
+            "path": "/api/v2/realtime/refresh",
+            "ms": 583.2,
+            "http": 200,
+            "bytes": 24110,
+            "code": 0
+          }
+        ],
+        "firstDataMs": 655.7,
+        "cards": 0,
+        "basis": "20261124",
+        "quoteAt": null,
+        "result": {
+          "refresh_state": "ready",
+          "result_state": "fresh",
+          "refreshStatus": "applied",
+          "reasons": [],
+          "quoteUpdatedAt": null
+        },
+        "totalMs": 1239.1
+      },
+      {
+        "round": 2,
+        "page": "stock",
+        "security": "301313.SZ",
+        "stages": [
+          {
+            "path": "/api/v2/context",
+            "ms": 466.3,
+            "http": 200,
+            "bytes": 1595,
+            "code": 0
+          },
+          {
+            "path": "/api/v2/stocks/detail",
+            "ms": 244.9,
+            "http": 200,
+            "bytes": 22300,
+            "code": 0
+          },
+          {
+            "path": "/api/v2/realtime/refresh",
+            "ms": 597.9,
+            "http": 200,
+            "bytes": 22788,
+            "code": 0
+          }
+        ],
+        "firstDataMs": 711.7,
+        "cards": 0,
+        "basis": "20261124",
+        "quoteAt": null,
+        "result": {
+          "refresh_state": "ready",
+          "result_state": "fresh",
+          "refreshStatus": "applied",
+          "reasons": [],
+          "quoteUpdatedAt": null
+        },
+        "totalMs": 1309.8
+      }
+    ]
+  },
+  "officialDevtoolsCloudPages": {
+    "environment": "official DevTools page through production callContainer; not phone",
+    "checks": [
+      {
+        "page": "prediction",
+        "action": "first",
+        "totalMs": 1104,
+        "stages": [
+          {
+            "path": "/api/v2/context",
+            "ms": 491,
+            "http": 200
+          },
+          {
+            "path": "/api/v2/predictions",
+            "ms": 152,
+            "http": 200
+          },
+          {
+            "path": "/api/v2/realtime/refresh",
+            "ms": 446,
+            "http": 200
+          }
+        ],
+        "renders": [],
+        "error": "",
+        "items": 3
+      },
+      {
+        "page": "prediction",
+        "action": "manual",
+        "totalMs": 994,
+        "stages": [
+          {
+            "path": "/api/v2/context",
+            "ms": 427,
+            "http": 200
+          },
+          {
+            "path": "/api/v2/predictions",
+            "ms": 113,
+            "http": 200
+          },
+          {
+            "path": "/api/v2/realtime/refresh",
+            "ms": 444,
+            "http": 200
+          }
+        ],
+        "renders": [],
+        "error": "",
+        "items": 3
+      },
+      {
+        "page": "stock",
+        "action": "first",
+        "totalMs": 1214,
+        "stages": [
+          {
+            "path": "/api/v2/context",
+            "ms": 549,
+            "http": 200
+          },
+          {
+            "path": "/api/v2/stocks/detail",
+            "ms": 106,
+            "http": 200
+          },
+          {
+            "path": "/api/v2/realtime/refresh",
+            "ms": 503,
+            "http": 200
+          }
+        ],
+        "renders": [
+          {
+            "synchronousMs": 7
+          },
+          {
+            "synchronousMs": 12
+          }
+        ],
+        "error": ""
+      },
+      {
+        "page": "stock",
+        "action": "manual",
+        "totalMs": 627,
+        "stages": [
+          {
+            "path": "/api/v2/context",
+            "ms": 340,
+            "http": 200
+          },
+          {
+            "path": "/api/v2/stocks/detail",
+            "ms": 113,
+            "http": 200
+          },
+          {
+            "path": "/api/v2/realtime/refresh",
+            "ms": 140,
+            "http": 200
+          }
+        ],
+        "renders": [
+          {
+            "synchronousMs": 12
+          }
+        ],
+        "error": ""
+      },
+      {
+        "page": "stock",
+        "action": "cached",
+        "totalMs": 37,
+        "stages": [],
+        "renders": [
+          {
+            "synchronousMs": 5
+          }
+        ],
+        "error": ""
+      }
+    ]
+  },
+  "fourConcurrentUserFlows": {
+    "concurrency": 4,
+    "samples": [
+      {
+        "page": "prediction",
+        "security": "",
+        "firstDataMs": 2409.1,
+        "totalMs": 3898.2,
+        "stages": [
+          {
+            "path": "/api/v2/context",
+            "ms": 2196.6,
+            "http": 200,
+            "bytes": 1606,
+            "code": 0
+          },
+          {
+            "path": "/api/v2/predictions",
+            "ms": 212.1,
+            "http": 200,
+            "bytes": 8842,
+            "code": 0
+          },
+          {
+            "path": "/api/v2/realtime/refresh",
+            "ms": 1489.0,
+            "http": 200,
+            "bytes": 9363,
+            "code": 0
+          }
+        ],
+        "refreshState": "ready",
+        "resultState": "fresh"
+      },
+      {
+        "page": "prediction",
+        "security": "",
+        "firstDataMs": 2508.4,
+        "totalMs": 3932.2,
+        "stages": [
+          {
+            "path": "/api/v2/context",
+            "ms": 2217.3,
+            "http": 200,
+            "bytes": 1606,
+            "code": 0
+          },
+          {
+            "path": "/api/v2/predictions",
+            "ms": 290.7,
+            "http": 200,
+            "bytes": 8842,
+            "code": 0
+          },
+          {
+            "path": "/api/v2/realtime/refresh",
+            "ms": 494.7,
+            "http": 202,
+            "bytes": 222,
+            "code": 0
+          },
+          {
+            "path": "/api/v2/jobs/{id}",
+            "ms": 418.6,
+            "http": 200,
+            "bytes": 9363,
+            "code": 0
+          }
+        ],
+        "refreshState": "ready",
+        "resultState": "fresh"
+      },
+      {
+        "page": "stock",
+        "security": "600825.SH",
+        "firstDataMs": 2362.1,
+        "totalMs": 3631.5,
+        "stages": [
+          {
+            "path": "/api/v2/context",
+            "ms": 2107.0,
+            "http": 200,
+            "bytes": 1606,
+            "code": 0
+          },
+          {
+            "path": "/api/v2/stocks/detail",
+            "ms": 254.8,
+            "http": 200,
+            "bytes": 23622,
+            "code": 0
+          },
+          {
+            "path": "/api/v2/realtime/refresh",
+            "ms": 1269.3,
+            "http": 200,
+            "bytes": 24110,
+            "code": 0
+          }
+        ],
+        "refreshState": "ready",
+        "resultState": "fresh"
+      },
+      {
+        "page": "stock",
+        "security": "301313.SZ",
+        "firstDataMs": 2229.5,
+        "totalMs": 3436.2,
+        "stages": [
+          {
+            "path": "/api/v2/context",
+            "ms": 1874.9,
+            "http": 200,
+            "bytes": 1606,
+            "code": 0
+          },
+          {
+            "path": "/api/v2/stocks/detail",
+            "ms": 354.4,
+            "http": 200,
+            "bytes": 22300,
+            "code": 0
+          },
+          {
+            "path": "/api/v2/realtime/refresh",
+            "ms": 1206.5,
+            "http": 200,
+            "bytes": 22788,
+            "code": 0
+          }
+        ],
+        "refreshState": "ready",
+        "resultState": "fresh"
+      }
+    ]
+  },
+  "tushareCacheLockProbe": {
+    "environment": "local synthetic; no live source or database access",
+    "unrelatedLoaderSleepMs": 350,
+    "alreadyCachedCalendarReadMs": 354.4,
+    "result": "unrelated network loader holds the common cache mutex and blocks cache hits"
+  },
+  "findings": [
+    {
+      "id": "PERF-001",
+      "status": "observed_and_code_confirmed",
+      "finding": "Three serial frontend requests (context, authorized S1 GET, S2 POST) on first open and explicit manual refresh. Context builds and persists the complete S1 before a separate GET returns it. Four concurrent flows spent 1874.9-2217.3 ms in context. Each capture reads the full active monitor snapshot before security filtering and opens multiple MySQL connections.",
+      "recommendation": "Profile and reduce capture read/serialization cost; cache immutable snapshot content by actual publication identity while rechecking the latest pointer on each manual S1; combine/reuse database reads. Consider an optional atomic context-with-S1 response to save one network round trip, retaining scoped token, immutable S1, latest manual S1, existing endpoints and old-client compatibility."
+    },
+    {
+      "id": "PERF-002",
+      "status": "locally_reproduced",
+      "finding": "TushareClient._cached keeps one shared mutex while loader performs network I/O, so an unrelated slow source request blocks cached calendar and suspension reads.",
+      "recommendation": "Keep cache metadata lock short; merge concurrent misses per cache key outside the shared metadata lock. Preserve status evidence and existing validity periods."
+    },
+    {
+      "id": "PERF-003",
+      "status": "code_path_confirmed_not_live_failure_observed",
+      "finding": "Sources run sequentially with four-second socket timeouts; Eastmoney loops over securities sequentially. There is no whole-refresh wall-clock budget, so slow fallback can occupy two S2 workers and cause polling and waits.",
+      "recommendation": "Bound the complete quote attempt, use bounded fallback concurrency, retain source/date/time pairing and failure disclosure; do not extend three-second quote freshness to hide waits."
+    },
+    {
+      "id": "PERF-004",
+      "status": "cache_behavior_verified",
+      "finding": "Same-stock same-boundary memory reuse produced zero requests and completed in 37 ms. The devtools stock render synchronous samples were 5-12 ms. Prediction first/manual cloud page samples completed in 1104/994 ms; stock first/manual in 1214/627 ms.",
+      "recommendation": "Retain first-open/manual refresh and boundary invalidation semantics. Add safe per-stage latency evidence before considering resource scaling."
+    }
+  ],
+  "limitations": [
+    "Night/pre-open point-in-time samples, not trading-session benchmark.",
+    "Official DevTools callContainer is not a physical phone network or rendering test.",
+    "Four concurrent flows are one low-load sample, not p95/p99 or capacity certification.",
+    "The automator route helper includes a fixed 3000 ms delay; reported cloud page timings are measured within the page and exclude that helper delay. Earlier exploratory helper totals are not used.",
+    "No cloud CPU, memory or instance identity metrics were inspected, so resource saturation and instance count are not established.",
+    "Source health sample observed Tencent successes and last latency 129.6 ms, Tushare suspend_d 67.8 ms. Fallback slowness is a code-confirmed risk rather than a reproduced live provider outage.",
+    "The user phone version and observed duration were requested and may differ from the inspected 2.0.4 build."
+  ],
+  "implementationStatus": "diagnosis recorded; runtime code, version and cloud configuration unchanged"
+}

@@ -23,6 +23,7 @@ from .services.market_service import CalculationDataUnavailable, MarketService, 
 from .data.publication_store import PublicationStore, PublicationUnavailable
 from .services.read_publications import ReadPublications
 from .services.read_refresh_jobs import ReadRefreshJobs
+from .services.read_performance import READ_PERFORMANCE
 from .services.announcement_service import AnnouncementService
 from .services.monitor_service import OfficialMonitorService
 from .services.tushare_client import TushareUnavailable
@@ -188,7 +189,7 @@ class ApiHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Vary", "Accept")
-        if urlparse(self.path).path in ("/api/client-config", "/api/predictions/next-status"):
+        if urlparse(self.path).path.startswith("/api/v2/") or urlparse(self.path).path in ("/api/client-config", "/api/predictions/next-status"):
             self.send_header("Cache-Control", "no-store")
         self.send_header("Access-Control-Allow-Origin", "*")
         self.end_headers()
@@ -217,7 +218,9 @@ class ApiHandler(BaseHTTPRequestHandler):
         if page == "stock" and (role != "current" or not re.fullmatch(r"\d{6}\.(?:SH|SZ|BJ)", security_id)):
             raise ApiError(40001, "单股读取范围无效", 400)
         request = {"page": page, "role": role, "security_id": security_id}
-        identity, saved, pool_hash, count = READS.capture(request)
+        include_s1 = query.get("include_s1", [""])[0] == "1"
+        with READ_PERFORMANCE.measure("context.capture"):
+            identity, saved, pool_hash, count = READS.capture(request)
         now = datetime.now(SHANGHAI_TZ)
         data = saved["data"]
         target = SERVICE._date_key(data.get("targetTradeDate") or data.get("tradeDate"))
@@ -229,10 +232,27 @@ class ApiHandler(BaseHTTPRequestHandler):
             stale_until=now.timestamp() + 300,
         )
         try:
-            context, token = CONTEXTS.idempotent_context(entry_id, request, context)
+            with READ_PERFORMANCE.measure("context.authorize"):
+                context, token = CONTEXTS.idempotent_context(entry_id, request, context)
         except IdempotencyConflict as exc:
             raise ApiError(40901, str(exc), 409) from exc
-        self._respond({"code": 0, "data": {**context.as_payload(), "read_token": {"value": token, "expires_at": context.expires_at}, "entry_id": entry_id}, "message": "ok"})
+        response = {**context.as_payload(), "read_token": {"value": token, "expires_at": context.expires_at}, "entry_id": entry_id}
+        if include_s1 and page in ("stock", "prediction"):
+            # A retried entry may be pinned to an older dataset. Return its
+            # exact saved S1, never label today's capture with yesterday's token.
+            payload = saved if context.dataset_id == identity else READS.get(context)
+            response["s1"] = self._authorized_read_data(context, token, payload)
+        with READ_PERFORMANCE.measure("context.response"):
+            self._respond({"code": 0, "data": response, "message": "ok"})
+
+    @staticmethod
+    def _authorized_read_data(context, token, payload):
+        data = dict(payload["data"])
+        data.update(dataset_id=context.dataset_id, dataset_version=context.dataset_version,
+                    pool_hash=context.pool_hash, pool_version=context.pool_version,
+                    rule_version=context.rule_version, time_context_id=context.time_context_id,
+                    read_token={"value": token, "expires_at": context.expires_at})
+        return data
 
     def _respond_read_job(self, context, job):
         if job["status"] == "ready":
@@ -329,6 +349,7 @@ class ApiHandler(BaseHTTPRequestHandler):
                         "tushare": SERVICE.client.health_stats(),
                         "realtime": SERVICE._realtime.health_stats(),
                     },
+                    "readPerformance": READ_PERFORMANCE.snapshot(),
                     "realtimeCoordination": _realtime_health(),
                     "vnext": {
                         "contextSigningConfigured": CONTEXTS is not None,
@@ -370,8 +391,7 @@ class ApiHandler(BaseHTTPRequestHandler):
                 role = query.get("role", [context.role])[0]
                 if role not in ("current", "next") or not CONTEXTS.scope_matches(context, page="prediction", role=role):
                     raise ApiError(40301, "read_token 不包含此预测读取范围", 403)
-                data = READS.get(context)["data"]
-                data.update({"dataset_id": context.dataset_id, "dataset_version": context.dataset_version, "pool_version": context.pool_version, "pool_hash": context.pool_hash, "rule_version": context.rule_version, "time_context_id": context.time_context_id, "read_token": {"value": token, "expires_at": context.expires_at}})
+                data = self._authorized_read_data(context, token, READS.get(context))
                 self._respond({"code": 0, "data": data, "message": "ok"})
                 return
             if parsed.path == "/api/v2/stocks/detail":
@@ -387,10 +407,7 @@ class ApiHandler(BaseHTTPRequestHandler):
                 security_id = query.get("security_id", [""])[0]
                 if not security_id or not CONTEXTS.scope_matches(context, page="stock", role="current", security_id=security_id):
                     raise ApiError(40301, "read_token 不包含此单股读取范围", 403)
-                data = READS.get(context)["data"]
-                data.update({"dataset_id": context.dataset_id, "dataset_version": context.dataset_version,
-                             "rule_version": context.rule_version, "time_context_id": context.time_context_id,
-                             "read_token": {"value": token, "expires_at": context.expires_at}})
+                data = self._authorized_read_data(context, token, READS.get(context))
                 self._respond({"code": 0, "data": data, "message": "ok"})
                 return
             if parsed.path == "/api/market/history-coverage":

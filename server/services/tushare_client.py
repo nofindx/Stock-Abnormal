@@ -12,6 +12,7 @@ import time
 from threading import Lock
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
+from concurrent.futures import Future
 from typing import Any, Dict, Optional
 from urllib.parse import parse_qs, urlparse
 
@@ -60,6 +61,7 @@ class TushareClient:
         self._pro = None
         self._cache: Dict[str, tuple[float, Any]] = {}
         self._cache_lock = Lock()
+        self._cache_inflight = {}
         # 只保留聚合统计，不保存 token、请求参数或上游响应正文。
         self._stats: Dict[str, Dict[str, Any]] = {}
         self._stats_lock = Lock()
@@ -134,15 +136,35 @@ class TushareClient:
     def _cached(self, key: str, ttl: int, loader):
         """进程内短缓存，避免页面切换重复请求同一份日历/行情。"""
 
-        now = time.monotonic()
         with self._cache_lock:
             cached = self._cache.get(key)
-            if cached and now - cached[0] < ttl:
-                value = cached[1]
-                return value.copy() if hasattr(value, "copy") else value
-            value = loader()
-            self._cache[key] = (now, value)
+            hit = bool(cached and time.monotonic() - cached[0] < ttl)
+            if not hit:
+                pending = self._cache_inflight.get(key)
+                owner = pending is None
+                if owner:
+                    pending = self._cache_inflight[key] = Future()
+        if hit:
+            value = cached[1]
             return value.copy() if hasattr(value, "copy") else value
+        if not owner:
+            value = pending.result()
+            return value.copy() if hasattr(value, "copy") else value
+        # Network I/O must never hold the metadata lock: calendar cache hits
+        # remain readable while an unrelated background source is slow.
+        try:
+            value = loader()
+            with self._cache_lock:
+                self._cache[key] = (time.monotonic(), value)
+            pending.set_result(value)
+            return value.copy() if hasattr(value, "copy") else value
+        except BaseException as exc:
+            pending.set_exception(exc)
+            raise
+        finally:
+            with self._cache_lock:
+                if self._cache_inflight.get(key) is pending:
+                    del self._cache_inflight[key]
 
     def stock_basic(self, force: bool = False):
         """读取全部上市 A 股基础资料。"""

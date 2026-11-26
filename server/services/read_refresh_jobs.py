@@ -3,6 +3,7 @@ from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
 from threading import BoundedSemaphore
 from server.data.publication_store import PublicationUnavailable
+from server.services.read_performance import READ_PERFORMANCE
 
 
 class ReadRefreshJobs:
@@ -14,7 +15,8 @@ class ReadRefreshJobs:
     def _run(self, context, job):
         try:
             try:
-                _data, view = self.reads.refresh(context)
+                with READ_PERFORMANCE.measure("s2.refresh"):
+                    _data, view = self.reads.refresh(context)
             except Exception:
                 payload = deepcopy(self.reads.get(context))
                 payload["data"].update(refresh_state="failed", result_state="stale", refreshStatus="fallback",
