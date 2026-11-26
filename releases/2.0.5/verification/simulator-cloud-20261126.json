@@ -1,0 +1,120 @@
+{
+  "environment": "official DevTools page through production callContainer; not phone",
+  "checks": [
+    {
+      "page": "prediction",
+      "action": "first",
+      "totalMs": 1469,
+      "stages": [
+        {
+          "path": "/api/v2/context",
+          "ms": 690,
+          "http": 200
+        },
+        {
+          "path": "/api/v2/realtime/refresh",
+          "ms": 764,
+          "http": 200
+        }
+      ],
+      "renders": [],
+      "error": "",
+      "items": 4
+    },
+    {
+      "page": "prediction",
+      "action": "manual",
+      "totalMs": 2192,
+      "stages": [
+        {
+          "path": "/api/v2/context",
+          "ms": 705,
+          "http": 200
+        },
+        {
+          "path": "/api/v2/realtime/refresh",
+          "ms": 1469,
+          "http": 200
+        }
+      ],
+      "renders": [],
+      "error": "",
+      "items": 4
+    },
+    {
+      "page": "stock",
+      "action": "first",
+      "totalMs": 1266,
+      "stages": [
+        {
+          "path": "/api/v2/context",
+          "ms": 751,
+          "http": 200
+        },
+        {
+          "path": "/api/v2/realtime/refresh",
+          "ms": 455,
+          "http": 200
+        }
+      ],
+      "renders": [
+        {
+          "synchronousMs": 14
+        },
+        {
+          "synchronousMs": 12
+        }
+      ],
+      "error": ""
+    },
+    {
+      "page": "stock",
+      "action": "manual",
+      "totalMs": 593,
+      "stages": [
+        {
+          "path": "/api/v2/context",
+          "ms": 314,
+          "http": 200
+        },
+        {
+          "path": "/api/v2/realtime/refresh",
+          "ms": 230,
+          "http": 200
+        }
+      ],
+      "renders": [
+        {
+          "synchronousMs": 11
+        },
+        {
+          "synchronousMs": 13
+        }
+      ],
+      "error": ""
+    },
+    {
+      "page": "stock",
+      "action": "cached",
+      "totalMs": 36,
+      "stages": [],
+      "renders": [
+        {
+          "synchronousMs": 6
+        }
+      ],
+      "error": ""
+    }
+  ],
+  "release": {
+    "releaseId": "20261125.1",
+    "miniProgramVersion": "2.0.5",
+    "quoteRefreshPolicy": "latest-available-all-hours"
+  },
+  "passed": true,
+  "trueDevice": false,
+  "limitations": [
+    "Official DevTools cloud transport and page, not a physical phone.",
+    "Single short sample per action; no guarantee every device request is below 3 seconds."
+  ]
+}

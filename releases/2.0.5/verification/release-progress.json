@@ -32,14 +32,33 @@
   },
   "code007": "new manual entry reads latest S1 before S2; idempotent retry pins original; old S1 and scoped S2 remain immutable; expanded combined-response role and old-client compatibility checks passed",
   "simulationRegression": "same published calculationBasisId preserves user input and 10-day layout across differing S1 close/S2 quote display dates; changed basis resets; absent ID retains legacy date fallback",
-  "gitCommitPush": "pending",
-  "backendDeployment": "pending",
+  "gitCommitPush": "passed_atomic_to_development_and_Stock-Abnormal",
+  "backendDeployment": "passed_2.0.5_20261125.1_v76",
   "miniProgramVersionUpload": "passed_official_devtools_2.0.5",
   "trueDevice": "pending",
   "performanceTarget": "normal agreed true-device samples <=3000ms, target <=2000ms; not certified by fixtures",
-  "productionBaseline": "backend 2.0.4; public mini program 2.0.3 as last confirmed",
-  "externalAnnouncementCoverage": "previous CNINFO partial remains a separate operational item",
+  "productionBaseline": "backend 2.0.5; public mini program 2.0.3",
+  "externalAnnouncementCoverage": "complete_632_bodies_verified_zero_unread_as_of_20261126",
   "sourcePerformancePolicy": "no provider priority, timeout, quote TTL, pairing, S2 worker or cloud resource changes; follow measured cloud stages after deployment",
   "uploadBytes": 372227,
-  "deliveryDate": "2026-11-26"
+  "deliveryDate": "2026-11-26",
+  "codeCommit": "1f64be82cbe2179cff707e7c870cf5ad37a9f450",
+  "cloudVersion": "flask-9a5y-331_last_console_observation",
+  "productionAcceptance": "functional_paths_pass_performance_target_not_certified",
+  "sourceCodeUnchangedSinceUpload": true,
+  "simulatorCloud": "pass_combined_S1_then_S2_no_extra_GET",
+  "performance": {
+    "status": "not_certified",
+    "device": "pending user true-device acceptance",
+    "note": "Warm serial HTTPS samples mostly 1.28-1.76s, initial prediction 3.72s; four concurrent flows 5.17-7.72s. Functional checks passed, performance limit is not globally met/certified.",
+    "devtoolsCloudSampleMs": {
+      "predictionFirst": 1469,
+      "predictionManual": 2192,
+      "stockFirst": 1266,
+      "stockManual": 593,
+      "stockCached": 36
+    }
+  },
+  "previousVersionInstances": "330_had_one_instance_at_rollout_latest_exit_not_confirmed",
+  "experienceDesignation": "2.0.5_uploaded_development_version; platform_experience_designation_not_independently_observed"
 }

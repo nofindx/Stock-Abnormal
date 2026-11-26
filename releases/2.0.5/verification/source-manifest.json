@@ -6,7 +6,7 @@
   },
   "calculationVersion": "v76",
   "gitBaseCommit": "12ad2a74d4ceab57b7185a2d5a7a4e52bdec4714",
-  "codeState": "uncommitted 2.0.5 local candidate; no upload receipt",
+  "codeState": "committed, pushed to production/development, uploaded 2.0.5 and deployed; later evidence/documentation commits do not alter runtime files",
   "files": {
     ".dockerignore": "34cf129a00d3e9419142999c613e840ad031b6dfd85e93e461283ade5b40461e",
     "Dockerfile": "1c6b31427dbeee0d5a587828f47683575e73d03566b4aa276d6ffc2578631f36",
@@ -134,5 +134,7 @@
     "server/tools/recovery_check.py": "6418c6270a1b833001b0fa5df00e03190fb0d1c1af63bbc7b81dfcf3e5b74bd8",
     "server/tools/release_t138_check.py": "c4b977657727fd8935b16a4dac4c164cc13f5ed4f84c615baf457bfec801f2df",
     "server/tools/same_direction_check.py": "cba8a3a2dfb17cb8249fa14a7d8284b0bc17c9349fc69a3eccf34fdb2923f559"
-  }
+  },
+  "codeCommit": "1f64be82cbe2179cff707e7c870cf5ad37a9f450",
+  "backendTree": "d9ee0ed746fa8d8f3de2b159de856612be7d58e4"
 }

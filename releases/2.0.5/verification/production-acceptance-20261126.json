@@ -1,0 +1,707 @@
+{
+  "observedAt": "2026-11-26T11:31:44.930252+08:00",
+  "runtimeSourceCommit": "1f64be8",
+  "reportedCloudVersion": "flask-9a5y-331",
+  "trueDevice": false,
+  "transport": "public HTTPS from local host; not phone callContainer",
+  "checks": [
+    {
+      "name": "health",
+      "passed": true,
+      "release": {
+        "releaseId": "20261125.1",
+        "miniProgramVersion": "2.0.5",
+        "quoteRefreshPolicy": "latest-available-all-hours"
+      },
+      "publications": {
+        "available": true,
+        "backend": "mysql",
+        "factCount": 1443,
+        "outboxPending": 0
+      },
+      "prediction": {
+        "today": {
+          "status": "ready",
+          "ruleVersion": "v76",
+          "targetTradeDate": "20261126",
+          "itemCount": 4
+        },
+        "next_day": {
+          "status": "not_available_in_phase",
+          "ruleVersion": "v76",
+          "targetTradeDate": "20261126",
+          "itemCount": 0
+        }
+      },
+      "redisPing": true,
+      "sourcePolicy": "pass"
+    },
+    {
+      "name": "next-scope",
+      "passed": true,
+      "result": {
+        "page": "prediction",
+        "security": "",
+        "role": "next",
+        "firstDataMs": 694.3,
+        "cards": 0,
+        "targetTradeDate": "20261126",
+        "nextDayAvailable": false,
+        "stages": [
+          {
+            "path": "/api/v2/context",
+            "ms": 694.1,
+            "http": 200,
+            "bytes": 3779,
+            "cacheControl": "no-store, no-cache, must-revalidate, max-age=0"
+          }
+        ],
+        "refresh": {
+          "skipped": "next_scope_closed_or_not_refreshable_as_defined"
+        },
+        "totalMs": 694.3,
+        "s1Immutable": true
+      }
+    },
+    {
+      "name": "combined-legacy-and-authorization",
+      "page": "prediction",
+      "passed": true,
+      "embeddedMatchesGET": true,
+      "entryIdempotent": true,
+      "legacyGETWorks": true,
+      "crossScopeRejected": true
+    },
+    {
+      "name": "combined-legacy-and-authorization",
+      "page": "stock",
+      "passed": true,
+      "embeddedMatchesGET": true,
+      "entryIdempotent": true,
+      "legacyGETWorks": true,
+      "crossScopeRejected": true
+    },
+    {
+      "name": "four-concurrent-flows",
+      "passed": true,
+      "totalsMs": [
+        7717.6,
+        6737.8,
+        5309.0,
+        5173.9
+      ],
+      "firstDataMs": [
+        2422.3,
+        2428.7,
+        2239.1,
+        2300.0
+      ],
+      "limitations": "point-in-time 4-user sample; not full capacity or phone measurement"
+    },
+    {
+      "name": "ads",
+      "passed": true,
+      "enabled": false,
+      "version205Allowed": true,
+      "gatesFree": true
+    },
+    {
+      "name": "monitor-pdf",
+      "passed": true,
+      "records": 24,
+      "pdfs": [
+        {
+          "security": "600825.SH",
+          "http": 200,
+          "contentType": "application/pdf",
+          "bytes": 121041,
+          "sha256": "f828b76eee2d0ee594c5b19b9116083624fd1c81879f2463ef9ea424be63e1fd"
+        },
+        {
+          "security": "688613.SH",
+          "http": 200,
+          "contentType": "application/pdf",
+          "bytes": 97708,
+          "sha256": "e0a88c463a32fd2fd8365ffb392f9d58a8af3485cf65ff1b1fa41103017e798b"
+        }
+      ]
+    }
+  ],
+  "samples": [
+    {
+      "page": "prediction",
+      "security": "",
+      "role": "current",
+      "firstDataMs": 2359.2,
+      "cards": 4,
+      "targetTradeDate": "20261126",
+      "nextDayAvailable": false,
+      "stages": [
+        {
+          "path": "/api/v2/context",
+          "ms": 2359.0,
+          "http": 200,
+          "bytes": 11403,
+          "cacheControl": "no-store, no-cache, must-revalidate, max-age=0"
+        },
+        {
+          "path": "/api/v2/realtime/refresh",
+          "ms": 1361.2,
+          "http": 200,
+          "bytes": 10493,
+          "cacheControl": "no-store, no-cache, must-revalidate, max-age=0"
+        }
+      ],
+      "refresh": {
+        "refresh_state": "ready",
+        "result_state": "stale",
+        "refreshStatus": "applied",
+        "reasons": [
+          "INDEX_QUOTE_UNAVAILABLE"
+        ],
+        "quoteUpdatedAt": "2026-11-26T11:31:51"
+      },
+      "totalMs": 3720.6,
+      "s1Immutable": true,
+      "round": 1
+    },
+    {
+      "page": "stock",
+      "security": "600825.SH",
+      "role": "current",
+      "firstDataMs": 1020.7,
+      "cards": 0,
+      "targetTradeDate": null,
+      "nextDayAvailable": null,
+      "stages": [
+        {
+          "path": "/api/v2/context",
+          "ms": 1020.5,
+          "http": 200,
+          "bytes": 25558,
+          "cacheControl": "no-store, no-cache, must-revalidate, max-age=0"
+        },
+        {
+          "path": "/api/v2/realtime/refresh",
+          "ms": 738.7,
+          "http": 200,
+          "bytes": 24448,
+          "cacheControl": "no-store, no-cache, must-revalidate, max-age=0"
+        }
+      ],
+      "refresh": {
+        "refresh_state": "ready",
+        "result_state": "fresh",
+        "refreshStatus": "applied",
+        "reasons": [],
+        "quoteUpdatedAt": null
+      },
+      "totalMs": 1759.7,
+      "s1Immutable": true,
+      "round": 1
+    },
+    {
+      "page": "stock",
+      "security": "301313.SZ",
+      "role": "current",
+      "firstDataMs": 570.2,
+      "cards": 0,
+      "targetTradeDate": null,
+      "nextDayAvailable": null,
+      "stages": [
+        {
+          "path": "/api/v2/context",
+          "ms": 570.0,
+          "http": 200,
+          "bytes": 24070,
+          "cacheControl": "no-store, no-cache, must-revalidate, max-age=0"
+        },
+        {
+          "path": "/api/v2/realtime/refresh",
+          "ms": 783.7,
+          "http": 200,
+          "bytes": 22855,
+          "cacheControl": "no-store, no-cache, must-revalidate, max-age=0"
+        }
+      ],
+      "refresh": {
+        "refresh_state": "ready",
+        "result_state": "fresh",
+        "refreshStatus": "applied",
+        "reasons": [],
+        "quoteUpdatedAt": null
+      },
+      "totalMs": 1354.1,
+      "s1Immutable": true,
+      "round": 1
+    },
+    {
+      "page": "prediction",
+      "security": "",
+      "role": "current",
+      "firstDataMs": 695.8,
+      "cards": 4,
+      "targetTradeDate": "20261126",
+      "nextDayAvailable": false,
+      "stages": [
+        {
+          "path": "/api/v2/context",
+          "ms": 695.6,
+          "http": 200,
+          "bytes": 11395,
+          "cacheControl": "no-store, no-cache, must-revalidate, max-age=0"
+        },
+        {
+          "path": "/api/v2/realtime/refresh",
+          "ms": 758.0,
+          "http": 200,
+          "bytes": 10464,
+          "cacheControl": "no-store, no-cache, must-revalidate, max-age=0"
+        }
+      ],
+      "refresh": {
+        "refresh_state": "ready",
+        "result_state": "fresh",
+        "refreshStatus": "applied",
+        "reasons": [],
+        "quoteUpdatedAt": "2026-11-26T11:31:54"
+      },
+      "totalMs": 1453.9,
+      "s1Immutable": true,
+      "round": 2
+    },
+    {
+      "page": "stock",
+      "security": "600825.SH",
+      "role": "current",
+      "firstDataMs": 576.3,
+      "cards": 0,
+      "targetTradeDate": null,
+      "nextDayAvailable": null,
+      "stages": [
+        {
+          "path": "/api/v2/context",
+          "ms": 576.1,
+          "http": 200,
+          "bytes": 25558,
+          "cacheControl": "no-store, no-cache, must-revalidate, max-age=0"
+        },
+        {
+          "path": "/api/v2/realtime/refresh",
+          "ms": 704.4,
+          "http": 200,
+          "bytes": 24448,
+          "cacheControl": "no-store, no-cache, must-revalidate, max-age=0"
+        }
+      ],
+      "refresh": {
+        "refresh_state": "ready",
+        "result_state": "fresh",
+        "refreshStatus": "applied",
+        "reasons": [],
+        "quoteUpdatedAt": null
+      },
+      "totalMs": 1280.9,
+      "s1Immutable": true,
+      "round": 2
+    },
+    {
+      "page": "stock",
+      "security": "301313.SZ",
+      "role": "current",
+      "firstDataMs": 554.5,
+      "cards": 0,
+      "targetTradeDate": null,
+      "nextDayAvailable": null,
+      "stages": [
+        {
+          "path": "/api/v2/context",
+          "ms": 554.3,
+          "http": 200,
+          "bytes": 24070,
+          "cacheControl": "no-store, no-cache, must-revalidate, max-age=0"
+        },
+        {
+          "path": "/api/v2/realtime/refresh",
+          "ms": 824.0,
+          "http": 200,
+          "bytes": 22855,
+          "cacheControl": "no-store, no-cache, must-revalidate, max-age=0"
+        }
+      ],
+      "refresh": {
+        "refresh_state": "ready",
+        "result_state": "fresh",
+        "refreshStatus": "applied",
+        "reasons": [],
+        "quoteUpdatedAt": null
+      },
+      "totalMs": 1378.6,
+      "s1Immutable": true,
+      "round": 2
+    },
+    {
+      "page": "prediction",
+      "security": "",
+      "role": "next",
+      "firstDataMs": 694.3,
+      "cards": 0,
+      "targetTradeDate": "20261126",
+      "nextDayAvailable": false,
+      "stages": [
+        {
+          "path": "/api/v2/context",
+          "ms": 694.1,
+          "http": 200,
+          "bytes": 3779,
+          "cacheControl": "no-store, no-cache, must-revalidate, max-age=0"
+        }
+      ],
+      "refresh": {
+        "skipped": "next_scope_closed_or_not_refreshable_as_defined"
+      },
+      "totalMs": 694.3,
+      "s1Immutable": true
+    }
+  ],
+  "release": {
+    "releaseId": "20261125.1",
+    "miniProgramVersion": "2.0.5",
+    "quoteRefreshPolicy": "latest-available-all-hours"
+  },
+  "fourConcurrentFlows": [
+    {
+      "page": "prediction",
+      "security": "",
+      "role": "current",
+      "firstDataMs": 2422.3,
+      "cards": 4,
+      "targetTradeDate": "20261126",
+      "nextDayAvailable": false,
+      "stages": [
+        {
+          "path": "/api/v2/context",
+          "ms": 2421.0,
+          "http": 200,
+          "bytes": 11403,
+          "cacheControl": "no-store, no-cache, must-revalidate, max-age=0"
+        },
+        {
+          "path": "/api/v2/realtime/refresh",
+          "ms": 2782.1,
+          "http": 202,
+          "bytes": 222,
+          "cacheControl": "no-store, no-cache, must-revalidate, max-age=0"
+        },
+        {
+          "path": "/api/v2/jobs/{id}",
+          "ms": 2005.8,
+          "http": 200,
+          "bytes": 10468,
+          "cacheControl": "no-store, no-cache, must-revalidate, max-age=0"
+        }
+      ],
+      "refresh": {
+        "refresh_state": "ready",
+        "result_state": "fresh",
+        "refreshStatus": "applied",
+        "reasons": [],
+        "quoteUpdatedAt": "2026-11-26T11:31:54"
+      },
+      "totalMs": 7717.6,
+      "s1Immutable": true
+    },
+    {
+      "page": "prediction",
+      "security": "",
+      "role": "current",
+      "firstDataMs": 2428.7,
+      "cards": 4,
+      "targetTradeDate": "20261126",
+      "nextDayAvailable": false,
+      "stages": [
+        {
+          "path": "/api/v2/context",
+          "ms": 2428.4,
+          "http": 200,
+          "bytes": 11403,
+          "cacheControl": "no-store, no-cache, must-revalidate, max-age=0"
+        },
+        {
+          "path": "/api/v2/realtime/refresh",
+          "ms": 1891.2,
+          "http": 202,
+          "bytes": 222,
+          "cacheControl": "no-store, no-cache, must-revalidate, max-age=0"
+        },
+        {
+          "path": "/api/v2/jobs/{id}",
+          "ms": 1914.9,
+          "http": 200,
+          "bytes": 10468,
+          "cacheControl": "no-store, no-cache, must-revalidate, max-age=0"
+        }
+      ],
+      "refresh": {
+        "refresh_state": "ready",
+        "result_state": "fresh",
+        "refreshStatus": "applied",
+        "reasons": [],
+        "quoteUpdatedAt": "2026-11-26T11:31:54"
+      },
+      "totalMs": 6737.8,
+      "s1Immutable": true
+    },
+    {
+      "page": "stock",
+      "security": "600825.SH",
+      "role": "current",
+      "firstDataMs": 2239.1,
+      "cards": 0,
+      "targetTradeDate": null,
+      "nextDayAvailable": null,
+      "stages": [
+        {
+          "path": "/api/v2/context",
+          "ms": 2234.5,
+          "http": 200,
+          "bytes": 25558,
+          "cacheControl": "no-store, no-cache, must-revalidate, max-age=0"
+        },
+        {
+          "path": "/api/v2/realtime/refresh",
+          "ms": 3069.7,
+          "http": 200,
+          "bytes": 24448,
+          "cacheControl": "no-store, no-cache, must-revalidate, max-age=0"
+        }
+      ],
+      "refresh": {
+        "refresh_state": "ready",
+        "result_state": "fresh",
+        "refreshStatus": "applied",
+        "reasons": [],
+        "quoteUpdatedAt": null
+      },
+      "totalMs": 5309.0,
+      "s1Immutable": true
+    },
+    {
+      "page": "stock",
+      "security": "301313.SZ",
+      "role": "current",
+      "firstDataMs": 2300.0,
+      "cards": 0,
+      "targetTradeDate": null,
+      "nextDayAvailable": null,
+      "stages": [
+        {
+          "path": "/api/v2/context",
+          "ms": 2295.6,
+          "http": 200,
+          "bytes": 24070,
+          "cacheControl": "no-store, no-cache, must-revalidate, max-age=0"
+        },
+        {
+          "path": "/api/v2/realtime/refresh",
+          "ms": 2873.8,
+          "http": 200,
+          "bytes": 22855,
+          "cacheControl": "no-store, no-cache, must-revalidate, max-age=0"
+        }
+      ],
+      "refresh": {
+        "refresh_state": "ready",
+        "result_state": "fresh",
+        "refreshStatus": "applied",
+        "reasons": [],
+        "quoteUpdatedAt": null
+      },
+      "totalMs": 5173.9,
+      "s1Immutable": true
+    }
+  ],
+  "announcementCoverage": {
+    "issuerStatus": "available",
+    "issuerError": "",
+    "coverage": {
+      "endDate": "20261127",
+      "complete": true,
+      "requests": 228,
+      "startDate": "20261015"
+    },
+    "bodyVerification": {
+      "status": "verified",
+      "checked": 632,
+      "ocrUsed": 0,
+      "ocrFailed": 0,
+      "unreadFacts": [],
+      "bodyAvailable": 632,
+      "bodyUnavailable": 0,
+      "resetFactsCount": 565,
+      "resetEvidenceVerified": 547
+    },
+    "updatedAt": "2026-11-26 01:36"
+  },
+  "finalRuntime": {
+    "releaseId": "20261125.1",
+    "miniProgramVersion": "2.0.5",
+    "quoteRefreshPolicy": "latest-available-all-hours"
+  },
+  "readPerformance": {
+    "s1.monitor": {
+      "count": 17,
+      "lastMs": 401.6,
+      "maxMs": 401.6,
+      "meanMs": 92.2
+    },
+    "s1.prediction": {
+      "count": 8,
+      "lastMs": 994.7,
+      "maxMs": 994.7,
+      "meanMs": 315.3
+    },
+    "s1.inputs": {
+      "count": 17,
+      "lastMs": 299.7,
+      "maxMs": 404.8,
+      "meanMs": 91.3
+    },
+    "s1.freeze": {
+      "count": 17,
+      "lastMs": 308.4,
+      "maxMs": 595.7,
+      "meanMs": 148.6
+    },
+    "context.capture": {
+      "count": 17,
+      "lastMs": 1825.8,
+      "maxMs": 1825.8,
+      "meanMs": 512.6
+    },
+    "context.authorize": {
+      "count": 17,
+      "lastMs": 216.4,
+      "maxMs": 398.5,
+      "meanMs": 105.6
+    },
+    "context.response": {
+      "count": 17,
+      "lastMs": 0.6,
+      "maxMs": 2.5,
+      "meanMs": 1.1
+    },
+    "s2.refresh": {
+      "count": 9,
+      "lastMs": 620.4,
+      "maxMs": 620.4,
+      "meanMs": 339.9
+    },
+    "s1.render": {
+      "count": 9,
+      "lastMs": 95.8,
+      "maxMs": 218.4,
+      "meanMs": 57.7
+    }
+  },
+  "passed": true,
+  "limitations": [
+    "Not true-device validation: phone network, UI, sharing and album access remain user acceptance.",
+    "Mixed previous runtime instances, if any, are assessed separately in cloud console.",
+    "No change to MySQL facts, source policy, Redis/VPC, secrets or formal market data.",
+    "Cloud and public HTTPS timing cannot certify every phone request <=3s."
+  ],
+  "runtimeStabilitySamples": [
+    {
+      "release": {
+        "releaseId": "20261125.1",
+        "miniProgramVersion": "2.0.5",
+        "quoteRefreshPolicy": "latest-available-all-hours"
+      },
+      "redisPing": true,
+      "sourceGate": "pass",
+      "predictions": {
+        "today": {
+          "status": "ready",
+          "ruleVersion": "v76",
+          "targetTradeDate": "20261126",
+          "itemCount": 4
+        },
+        "next_day": {
+          "status": "not_available_in_phase",
+          "ruleVersion": "v76",
+          "targetTradeDate": "20261126",
+          "itemCount": 0
+        }
+      }
+    },
+    {
+      "release": {
+        "releaseId": "20261125.1",
+        "miniProgramVersion": "2.0.5",
+        "quoteRefreshPolicy": "latest-available-all-hours"
+      },
+      "redisPing": true,
+      "sourceGate": "pass",
+      "predictions": {
+        "today": {
+          "status": "ready",
+          "ruleVersion": "v76",
+          "targetTradeDate": "20261126",
+          "itemCount": 4
+        },
+        "next_day": {
+          "status": "not_available_in_phase",
+          "ruleVersion": "v76",
+          "targetTradeDate": "20261126",
+          "itemCount": 0
+        }
+      }
+    },
+    {
+      "release": {
+        "releaseId": "20261125.1",
+        "miniProgramVersion": "2.0.5",
+        "quoteRefreshPolicy": "latest-available-all-hours"
+      },
+      "redisPing": true,
+      "sourceGate": "pass",
+      "predictions": {
+        "today": {
+          "status": "ready",
+          "ruleVersion": "v76",
+          "targetTradeDate": "20261126",
+          "itemCount": 4
+        },
+        "next_day": {
+          "status": "not_available_in_phase",
+          "ruleVersion": "v76",
+          "targetTradeDate": "20261126",
+          "itemCount": 0
+        }
+      }
+    }
+  ],
+  "performanceAcceptance": {
+    "status": "not_certified",
+    "device": "pending user true-device acceptance",
+    "note": "Warm serial HTTPS samples mostly 1.28-1.76s, initial prediction 3.72s; four concurrent flows 5.17-7.72s. Functional checks passed, performance limit is not globally met/certified.",
+    "devtoolsCloudSampleMs": {
+      "predictionFirst": 1469,
+      "predictionManual": 2192,
+      "stockFirst": 1266,
+      "stockManual": 593,
+      "stockCached": 36
+    }
+  },
+  "verifiedAt": "2026-11-26T11:35:00.564989+08:00",
+  "cloudConsoleObservation": {
+    "version": "flask-9a5y-331",
+    "sourceCommit": "1f64be8",
+    "newInstances": 1,
+    "previousVersion": "flask-9a5y-330",
+    "previousInstancesAtRolloutObservation": 1,
+    "latestPreviousVersionExit": "not_independently_confirmed; later Safari accessibility window unavailable",
+    "oldVersionsDeleted": false
+  }
+}
