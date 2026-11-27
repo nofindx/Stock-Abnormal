@@ -1,0 +1,12 @@
+{
+  "recordedAt": "2026-11-27T13:27:11.795689+08:00",
+  "source": "direct user confirmation in this conversation",
+  "statement": "真机验收了，版本改为 2.0.6，提交归档。",
+  "testedVersion": "2.0.5",
+  "testedFrontendSourceCommit": "fd9e43137052f8fab4f465eb8f3c2e3b3a6054ae",
+  "testedArchiveCommit": "66402281fcab112e547ed468b783e4b95ac58377",
+  "functionalAcceptance": "user_confirmed_complete",
+  "promotedArchiveVersion": "2.0.6",
+  "performanceSampleDetailsProvided": false,
+  "scopeNote": "Records the user confirmation; does not fabricate device models, per-case coverage, timings, review approval or public release."
+}

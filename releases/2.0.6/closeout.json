@@ -1,0 +1,42 @@
+{
+  "recordedAt": "2026-11-27T13:29:35.198477+08:00",
+  "release": {
+    "releaseId": "20261127.1",
+    "miniProgramVersion": "2.0.6",
+    "quoteRefreshPolicy": "latest-available-all-hours"
+  },
+  "documentationRevision": "20261127.3",
+  "calculationVersion": "v76",
+  "status": "archived_candidate_not_platform_release",
+  "sourceCommit": "f743b45e6fc7e570dfc41f01af7852c7db4cdc64",
+  "acceptedBaselineCommit": "66402281fcab112e547ed468b783e4b95ac58377",
+  "freezeTag": "freeze/v2.0.6-20261127",
+  "userAcceptanceRecord": "verification/user-acceptance-20261127.json",
+  "versionConfigRegression": {
+    "passed": true,
+    "testsRun": 12
+  },
+  "frontendStartupConfig": {
+    "passed": true,
+    "files": 2
+  },
+  "officialPreview": {
+    "passed": true,
+    "bytes": 372527
+  },
+  "runtimeDiffFromAccepted205": [
+    "miniprogram/release-info.js",
+    "miniprogram/release-info.json",
+    "server/client_config.py",
+    "server/release_info.json"
+  ],
+  "sourceManifest": "verification/source-manifest.json",
+  "upload206": "not_performed",
+  "backendDeployment206": "not_performed",
+  "wechatReview206": "not_submitted",
+  "publicRelease206": "not_performed",
+  "lastUploadedVersion": "2.0.5",
+  "lastObservedBackendVersion": "2.0.5",
+  "lastConfirmedPublicVersion": "2.0.3",
+  "advertising": "disabled_free_gates"
+}

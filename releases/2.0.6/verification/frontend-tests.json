@@ -1,0 +1,17 @@
+{
+  "observedAt": "2026-11-27T13:28:25.329593+08:00",
+  "environment": "local tests on 2.0.6 metadata only; no production requests",
+  "tests": [
+    {
+      "file": "miniprogram/app.test.js",
+      "passed": true,
+      "output": "mini-program JS-only App startup tests passed (develop/trial/release)\n"
+    },
+    {
+      "file": "miniprogram/utils/ads-config.test.js",
+      "passed": true,
+      "output": "ad config tests passed: cache, single-flight, backoff, fail-closed known gates, defaults, malformed/version\n"
+    }
+  ],
+  "allPassed": true
+}

@@ -1,0 +1,10 @@
+{
+  "observedAt": "2026-11-27T13:28:57.668603+08:00",
+  "environment": "local isolated version/config regression; no deployment or production changes",
+  "command": "python -m unittest server.test_release server.test_client_config",
+  "testsRun": 12,
+  "passed": 12,
+  "failures": 0,
+  "errors": 0,
+  "skipped": 0
+}
