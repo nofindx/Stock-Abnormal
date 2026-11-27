@@ -5,9 +5,9 @@
     "miniProgramVersion": "2.0.6",
     "quoteRefreshPolicy": "latest-available-all-hours"
   },
-  "documentationRevision": "20261127.3",
+  "documentationRevision": "20261127.4",
   "calculationVersion": "v76",
-  "status": "archived_candidate_not_platform_release",
+  "status": "uploaded_backend_deployed_cloud_functional_acceptance_passed",
   "sourceCommit": "f743b45e6fc7e570dfc41f01af7852c7db4cdc64",
   "acceptedBaselineCommit": "66402281fcab112e547ed468b783e4b95ac58377",
   "freezeTag": "freeze/v2.0.6-20261127",
@@ -31,12 +31,21 @@
     "server/release_info.json"
   ],
   "sourceManifest": "verification/source-manifest.json",
-  "upload206": "not_performed",
-  "backendDeployment206": "not_performed",
+  "upload206": "passed_official_devtools",
+  "backendDeployment206": "passed_original_pipeline",
   "wechatReview206": "not_submitted",
   "publicRelease206": "not_performed",
-  "lastUploadedVersion": "2.0.5",
-  "lastObservedBackendVersion": "2.0.5",
+  "lastUploadedVersion": "2.0.6",
+  "lastObservedBackendVersion": "2.0.6",
   "lastConfirmedPublicVersion": "2.0.3",
-  "advertising": "disabled_free_gates"
+  "advertising": "disabled_free_gates",
+  "deliveryObservedAt": "2026-11-27T13:53:17.276899+08:00",
+  "uploadBytes": 373117,
+  "uploadReceipt": "verification/upload-2.0.6.json",
+  "productionAcceptance": "verification/production-acceptance-20261127.json",
+  "cloudObservation": "verification/cloud-console-20261127.json",
+  "lastObservedCloudVersion": "flask-9a5y-335",
+  "deployedCommit": "5f264aaaed5733efc94db6deef8dfa5e886e0783",
+  "performance": "serial_0.81-1.11s_four_concurrent_2.85-4.24s_not_globally_certified",
+  "previousVersionInstances": "334_had_1_330_had_0_at_console_observation"
 }

@@ -1,0 +1,22 @@
+{
+  "observedAt": "2026-11-27T13:51:50.585269+08:00",
+  "channel": "Safari accessibility UI, original CloudRun service console",
+  "service": "flask-9a5y",
+  "onlineVersion": "flask-9a5y-335",
+  "serviceStatus": "正常",
+  "onlineInstances": 1,
+  "releaseNote": "docs: archive 2.0.6 accepted baseline and verification [skip ci]",
+  "publishedAt": "2026-11-27 13:30:09",
+  "deploymentCommit": "5f264aaaed5733efc94db6deef8dfa5e886e0783",
+  "runtimeSourceCommit": "f743b45e6fc7e570dfc41f01af7852c7db4cdc64",
+  "historicalInstances": {
+    "flask-9a5y-334": 1,
+    "flask-9a5y-333": 0,
+    "flask-9a5y-332": 0,
+    "flask-9a5y-331": 0,
+    "flask-9a5y-330": 0
+  },
+  "action": "verified existing pipeline deployment; no duplicate pipeline dispatched",
+  "configurationChanges": false,
+  "oldVersionsDeleted": false
+}

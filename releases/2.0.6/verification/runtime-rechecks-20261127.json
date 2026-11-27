@@ -1,0 +1,35 @@
+{
+  "passed": true,
+  "observations": [
+    {
+      "observedAt": "2026-11-27T13:53:48.404644+08:00",
+      "release": {
+        "releaseId": "20261127.1",
+        "miniProgramVersion": "2.0.6",
+        "quoteRefreshPolicy": "latest-available-all-hours"
+      },
+      "mysqlAvailable": true,
+      "redisPing": true
+    },
+    {
+      "observedAt": "2026-11-27T13:53:51.712539+08:00",
+      "release": {
+        "releaseId": "20261127.1",
+        "miniProgramVersion": "2.0.6",
+        "quoteRefreshPolicy": "latest-available-all-hours"
+      },
+      "mysqlAvailable": true,
+      "redisPing": true
+    },
+    {
+      "observedAt": "2026-11-27T13:53:55.113223+08:00",
+      "release": {
+        "releaseId": "20261127.1",
+        "miniProgramVersion": "2.0.6",
+        "quoteRefreshPolicy": "latest-available-all-hours"
+      },
+      "mysqlAvailable": true,
+      "redisPing": true
+    }
+  ]
+}
