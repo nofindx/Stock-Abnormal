@@ -20,7 +20,7 @@
   },
   "officialDevtoolsPreview": {
     "status": "passed",
-    "bytes": 372512,
+    "bytes": 372527,
     "version": "2.0.5"
   },
   "officialDevtoolsFixturePages": {
@@ -41,9 +41,9 @@
   "productionBaseline": "backend 2.0.5; public mini program 2.0.3",
   "externalAnnouncementCoverage": "complete_632_bodies_verified_zero_unread_as_of_20261126",
   "sourcePerformancePolicy": "no provider priority, timeout, quote TTL, pairing, S2 worker or cloud resource changes; follow measured cloud stages after deployment",
-  "uploadBytes": 373102,
+  "uploadBytes": 373117,
   "deliveryDate": "2026-11-27",
-  "codeCommit": "d843a0cf522a5b4ea716190e763f66e35cd46233",
+  "codeCommit": "fd9e43137052f8fab4f465eb8f3c2e3b3a6054ae",
   "cloudVersion": "flask-9a5y-331_last_console_observation",
   "productionAcceptance": "functional_paths_pass_performance_target_not_certified",
   "sourceCodeUnchangedSinceUpload": true,
@@ -62,11 +62,11 @@
   },
   "previousVersionInstances": "330_had_one_instance_at_rollout_latest_exit_not_confirmed",
   "experienceDesignation": "2.0.5_uploaded_development_version; platform_experience_designation_not_independently_observed",
-  "observedAt": "2026-11-27T10:42:43.649853+08:00",
-  "documentationRevision": "20261127.1",
-  "frontendSourceCommit": "d843a0cf522a5b4ea716190e763f66e35cd46233",
+  "observedAt": "2026-11-27T11:20:34.186418+08:00",
+  "documentationRevision": "20261127.2",
+  "frontendSourceCommit": "fd9e43137052f8fab4f465eb8f3c2e3b3a6054ae",
   "backendSourceCommit": "1f64be82cbe2179cff707e7c870cf5ad37a9f450",
-  "homepageBranding": "passed_official_simulator_72rpx_matching_search_height",
+  "homepageBranding": "passed_official_simulator_new_title_72rpx_matching_search_height",
   "latestProductionAcceptance": "alignment-production-20261127.json",
   "backendSourceUnchanged": true,
   "sourceManifest": "source-manifest.json",
@@ -85,5 +85,8 @@
     "announcementCoverage": "complete",
     "bodiesVerified": 632,
     "unread": 0
-  }
+  },
+  "pendingLocalChanges": [],
+  "homepageDisplayName": "小源的异动阈值助手",
+  "logoExport": "logo-export-20261127.json"
 }

@@ -1,5 +1,5 @@
 {
-  "observedAt": "2026-11-27T02:39:32.357Z",
+  "observedAt": "2026-11-27T03:19:26.515Z",
   "environment": "official WeChat DevTools simulator; local 2.0.5 sources",
   "passed": true,
   "version": {
@@ -15,7 +15,7 @@
     "width": 362,
     "height": 37
   },
-  "name": "异动查查",
+  "name": "小源的异动阈值助手",
   "blankHomeNoDetail": true,
   "stockReadRequests": 0,
   "trueDevice": false

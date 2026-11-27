@@ -55,7 +55,7 @@
     "miniprogram/pages/rules/index.wxss": "f2d55598d53b919e3a1094c065c615e89ed1fd124df7943d526703fc545e6836",
     "miniprogram/pages/stock/index.js": "36fcd48f0090add5cd22265dc1146d07ff03f6dd5be03eb46babe4f7a7b41e35",
     "miniprogram/pages/stock/index.json": "3af40ba4feb08a7d3b90ac04aa1573cfccb7b68fdea67231e998b9b21a7bc4ae",
-    "miniprogram/pages/stock/index.wxml": "5d92c8275843b637caab9a42a23eb3be1d792ca8a1b61fabbbceb616afbc9464",
+    "miniprogram/pages/stock/index.wxml": "b09f9edc77973a89321bcabd2aa06fc6716278051acaa2420e3379c60ffa9b90",
     "miniprogram/pages/stock/index.wxss": "52fd58a2a398327c5f1a8a1af6a4853abef9c4e2f4a28c284d33a2eb5aeb43bf",
     "miniprogram/project.config.json": "69a01a784dc4708ba2eac6ae0e51a0533fcd6ae49069351024e425e5ab39f09b",
     "miniprogram/project.private.config.json": "0758dc2dbac70bca797964f4fa69b3a0708420369f2ac0af564a8d09e8a517b9",
@@ -136,10 +136,10 @@
     "server/tools/release_t138_check.py": "c4b977657727fd8935b16a4dac4c164cc13f5ed4f84c615baf457bfec801f2df",
     "server/tools/same_direction_check.py": "cba8a3a2dfb17cb8249fa14a7d8284b0bc17c9349fc69a3eccf34fdb2923f559"
   },
-  "codeCommit": "d843a0cf522a5b4ea716190e763f66e35cd46233",
+  "codeCommit": "fd9e43137052f8fab4f465eb8f3c2e3b3a6054ae",
   "backendTree": "d9ee0ed746fa8d8f3de2b159de856612be7d58e4",
-  "observedAt": "2026-11-27T10:42:43.649853+08:00",
-  "frontendSourceCommit": "d843a0cf522a5b4ea716190e763f66e35cd46233",
+  "observedAt": "2026-11-27T11:20:34.186418+08:00",
+  "frontendSourceCommit": "fd9e43137052f8fab4f465eb8f3c2e3b3a6054ae",
   "backendSourceCommit": "1f64be82cbe2179cff707e7c870cf5ad37a9f450",
-  "frontendTree": "1d7d4910a05ce76c78c9ad41f93b3ffe1ef8ff2c"
+  "frontendTree": "60cc4ee43bc08dbcb57809dbe4cacb8d5eb5d4e1"
 }

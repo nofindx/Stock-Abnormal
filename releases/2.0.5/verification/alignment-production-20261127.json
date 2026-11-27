@@ -1,5 +1,5 @@
 {
-  "observedAt": "2026-11-27T10:40:16.932138+08:00",
+  "observedAt": "2026-11-27T11:19:22.463557+08:00",
   "environment": "production HTTPS smoke from local host; not physical phone",
   "trueDevice": false,
   "checks": [
@@ -7,8 +7,8 @@
       "page": "prediction",
       "combinedS1": true,
       "scopePreserved": true,
-      "s1Ms": 459.6,
-      "s2Ms": 536.1,
+      "s1Ms": 461.8,
+      "s2Ms": 561.7,
       "refreshState": "ready",
       "targetTradeDate": "20261127",
       "cardCount": 5
@@ -17,8 +17,8 @@
       "page": "stock",
       "combinedS1": true,
       "scopePreserved": true,
-      "s1Ms": 336.7,
-      "s2Ms": 494.8,
+      "s1Ms": 502.6,
+      "s2Ms": 544.5,
       "refreshState": "ready",
       "targetTradeDate": null,
       "cardCount": null
@@ -30,7 +30,7 @@
     "quoteRefreshPolicy": "latest-available-all-hours"
   },
   "health": {
-    "latencyMs": 3387.1,
+    "latencyMs": 3484.2,
     "mysql": {
       "available": true,
       "backend": "mysql",
