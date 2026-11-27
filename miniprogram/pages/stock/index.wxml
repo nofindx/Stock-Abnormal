@@ -1,4 +1,8 @@
 <view class="page stock-page">
+  <view class="home-brand">
+    <image class="home-brand-logo" src="/assets/brand-mark.svg" mode="aspectFit" aria-hidden="true"></image>
+    <text class="home-brand-name">异动查查</text>
+  </view>
   <view class="search-wrap">
     <view class="search-box {{searchFocused ? 'focused' : ''}}">
       <view class="search-icon"></view>
