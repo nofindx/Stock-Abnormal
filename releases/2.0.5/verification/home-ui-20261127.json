@@ -1,0 +1,22 @@
+{
+  "observedAt": "2026-11-27T02:39:32.357Z",
+  "environment": "official WeChat DevTools simulator; local 2.0.5 sources",
+  "passed": true,
+  "version": {
+    "releaseId": "20261125.1",
+    "miniProgramVersion": "2.0.5",
+    "quoteRefreshPolicy": "latest-available-all-hours"
+  },
+  "headerSize": {
+    "width": 362,
+    "height": 37
+  },
+  "searchSize": {
+    "width": 362,
+    "height": 37
+  },
+  "name": "异动查查",
+  "blankHomeNoDetail": true,
+  "stockReadRequests": 0,
+  "trueDevice": false
+}

@@ -6,7 +6,7 @@
   },
   "calculationVersion": "v76",
   "gitBaseCommit": "12ad2a74d4ceab57b7185a2d5a7a4e52bdec4714",
-  "codeState": "committed, pushed to production/development, uploaded 2.0.5 and deployed; later evidence/documentation commits do not alter runtime files",
+  "codeState": "latest frontend uploaded as 2.0.5; backend runtime tree unchanged from deployed 1f64be8; documentation/evidence commits do not alter these runtime files",
   "files": {
     ".dockerignore": "34cf129a00d3e9419142999c613e840ad031b6dfd85e93e461283ade5b40461e",
     "Dockerfile": "1c6b31427dbeee0d5a587828f47683575e73d03566b4aa276d6ffc2578631f36",
@@ -14,6 +14,7 @@
     "miniprogram/app.js": "e26f1aa2cbd4adc53d96703b096b22e51678dfa40deb01d40a840dd9d4ce11a2",
     "miniprogram/app.json": "56146b5f1b1607fdf9dfb36e7c5f5ccefb8615953871c03c7b824608ae189545",
     "miniprogram/app.wxss": "91d4378d5add07fe20899670a196b1791dc5e5c7abacd982cf8242f16ab915ba",
+    "miniprogram/assets/brand-mark.svg": "77ef49a555a878a04296fe82241d246ba01bb40c77f5e7f76f4604ed88fc54a6",
     "miniprogram/assets/clear-history.svg": "ccdb1c1eecd0a686b951cfc76d6f2fb32a0c4cf8460301aec3239349943d4a79",
     "miniprogram/assets/export-clear.png": "019150f3782d7f86625f0b03f7ed5bf1d4efbe5367861943050b15cc365e6966",
     "miniprogram/assets/monitor-active.png": "8f3642121ed83f09eff7f1e84f280435fbe4c35af5ca1fb2373143401e41c162",
@@ -54,8 +55,8 @@
     "miniprogram/pages/rules/index.wxss": "f2d55598d53b919e3a1094c065c615e89ed1fd124df7943d526703fc545e6836",
     "miniprogram/pages/stock/index.js": "36fcd48f0090add5cd22265dc1146d07ff03f6dd5be03eb46babe4f7a7b41e35",
     "miniprogram/pages/stock/index.json": "3af40ba4feb08a7d3b90ac04aa1573cfccb7b68fdea67231e998b9b21a7bc4ae",
-    "miniprogram/pages/stock/index.wxml": "1f95c0e0a53025db88aca456a1657ddefbc9533edb3c4ac69e0ca6e698ec5d11",
-    "miniprogram/pages/stock/index.wxss": "37f90326100829537a92956962f7303b502fb212fa46434a52b5e6461f1669d0",
+    "miniprogram/pages/stock/index.wxml": "5d92c8275843b637caab9a42a23eb3be1d792ca8a1b61fabbbceb616afbc9464",
+    "miniprogram/pages/stock/index.wxss": "52fd58a2a398327c5f1a8a1af6a4853abef9c4e2f4a28c284d33a2eb5aeb43bf",
     "miniprogram/project.config.json": "69a01a784dc4708ba2eac6ae0e51a0533fcd6ae49069351024e425e5ab39f09b",
     "miniprogram/project.private.config.json": "0758dc2dbac70bca797964f4fa69b3a0708420369f2ac0af564a8d09e8a517b9",
     "miniprogram/release-info.js": "b53ff3825190bb1a888ae9ef8353912ab6b69e1b30b803b1662ebf3e724908e4",
@@ -135,6 +136,10 @@
     "server/tools/release_t138_check.py": "c4b977657727fd8935b16a4dac4c164cc13f5ed4f84c615baf457bfec801f2df",
     "server/tools/same_direction_check.py": "cba8a3a2dfb17cb8249fa14a7d8284b0bc17c9349fc69a3eccf34fdb2923f559"
   },
-  "codeCommit": "1f64be82cbe2179cff707e7c870cf5ad37a9f450",
-  "backendTree": "d9ee0ed746fa8d8f3de2b159de856612be7d58e4"
+  "codeCommit": "d843a0cf522a5b4ea716190e763f66e35cd46233",
+  "backendTree": "d9ee0ed746fa8d8f3de2b159de856612be7d58e4",
+  "observedAt": "2026-11-27T10:42:43.649853+08:00",
+  "frontendSourceCommit": "d843a0cf522a5b4ea716190e763f66e35cd46233",
+  "backendSourceCommit": "1f64be82cbe2179cff707e7c870cf5ad37a9f450",
+  "frontendTree": "1d7d4910a05ce76c78c9ad41f93b3ffe1ef8ff2c"
 }

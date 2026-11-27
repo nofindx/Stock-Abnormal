@@ -1,0 +1,58 @@
+{
+  "observedAt": "2026-11-27T10:40:16.932138+08:00",
+  "environment": "production HTTPS smoke from local host; not physical phone",
+  "trueDevice": false,
+  "checks": [
+    {
+      "page": "prediction",
+      "combinedS1": true,
+      "scopePreserved": true,
+      "s1Ms": 459.6,
+      "s2Ms": 536.1,
+      "refreshState": "ready",
+      "targetTradeDate": "20261127",
+      "cardCount": 5
+    },
+    {
+      "page": "stock",
+      "combinedS1": true,
+      "scopePreserved": true,
+      "s1Ms": 336.7,
+      "s2Ms": 494.8,
+      "refreshState": "ready",
+      "targetTradeDate": null,
+      "cardCount": null
+    }
+  ],
+  "release": {
+    "releaseId": "20261125.1",
+    "miniProgramVersion": "2.0.5",
+    "quoteRefreshPolicy": "latest-available-all-hours"
+  },
+  "health": {
+    "latencyMs": 3387.1,
+    "mysql": {
+      "available": true,
+      "backend": "mysql",
+      "factCount": 1471,
+      "outboxPending": 0
+    },
+    "redisPing": true,
+    "sourcePolicy": "pass",
+    "prediction": {
+      "today": {
+        "status": "ready",
+        "ruleVersion": "v76",
+        "targetTradeDate": "20261127",
+        "itemCount": 5
+      },
+      "next_day": {
+        "status": "not_available_in_phase",
+        "ruleVersion": "v76",
+        "targetTradeDate": "20261127",
+        "itemCount": 0
+      }
+    }
+  },
+  "passed": true
+}

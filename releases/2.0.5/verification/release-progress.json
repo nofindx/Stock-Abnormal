@@ -15,11 +15,12 @@
   },
   "frontendTests": {
     "files": 17,
-    "allPassed": true
+    "allPassed": true,
+    "observedAt": "2026-11-27T10:42:43.649853+08:00"
   },
   "officialDevtoolsPreview": {
     "status": "passed",
-    "bytes": 371637,
+    "bytes": 372512,
     "version": "2.0.5"
   },
   "officialDevtoolsFixturePages": {
@@ -40,9 +41,9 @@
   "productionBaseline": "backend 2.0.5; public mini program 2.0.3",
   "externalAnnouncementCoverage": "complete_632_bodies_verified_zero_unread_as_of_20261126",
   "sourcePerformancePolicy": "no provider priority, timeout, quote TTL, pairing, S2 worker or cloud resource changes; follow measured cloud stages after deployment",
-  "uploadBytes": 372227,
-  "deliveryDate": "2026-11-26",
-  "codeCommit": "1f64be82cbe2179cff707e7c870cf5ad37a9f450",
+  "uploadBytes": 373102,
+  "deliveryDate": "2026-11-27",
+  "codeCommit": "d843a0cf522a5b4ea716190e763f66e35cd46233",
   "cloudVersion": "flask-9a5y-331_last_console_observation",
   "productionAcceptance": "functional_paths_pass_performance_target_not_certified",
   "sourceCodeUnchangedSinceUpload": true,
@@ -60,5 +61,29 @@
     }
   },
   "previousVersionInstances": "330_had_one_instance_at_rollout_latest_exit_not_confirmed",
-  "experienceDesignation": "2.0.5_uploaded_development_version; platform_experience_designation_not_independently_observed"
+  "experienceDesignation": "2.0.5_uploaded_development_version; platform_experience_designation_not_independently_observed",
+  "observedAt": "2026-11-27T10:42:43.649853+08:00",
+  "documentationRevision": "20261127.1",
+  "frontendSourceCommit": "d843a0cf522a5b4ea716190e763f66e35cd46233",
+  "backendSourceCommit": "1f64be82cbe2179cff707e7c870cf5ad37a9f450",
+  "homepageBranding": "passed_official_simulator_72rpx_matching_search_height",
+  "latestProductionAcceptance": "alignment-production-20261127.json",
+  "backendSourceUnchanged": true,
+  "sourceManifest": "source-manifest.json",
+  "latestProductionHealth": {
+    "date": "2026-11-27",
+    "facts": 1471,
+    "outboxPending": 0,
+    "redisPing": true,
+    "sourcePolicyGate": "pass",
+    "currentPredictionCards": 5,
+    "currentTargetDate": "20261127"
+  },
+  "historicalCloudEvidence": {
+    "date": "2026-11-26",
+    "facts": 1443,
+    "announcementCoverage": "complete",
+    "bodiesVerified": 632,
+    "unread": 0
+  }
 }

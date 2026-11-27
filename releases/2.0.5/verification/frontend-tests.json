@@ -1,4 +1,5 @@
 {
+  "observedAt": "2026-11-27T10:40:33.332108+08:00",
   "tests": [
     {
       "file": "miniprogram/app.test.js",
@@ -86,5 +87,6 @@
       "output": "current stock save tests passed: 2/10-day user inputs, live layout, section spacing, exclusion, signatures, stale/export failure cleanup\n"
     }
   ],
-  "passed": true
+  "files": 17,
+  "allPassed": true
 }
