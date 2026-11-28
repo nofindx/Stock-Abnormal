@@ -31,7 +31,7 @@ def run():
     for users in (5, 10):
         services = [MarketService(), MarketService()]
         memory, mutex, source_calls = _MemoryBackend(), Lock(), []
-        def fetch(codes):
+        def fetch(codes, **_options):
             with mutex: source_calls.append(list(codes))
             time.sleep(.04)  # deterministic local stand-in for an upstream round trip
             return {code: {'current': 10, 'updatedAt': '2026-11-13 11:30:00', 'source': 'local-fixture'} for code in codes}
