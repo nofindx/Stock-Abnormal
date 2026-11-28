@@ -1,0 +1,19 @@
+{
+  "observedAt": "2026-11-28T08:37:14.445564+08:00",
+  "command": "python -m unittest discover -s server -t .",
+  "environment": "new isolated Python 3.12 venv with server requirements and test requirements; no production mutation",
+  "sourceCommit": "61cf5bc8e14014aa69797981aaed74339d0b89e2",
+  "testsRun": 501,
+  "passed": 500,
+  "failures": 0,
+  "errors": 0,
+  "skipped": [
+    {
+      "test": "test_real_ddl_disconnect_reconnect_retry_and_publication_transaction (server.migrations.test_mysql_recovery.MySQLRecoveryDrill.test_real_ddl_disconnect_reconnect_retry_and_publication_transaction)",
+      "reason": "real isolated MySQL not configured"
+    }
+  ],
+  "durationSeconds": 19.74,
+  "allRequiredPassed": true,
+  "environmentRepair": "Previous /tmp interpreter lacked its venv configuration and packages; rebuilt isolated environment before this final run."
+}

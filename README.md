@@ -4,7 +4,7 @@
 
 ## 当前版本
 
-**2.0.6 / 20261127.1 / v76** 已上传、后端已上线，并完成云端功能复验。用户已完成2.0.5真机验收，本版沿用其业务代码，仅同步版本与默认白名单。小程序上传373117字节；运行源码f743b45，控制台最新归档观察为flask-9a5y-335（5f264aa）。文档、哈希和交付证据见[2.0.6归档](releases/2.0.6/README.md)。公众正式包按已确认记录仍为2.0.3，代码审核/公众发布另行登记。广告关闭，10日模拟、次日预测免费；备案、认证及隐私指引已完成。
+**2.0.6 / 20261127.1 / v76** 已上传并运行于云托管；11月28日确认控制台336正常，微信平台2.0.6审核中（11月27日13:58提交），公众正式包仍为2.0.3。用户已完成真机验收。前后端业务代码与上传基线一致；本次只补齐离线诊断脚本适配、Git本地分支和状态记录，无需重传小程序。完整核验见[2.0.6归档](releases/2.0.6/README.md)。广告关闭，10日模拟、次日预测免费，备案、认证及隐私指引已完成。
 
 日常从[文档目录](docs/README.md)进入。正式版源码和验收见[2.0.3 发布归档](releases/2.0.3/README.md)。线上状态和待办见[正式上线清单](docs/05-正式上线清单.md)。
 
@@ -42,8 +42,11 @@ python3 -m server.app
 
 ## 测试
 
+使用已激活的Python3.11或3.12隔离环境，先安装运行与测试依赖；完整测试入口见[测试规范](docs/03-测试规范与用例.md)。
+
 ```bash
-python3 -m unittest discover -s server -p 'test_*.py'
+python3 -m pip install -r server/requirements.txt -r server/requirements-test.txt
+python3 -m unittest discover -s server -t .
 node miniprogram/app.test.js
 node miniprogram/utils/api.test.js
 node miniprogram/pages/monitor/index.test.js

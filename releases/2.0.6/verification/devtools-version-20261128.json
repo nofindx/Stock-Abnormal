@@ -1,0 +1,11 @@
+{
+  "observedAt": "2026-11-28T00:39:52.611Z",
+  "environment": "official local WeChat DevTools simulator; not phone",
+  "passed": true,
+  "release": {
+    "releaseId": "20261127.1",
+    "miniProgramVersion": "2.0.6",
+    "quoteRefreshPolicy": "latest-available-all-hours"
+  },
+  "homepageTitle": "小源的异动阈值助手"
+}

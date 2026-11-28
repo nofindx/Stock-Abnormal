@@ -6,15 +6,16 @@
     "quoteRefreshPolicy": "latest-available-all-hours"
   },
   "calculationVersion": "v76",
-  "sourceCommit": "f743b45e6fc7e570dfc41f01af7852c7db4cdc64",
+  "sourceCommit": "46cc5d4196a3d0c9f751af27c6580e1dec7201b0",
   "acceptedBaselineCommit": "66402281fcab112e547ed468b783e4b95ac58377",
-  "backendTree": "a15552b650302fd71b39f289d177789337c33f16",
+  "backendTree": "38d0dcd581fd6a6a4868e6366813c568e903b5af",
   "frontendTree": "98eb92e6ae55697587559fecfd91e3d57cce1d11",
   "runtimeDiffFromAccepted205": [
     "miniprogram/release-info.js",
     "miniprogram/release-info.json",
     "server/client_config.py",
-    "server/release_info.json"
+    "server/release_info.json",
+    "server/tools/low_resource_check.py"
   ],
   "files": {
     ".dockerignore": "34cf129a00d3e9419142999c613e840ad031b6dfd85e93e461283ade5b40461e",
@@ -139,10 +140,15 @@
     "server/services/tushare_client.py": "c2ac4ee14351a0a5d761e7b5ce06fab1d2a376c20cc570b8d99b6103382a98f1",
     "server/tools/api_contract_check.py": "6b5218dd2853eab9a33f1411588980819534a8ded00548986e78192d9bec5049",
     "server/tools/health_alert_check.py": "76febf721f2520637110182edb2019dbdd8c1fbf9fd4c741d6add393bfeb875d",
-    "server/tools/low_resource_check.py": "9ee107575c08ee357c53615634ab0d83d6f31d3defe711d1b92c270ba4e14ada",
+    "server/tools/low_resource_check.py": "f7c12a777970d5362ee6bafcd6eb3585dbee88bc83578cf5c7640fc78ddf28ca",
     "server/tools/prediction_migration_check.py": "1e509c323c8f8c8fa6256d5e18c6d23cfa106730af172bbeae44805d27114744",
     "server/tools/recovery_check.py": "6418c6270a1b833001b0fa5df00e03190fb0d1c1af63bbc7b81dfcf3e5b74bd8",
     "server/tools/release_t138_check.py": "c4b977657727fd8935b16a4dac4c164cc13f5ed4f84c615baf457bfec801f2df",
     "server/tools/same_direction_check.py": "cba8a3a2dfb17cb8249fa14a7d8284b0bc17c9349fc69a3eccf34fdb2923f559"
-  }
+  },
+  "auditedAt": "2026-11-28T08:40:37.362648+08:00",
+  "uploadedFrontendSourceCommit": "f743b45e6fc7e570dfc41f01af7852c7db4cdc64",
+  "applicationBaselineSourceCommit": "f743b45e6fc7e570dfc41f01af7852c7db4cdc64",
+  "verificationToolsSourceCommit": "46cc5d4196a3d0c9f751af27c6580e1dec7201b0",
+  "postUploadChangeScope": "only offline diagnostic script accepts quote-provider keyword options; miniprogram package and application business code unchanged"
 }

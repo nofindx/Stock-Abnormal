@@ -1,0 +1,21 @@
+{
+  "observedAt": "2026-11-28T08:40:37.362648+08:00",
+  "evidence": "read-only Safari CloudRun console",
+  "service": "flask-9a5y",
+  "onlineVersion": "flask-9a5y-336",
+  "status": "正常",
+  "onlineInstances": 1,
+  "releaseNote": "docs: record 2.0.6 upload deployment and production acceptance [skip ci]",
+  "publishedAt": "2026-11-27 13:54:11",
+  "deployedCommit": "61cf5bc8e14014aa69797981aaed74339d0b89e2",
+  "historicalInstances": {
+    "flask-9a5y-334": 0,
+    "flask-9a5y-333": 0,
+    "flask-9a5y-332": 0,
+    "flask-9a5y-331": 0,
+    "flask-9a5y-330": 0
+  },
+  "oldVersionsDeleted": false,
+  "pending336DeploymentClosed": true,
+  "observedBeforeAuditCommitPush": true
+}

@@ -1,0 +1,74 @@
+{
+  "observedAt": "2026-11-28T08:40:37.362648+08:00",
+  "auditedStartingCommit": "61cf5bc8e14014aa69797981aaed74339d0b89e2",
+  "verificationToolFixCommit": "46cc5d4196a3d0c9f751af27c6580e1dec7201b0",
+  "release": {
+    "releaseId": "20261127.1",
+    "miniProgramVersion": "2.0.6",
+    "quoteRefreshPolicy": "latest-available-all-hours"
+  },
+  "calculationVersion": "v76",
+  "all127TrackedRuntimeFilesCovered": true,
+  "miniprogramUnchangedSinceUpload": true,
+  "applicationBusinessFilesUnchanged": true,
+  "localProductionBranchFastForwarded": true,
+  "activeBranchUpstreamConfigured": true,
+  "historicalCleanWorktreesRetained": 2,
+  "findingsResolved": [
+    {
+      "id": "AUDIT-001",
+      "problem": "Offline low-resource probe mock rejected earliest_days/now keyword options, so the documented command failed.",
+      "resolution": "Accept provider options in mock; execute the complete offline 5/10-user probe.",
+      "scope": "offline diagnostic tool only; no frontend re-upload needed"
+    },
+    {
+      "id": "AUDIT-002",
+      "problem": "Local Stock-Abnormal branch still pointed at the historical 1.0.21 snapshot although remote production and active branch were current.",
+      "resolution": "Confirmed ancestry and free branch, fast-forwarded local production ref; kept historical branches/worktrees unchanged."
+    },
+    {
+      "id": "AUDIT-003",
+      "problem": "Current release records said 2.0.6 was not submitted and cloud336 was unconfirmed.",
+      "resolution": "Read platform and cloud console: 2.0.6 in review since 2026-11-27 13:58:03, online336 healthy; previous observed334 now zero."
+    }
+  ],
+  "backendRegression": {
+    "testsRun": 501,
+    "passed": 500,
+    "errors": 0,
+    "failures": 0,
+    "skippedCancelledRecoveryDrill": 1
+  },
+  "frontendRegression": {
+    "testFiles": 17,
+    "additionalChecks": 2,
+    "allPassed": true
+  },
+  "productionFunctionalAcceptance": true,
+  "manualRefreshSamplesMs": [
+    1265.8,
+    1045.9,
+    965.5,
+    1002.6
+  ],
+  "performanceScope": "Current sequential public HTTPS samples are not true-device or full-concurrency certification; retain prior four-concurrent 2.85-4.24s samples.",
+  "remaining": [
+    {
+      "item": "WeChat code review",
+      "state": "in progress on platform; wait for review decision"
+    },
+    {
+      "item": "Public mini program 2.0.6",
+      "state": "not yet published; current public2.0.3; publish after approval"
+    },
+    {
+      "item": "Advertising",
+      "state": "intentionally disabled pending eligibility and real ad units; not a missing upload"
+    }
+  ],
+  "cancelledDrillsNotReopened": true,
+  "runtimeTreeChangeSinceUploadedBase": [
+    "server/tools/low_resource_check.py"
+  ],
+  "snapshotBeforeGitPush": true
+}

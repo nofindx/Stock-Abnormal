@@ -5,10 +5,10 @@
     "miniProgramVersion": "2.0.6",
     "quoteRefreshPolicy": "latest-available-all-hours"
   },
-  "documentationRevision": "20261127.4",
+  "documentationRevision": "20261128.1",
   "calculationVersion": "v76",
-  "status": "uploaded_backend_deployed_cloud_functional_acceptance_passed",
-  "sourceCommit": "f743b45e6fc7e570dfc41f01af7852c7db4cdc64",
+  "status": "uploaded_backend_deployed_wechat_review_in_progress",
+  "sourceCommit": "46cc5d4196a3d0c9f751af27c6580e1dec7201b0",
   "acceptedBaselineCommit": "66402281fcab112e547ed468b783e4b95ac58377",
   "freezeTag": "freeze/v2.0.6-20261127",
   "userAcceptanceRecord": "verification/user-acceptance-20261127.json",
@@ -28,12 +28,13 @@
     "miniprogram/release-info.js",
     "miniprogram/release-info.json",
     "server/client_config.py",
-    "server/release_info.json"
+    "server/release_info.json",
+    "server/tools/low_resource_check.py"
   ],
   "sourceManifest": "verification/source-manifest.json",
   "upload206": "passed_official_devtools",
   "backendDeployment206": "passed_original_pipeline",
-  "wechatReview206": "not_submitted",
+  "wechatReview206": "in_review",
   "publicRelease206": "not_performed",
   "lastUploadedVersion": "2.0.6",
   "lastObservedBackendVersion": "2.0.6",
@@ -42,10 +43,53 @@
   "deliveryObservedAt": "2026-11-27T13:53:17.276899+08:00",
   "uploadBytes": 373117,
   "uploadReceipt": "verification/upload-2.0.6.json",
-  "productionAcceptance": "verification/production-acceptance-20261127.json",
-  "cloudObservation": "verification/cloud-console-20261127.json",
-  "lastObservedCloudVersion": "flask-9a5y-335",
-  "deployedCommit": "5f264aaaed5733efc94db6deef8dfa5e886e0783",
+  "productionAcceptance": "verification/production-acceptance-20261128.json",
+  "cloudObservation": "verification/cloud-console-20261128.json",
+  "lastObservedCloudVersion": "flask-9a5y-336",
+  "deployedCommit": "61cf5bc8e14014aa69797981aaed74339d0b89e2",
   "performance": "serial_0.81-1.11s_four_concurrent_2.85-4.24s_not_globally_certified",
-  "previousVersionInstances": "334_had_1_330_had_0_at_console_observation"
+  "previousVersionInstances": "observed_334_333_332_331_330_all_zero",
+  "auditedAt": "2026-11-28T08:40:37.362648+08:00",
+  "uploadedFrontendSourceCommit": "f743b45e6fc7e570dfc41f01af7852c7db4cdc64",
+  "applicationBaselineSourceCommit": "f743b45e6fc7e570dfc41f01af7852c7db4cdc64",
+  "verificationToolsSourceCommit": "46cc5d4196a3d0c9f751af27c6580e1dec7201b0",
+  "verificationToolFix": "low_resource_check mock accepts the current earliest_days/now options; no application business changes",
+  "wechatSubmittedAt": "2026-11-27 13:58:03",
+  "platformObservation": "verification/wechat-status-20261128.json",
+  "fullBackendRegression": {
+    "testsRun": 501,
+    "passed": 500,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 1,
+    "skipReason": "previously cancelled isolated MySQL recovery drill; not reopened as a release gate"
+  },
+  "fullFrontendRegression": {
+    "testFiles": 17,
+    "additionalChecks": 2,
+    "passed": true
+  },
+  "offlineLowResource": {
+    "users": [
+      5,
+      10
+    ],
+    "sourceCallsPerColdBatch": 1,
+    "warmAddedSourceCalls": 0,
+    "passed": true
+  },
+  "latestData": {
+    "date": "20261127",
+    "marketFormal": true,
+    "currentTarget": "20261127",
+    "currentCards": 3,
+    "nextTarget": "20261130",
+    "nextCards": 5,
+    "facts": 1493,
+    "outboxPending": 0,
+    "announcementCoverageComplete": true,
+    "announcementBodiesVerified": 636,
+    "unreadBodies": 0
+  },
+  "auditEvidence": "verification/alignment-audit-20261128.json"
 }

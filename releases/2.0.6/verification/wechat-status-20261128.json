@@ -1,0 +1,14 @@
+{
+  "observedAt": "2026-11-28T08:40:37.362648+08:00",
+  "evidence": "read-only Safari accessibility of WeChat public-platform version management",
+  "developmentVersion": "2.0.6",
+  "uploadedAt": "2026-11-27 13:49:12",
+  "uploadRemarkSourceCommit": "f743b45",
+  "reviewVersion": "2.0.6",
+  "reviewState": "审核中",
+  "submittedAt": "2026-11-27 13:58:03",
+  "publicVersion": "2.0.3",
+  "publicReleasedAt": "2026-11-17 23:12:52",
+  "actions": "read only; did not resubmit, withdraw review or publish",
+  "accountDetailsOmitted": true
+}
