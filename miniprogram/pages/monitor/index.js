@@ -4,7 +4,7 @@ const { openPdf } = require('../../utils/open-pdf')
 const { businessDateKey, startBoundaryWatch, stopBoundaryWatch } = require('../../utils/business-boundary')
 
 Page({
-  data: { type: 'all', items: [], rawItems: [], visibleCount: 0, updatedAt: '', loading: false, refreshing: false, error: '', skeletonRows: [0, 1, 2, 3], types: [{ key: 'all', label: '全部' }, { key: 'risk', label: '风险提示' }, { key: 'severe', label: '严重异动' }, { key: 'delisting', label: '退市整理' }] },
+  data: { type: 'risk', items: [], rawItems: [], visibleCount: 0, updatedAt: '', loading: false, refreshing: false, error: '', skeletonRows: [0, 1, 2, 3], types: [{ key: 'risk', label: '风险提示' }, { key: 'severe', label: '严重异动' }, { key: 'delisting', label: '退市整理' }] },
   onLoad() { this._monitorDisposed = false; this._monitorBusinessDate = businessDateKey(); return this.loadData() },
   onShow() {
     const tabBar = this.getTabBar && this.getTabBar()
@@ -99,7 +99,7 @@ Page({
   },
   applyFilters(items) {
     const type = this.data.type
-    const matches = item => type === 'all' || (type === 'risk' && item.riskTone === 'ordinary') ||
+    const matches = item => (type === 'risk' && item.riskTone === 'ordinary') ||
       (type === 'severe' && ['severe-10d', 'severe-30d'].includes(item.riskTone)) ||
       (type === 'delisting' && item.riskTone === 'delisting-warning')
     let filtered = items.filter(matches).filter(isVisibleMonitorItem).map(item => ({

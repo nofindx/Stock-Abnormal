@@ -1,0 +1,93 @@
+{
+  "observedAt": "2026-11-28T09:16:33.845015+08:00",
+  "tests": [
+    {
+      "file": "miniprogram/app.test.js",
+      "passed": true,
+      "output": "mini-program JS-only App startup tests passed (develop/trial/release)\n"
+    },
+    {
+      "file": "miniprogram/components/official-ad/index.test.js",
+      "passed": true,
+      "output": "official ad component tests passed: visibility, one mount, config shutdown, late load/error/config, content\n"
+    },
+    {
+      "file": "miniprogram/pages/ads-integration.test.js",
+      "passed": true,
+      "output": "ad page integration tests passed: input/refresh/reset, IPO, next readiness/target, retry, S2 isolation, free defaults\n"
+    },
+    {
+      "file": "miniprogram/pages/business-boundary.test.js",
+      "passed": true,
+      "output": "business boundary tests passed: visible edges, resume, same-stock, availability, races, timer cleanup, Shanghai timezone\n"
+    },
+    {
+      "file": "miniprogram/pages/local-view-cache.test.js",
+      "passed": true,
+      "output": "local page cache tests passed: stock reuse/LRU/manual/date/quality; monitor local filters/unified countdown/PDF renewal/date\n"
+    },
+    {
+      "file": "miniprogram/pages/monitor/index.test.js",
+      "passed": true,
+      "output": "monitor display-filter tests passed\nmonitor tab-switch freshness tests passed\n"
+    },
+    {
+      "file": "miniprogram/pages/prediction/index.test.js",
+      "passed": true,
+      "output": "prediction page tests passed\n"
+    },
+    {
+      "file": "miniprogram/pages/prediction/prediction.test.js",
+      "passed": true,
+      "output": "prediction first-open tests passed\n"
+    },
+    {
+      "file": "miniprogram/pages/prediction/scope-cache.test.js",
+      "passed": true,
+      "output": "prediction scope cache tests passed: zero-read revisits, per-tab tokens, latest S2, failure warning, late response, boundary, unavailable, unload\n"
+    },
+    {
+      "file": "miniprogram/pages/refresh-lifecycle.test.js",
+      "passed": true,
+      "output": "page refresh lifecycle tests passed\n"
+    },
+    {
+      "file": "miniprogram/pages/stock/share.test.js",
+      "passed": true,
+      "output": "stock share tests passed: current stock cover and empty default simulation, native paths, privacy, warm/cold initialization, races, direct saving, permission refusal, cancel, configuration failures and retry\n"
+    },
+    {
+      "file": "miniprogram/pages/stock/simulation.test.js",
+      "passed": true,
+      "output": "stock simulation tests passed\n"
+    },
+    {
+      "file": "miniprogram/utils/ads-config.test.js",
+      "passed": true,
+      "output": "ad config tests passed: cache, single-flight, backoff, fail-closed known gates, defaults, malformed/version\n"
+    },
+    {
+      "file": "miniprogram/utils/api.test.js",
+      "passed": true,
+      "output": "API context reuse and expiry recovery tests passed\n"
+    },
+    {
+      "file": "miniprogram/utils/request-local.test.js",
+      "passed": true,
+      "output": "request route tests passed: explicit loopback isolation; actual App defaults use cloud HTTPS in develop and callContainer in trial\n"
+    },
+    {
+      "file": "miniprogram/utils/rewarded-access.test.js",
+      "passed": true,
+      "output": "rewarded access tests passed: full/partial, duplicate, failures, reset/dispose, independent scopes, compatibility\n"
+    },
+    {
+      "file": "miniprogram/utils/stock-save.test.js",
+      "passed": true,
+      "output": "current stock save tests passed: 2/10-day user inputs, live layout, section spacing, exclusion, signatures, stale/export failure cleanup\n"
+    }
+  ],
+  "files": 17,
+  "allPassed": true,
+  "temporalPolicyPassed": true
+}

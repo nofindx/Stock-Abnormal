@@ -45,7 +45,7 @@ async function run() {
   api.getMonitor = async () => {
     monitorReads++
     return { items: clock < NativeDate.parse('2026-11-07T00:00:00+08:00')
-      ? [{ symbol: '301313', name: '凡拓数创', riskTone: 'severe-10d', days: 0 }] : [], refreshing: false }
+      ? [{ symbol: '301313', name: '凡拓数创', riskTone: 'ordinary', days: 0 }] : [], refreshing: false }
   }
   const monitor = page('./monitor/index')
   monitor.onLoad()

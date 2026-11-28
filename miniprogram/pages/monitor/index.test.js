@@ -18,6 +18,8 @@ require.cache[apiPath] = {
   }
 }
 const { isVisibleMonitorItem } = require('./index')
+assert.strictEqual(pageDefinition.data.type, 'risk')
+assert.deepStrictEqual(pageDefinition.data.types.map(item => item.label), ['风险提示', '严重异动', '退市整理'])
 
 assert.strictEqual(isVisibleMonitorItem({ riskTone: 'ordinary', symbol: '920229', name: '世纪数码' }), true)
 assert.strictEqual(isVisibleMonitorItem({ riskTone: 'ordinary', symbol: '002731', name: '*ST萃华' }), false)
@@ -61,13 +63,17 @@ async function testTabSwitchUsesOneSnapshotAndDropsSupersededResponse() {
   assert.deepStrictEqual(page.data.items, [], 'late response for the previous tab cannot restore stale items')
 
   requests[1].resolve({ items: [{ ts_code: '301313.SZ', symbol: '301313', riskTone: 'ordinary', days: 1 },
-    { ts_code: '002724.SZ', symbol: '002724', riskTone: 'severe-10d', days: 2 }], updatedAt: '2026-11-05 09:00' })
+    { ts_code: '002724.SZ', symbol: '002724', riskTone: 'severe-10d', days: 2 },
+    { ts_code: '301139.SZ', symbol: '301139', name: '*ST元道', riskTone: 'delisting-warning', days: 3 }], updatedAt: '2026-11-05 09:00' })
   await newer
   assert.strictEqual(page.data.items[0].days, '01')
   page.selectType({ currentTarget: { dataset: { type: 'all' } } })
-  assert.strictEqual(page.data.items.length, 2)
+  assert.strictEqual(page.data.type, 'risk', 'removed all tab cannot select an invisible filter')
+  assert.strictEqual(page.data.items.length, 1)
   page.selectType({ currentTarget: { dataset: { type: 'severe' } } })
   assert.strictEqual(page.data.items[0].symbol, '002724')
+  page.selectType({ currentTarget: { dataset: { type: 'delisting' } } })
+  assert.strictEqual(page.data.items[0].symbol, '301139', 'delisting tab keeps its existing unfiltered records')
   page.selectType({ currentTarget: { dataset: { type: 'risk' } } })
   assert.strictEqual(page.data.items[0].days, '01', 'tabs share the newest countdown, never old per-tab copies')
   assert.strictEqual(requests.length, 2, 'loaded filter changes need no further GET')

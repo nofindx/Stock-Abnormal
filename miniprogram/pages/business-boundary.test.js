@@ -179,7 +179,7 @@ async function run() {
 
   at('2026-11-06T23:59:59+08:00')
   let monitorReads = 0
-  api.getMonitor = async () => ({ items: ++monitorReads === 1 ? [{ name: 'expired', days: 0 }] : [] })
+  api.getMonitor = async () => ({ items: ++monitorReads === 1 ? [{ name: 'expired', riskTone: 'ordinary', days: 0 }] : [] })
   const monitor = page('./monitor/index')
   monitor.onLoad()
   monitor.onShow()

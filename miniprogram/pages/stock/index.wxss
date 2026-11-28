@@ -1,7 +1,4 @@
 .stock-page { padding-top: 24rpx; padding-bottom: 220rpx; }
-.home-brand { display: flex; height: 72rpx; align-items: center; justify-content: center; gap: 14rpx; }
-.home-brand-logo { display: block; width: 48rpx; height: 48rpx; flex: 0 0 48rpx; }
-.home-brand-name { color: #1C1C1E; font-size: 34rpx; font-weight: 600; line-height: 48rpx; }
 .stock-share-card { margin-top: 24rpx; padding: 28rpx 32rpx; border: 0; border-radius: 28rpx; background: #FFFFFF; }
 .share-actions { display: flex; gap: 20rpx; margin-top: 28rpx; }
 .share-btn { box-sizing: border-box; display: flex; min-width: 0; height: 76rpx; flex: 1; align-items: center; justify-content: center; gap: 12rpx; margin: 0; padding: 0 12rpx; border-radius: 20rpx; font-size: 28rpx; font-weight: 500; line-height: 40rpx; white-space: nowrap; }

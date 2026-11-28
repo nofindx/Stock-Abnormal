@@ -91,5 +91,8 @@
     "announcementBodiesVerified": 636,
     "unreadBodies": 0
   },
-  "auditEvidence": "verification/alignment-audit-20261128.json"
+  "auditEvidence": "verification/alignment-audit-20261128.json",
+  "pendingLocalChanges": [],
+  "followupVersion": "2.0.7",
+  "followupScope": "Homepage brand row removed, monitor all tab removed; tracked under releases/2.0.7. Historical 2.0.6 receipts unchanged."
 }
