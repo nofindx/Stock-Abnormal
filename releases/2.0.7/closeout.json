@@ -1,0 +1,36 @@
+{
+  "recordedAt": "2026-11-28T09:19:03.650413+08:00",
+  "release": {
+    "releaseId": "20261128.1",
+    "miniProgramVersion": "2.0.7",
+    "quoteRefreshPolicy": "latest-available-all-hours"
+  },
+  "calculationVersion": "v76",
+  "documentationRevision": "20261128.4",
+  "sourceCommit": "8c0860c8c23134e88854694d0c89aefd409626c9",
+  "status": "committed_and_uploaded",
+  "uploadStatus": "passed_official_devtools",
+  "uploadBytes": 372467,
+  "uploadReceipt": "verification/upload-2.0.7.json",
+  "frontendTests": {
+    "files": 17,
+    "allPassed": true,
+    "temporalPolicyPassed": true
+  },
+  "releaseConfigTests": {
+    "testsRun": 12,
+    "allPassed": true
+  },
+  "previewBytes": 371877,
+  "sourceManifest": "verification/source-manifest.json",
+  "githubTargets": [
+    "codex/ads-v2-design-20261112",
+    "Stock-Abnormal"
+  ],
+  "backendSync": "Existing production branch pipeline auto-runs on push; runtime business code unchanged apart from version metadata and allowed version list.",
+  "wechatCodeReview207": "not_submitted",
+  "publicRelease207": "not_performed",
+  "previousReview206": "in_progress_as_last_observed_20261128",
+  "withdraw206Review": false,
+  "ads": "disabled_free_gates"
+}
